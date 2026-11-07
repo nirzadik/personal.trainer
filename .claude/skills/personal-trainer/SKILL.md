@@ -114,6 +114,7 @@ Then:
    - Plan to their *demonstrated* attendance + 1 day at most, not their best-week ambition.
 3. **Set the dose.** Use the defaults in the table below, and `references/programming.md` for the details.
 4. **Choose exercises** by movement pattern. Each session should cover squat, hinge, push, pull and single-leg/core across the week. Run every pick through the profile's equipment, injuries and dislikes, using `references/exercise-library.md`.
+   - **Running or HIIT in the plan?** Build runs from `references/running.md`: about 80% easy, long run ≤30% of weekly km and ≤10% longer than the longest run of the last 30 days, weekly km +≤10%, paces from a recent race. Build metcons from `references/conditioning.md`, with a ramp-in for newcomers. Schedule the mix with the hard/easy rules in `conditioning.md` §10.
 5. **Write the draft.** Show it as a compact table per day: exercise | sets × reps | target RIR / load | rest | progression rule. Add a short warm-up and the progression rules in plain words.
 6. **Iterate with the user.** Before showing the draft, check it with `trainer.py plan-volume`, for example against a draft file via `--file`. Change what they want. Once they approve, save it to `plan.md` from `assets/plan-template.md` and log "Plan v1 agreed" in `decisions.md`. Until they approve, the draft lives in the conversation or as a `plan-draft.md` file, not as `plan.md`.
 7. **Make week 1 a calibration week.** Without known loads, have them work up to a weight that leaves about 3 RIR at the target reps, and err light. Week 1 is for finding numbers, not setting records.
@@ -131,6 +132,8 @@ Then:
 | Progression | Novice: linear on main lifts. Everyone else: double progression; RIR/RPE autoregulation for intermediate+ |
 | Deload | Every 4-8 weeks *or* when fatigue signals cluster: about 50% of sets, same exercises and frequency, effort around 3-4 RIR. Don't take the week fully off |
 | Cardio | 150-300 min/week moderate or 75-150 vigorous (WHO/ACSM). Separate hard cardio from heavy legs by ≥3-6 h where possible |
+| Running | ≥80% easy; 0-1 quality sessions/week (2 only at ≥4 runs/week); weekly km +≤10%; cutback every 3rd-4th week (`references/running.md`) |
+| HIIT / metcons | 1/week in weeks 1-2, then 2 (regulars 2-3); ≥48 h between hard sessions; newcomers 8-12 min at RPE ≤7 (`references/conditioning.md`) |
 
 ## Mode 3: Logging a session
 
@@ -259,5 +262,7 @@ Logging RIR matters. Without it, e1RM assumes 0 RIR and isn't comparable with se
 - `references/safety-and-scope.md`: PAR-Q+, ACSM screening, red flags, pain protocol, special populations (older adults, pregnancy, hypertension, diabetes, osteoporosis, youth, layoffs), RED-S and disordered eating, scope of practice, and how to phrase disclaimers. **Read it during onboarding and whenever health, pain or a condition comes up.**
 - `references/programming.md`: the evidence and numbers behind volume, intensity, effort, rest, splits and templates, progression models, deloads, the NSCA %1RM table, the NASM OPT phases, cardio/FITT-VP, warm-ups, and recovery and nutrition basics. **Read it when designing or adjusting a plan.**
 - `references/exercise-library.md`: movement patterns, exercise options by equipment, the substitution algorithm, joint-friendly swaps, and a self-check movement screen. **Read it when choosing or swapping exercises.**
+- `references/running.md`: intensity distribution and zones, a pace table from race times, weekly volume and long-run rules, the session library, run/walk for beginners, returning runners, race builds and taper, running injury signs, and running alongside lifting. **Read it whenever a plan or question involves running.**
+- `references/conditioning.md`: HIIT and metcon formats, work:rest by energy system, frequency, balanced metcon design, scaling, skill prerequisites, the newcomer ramp-in for rhabdomyolysis safety, and hybrid weekly scheduling (gym + running + HIIT). **Read it whenever a plan or question involves conditioning, or mixes modalities.**
 - `references/coaching-and-checkins.md`: the full intake questionnaire, check-in template, motivational interviewing / SDT techniques, habit building and adherence troubleshooting. **Read it for onboarding and check-ins.**
 - `references/data-format.md`: file schemas and examples. **Read it when you write files by hand or something looks malformed.**

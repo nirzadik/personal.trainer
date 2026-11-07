@@ -1018,7 +1018,7 @@ export function buildSeedBackup(now = new Date()) {
  * coach memory, body weights, two archived plans and the agreed plan for the
  * current (Sunday-start) week, strength / run / hybrid sessions with RIR,
  * pace and metcon results, one missed session, one pain note, and a little chat.
- * Dates are relative to `now`. Does nothing if the store already holds data,
+ * Dates are relative to `now`. Does nothing unless the store is empty,
  * unless `force` is set (then it replaces everything).
  *
  * @param {object} store  a Store from createStore()
@@ -1027,8 +1027,9 @@ export function buildSeedBackup(now = new Date()) {
  */
 export async function seedDevData(store, { force = false, now = new Date() } = {}) {
   if (!force) {
-    const [profile, sessions] = await Promise.all([store.profile.get(), store.sessions.list({ limit: 1 })]);
-    if (profile.onboarded || sessions.length > 0) return { seeded: false };
+    const { data } = await store.exportAll();
+    const empty = !data.profile && !data.coach && !data.state && !data.body && !data.plans.length && !data.sessions.length && !data.chat.length;
+    if (!empty) return { seeded: false };
   }
   const { counts } = await store.importAll(buildSeedBackup(now));
   return { seeded: true, counts };

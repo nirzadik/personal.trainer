@@ -598,6 +598,8 @@ function buildStore(db, uid, now) {
         const replaced = drafts.filter((d) => d.id !== id);
         for (const old of replaced) await rmw(planPath(old.id), () => DELETE);
         const undo = makeUndo(() => serial(PLANS_LOCK, async () => {
+          const cur = await readDoc(planPath(id));
+          if (!cur || cur.status !== "draft") return; // since replaced or approved: leave the drafts alone
           await rmw(planPath(id), () => DELETE);
           for (const old of replaced) await rmw(planPath(old.id), (cur) => (cur ? KEEP : old));
         }));

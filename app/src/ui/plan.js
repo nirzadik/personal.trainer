@@ -191,7 +191,11 @@ export function mountPlan(el, ctx) {
     const workouts = plan.workouts || [];
     const doneCount = workouts.filter((w) => done.includes(w.id)).length;
     const complete = workouts.length > 0 && doneCount >= workouts.length;
-    if (!touched.has(plan.id) && next) expanded.add(`${plan.id}:${next.id}`);
+    if (!touched.has(plan.id) && ctx.data.loaded.state) {
+      // auto-expand only the current "Up next" until the user opens or closes cards themselves
+      for (const k of [...expanded]) if (k.startsWith(`${plan.id}:`)) expanded.delete(k);
+      if (next) expanded.add(`${plan.id}:${next.id}`);
+    }
 
     const progress = h("div", { class: "rotation", role: "img", "aria-label": `${doneCount} of ${workouts.length} workouts done` },
       workouts.map((w) => h("span", { class: ["rot-seg", done.includes(w.id) && "is-done", next?.id === w.id && "is-next"] })));

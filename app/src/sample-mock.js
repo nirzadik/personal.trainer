@@ -509,7 +509,6 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
         state.text += delta;
         if (typeof o.onText === "function" && !signal?.aborted) { try { o.onText({ text: state.text, delta }); } catch { /* like the platform: reported, ignored */ } }
       }
-      if (piece.length && !state.text.endsWith(piece.slice(-1))) state.text += ""; // no-op guard
     };
     const tools = new Map((o.tools ?? []).map((t) => [t.name, t]));
     const callTool = async (name, toolInput) => {
@@ -696,7 +695,7 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
       if (r.found === false) { await write(`I couldn't find "${q}". Did you mean ${(r.suggestions ?? []).slice(0, 3).join(", ") || "something else"}?`); return; }
       const ok = (r.allowed ?? []).filter((a) => a.ok).map((a) => a.location);
       await write([`**${r.name ?? q}**${ok.length ? ` works with your equipment (${ok.join(", ")}).` : " isn't possible with your equipment."}`, "",
-        r.substitutes?.length ? `Good swaps: ${r.substitutes.join(", ")}.` : "I don't have a close swap for it with your equipment.", "", "Want me to put one of these in your next plan?"].join("\n"));
+        ...(r.substitutes?.length ? [`Good swaps: ${r.substitutes.join(", ")}.`, "", "Want me to put one of these in your next plan?"] : ["I don't have a close swap for it with your equipment. Want me to keep it in the plan?"])].join("\n"));
       return;
     }
     if (/\b(remember|note that|keep in mind|fyi)\b/.test(lower) && can("add_coach_note")) {

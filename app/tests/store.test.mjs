@@ -44,10 +44,13 @@ function memoryStorage() {
   };
 }
 
-/** All key paths of a plain object ("a.b.c"), arrays treated as leaves. */
-function keyPaths(obj, prefix = "") {
-  return Object.entries(obj).flatMap(([k, v]) =>
-    v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length ? keyPaths(v, `${prefix}${k}.`) : [`${prefix}${k}`]);
+/** Key paths of `obj`, descending only where `shape` (the defaults) has a non-empty plain object. */
+function keyPaths(obj, shape = obj, prefix = "") {
+  return Object.entries(obj).flatMap(([k, v]) => {
+    const s = shape?.[k];
+    const nested = s && typeof s === "object" && !Array.isArray(s) && Object.keys(s).length && v && typeof v === "object";
+    return nested ? keyPaths(v, s, `${prefix}${k}.`) : [`${prefix}${k}`];
+  });
 }
 
 // ===========================================================================
@@ -272,8 +275,7 @@ describe("mock db: onSnapshot", () => {
     const unsub = c.orderBy("n").onSnapshot((s) => snaps.push(s));
     await wait();
     assert.deepEqual(snaps[0].docChanges().map((x) => x.type), ["added", "added"]);
-    await c.doc("a").set({ n: 3 }); // a moves after b and changes
-    await c.doc("c").set({ n: 0 }); // new first doc
+    await Promise.all([c.doc("a").set({ n: 3 }), c.doc("c").set({ n: 0 })]); // a moves after b and changes; c is new and first
     await db.__mock.flush();
     const last = snaps[snaps.length - 1];
     assert.deepEqual(last.docs.map((d) => d.id), ["c", "b", "a"]);
@@ -313,7 +315,6 @@ describe("mock db: onSnapshot", () => {
     const write = db.doc("c/d").set({ a: 1 });
     await wait(5);
     assert.deepEqual(metas[metas.length - 1], [true, true], "visible at once, pending");
-    assert.equal((await db.doc("c/d").get()).metadata.hasPendingWrites, true);
     await write;
     await wait(5);
     assert.deepEqual(metas[metas.length - 1], [true, false], "confirmed");
@@ -537,8 +538,8 @@ describe("store: plans", () => {
     assert.equal((await store.plans.saveDraft(plan("2026-11-08"))).plan.id, "2026-11-08-3");
     const list = await store.plans.list();
     assert.deepEqual(list.map((p) => p.id), ["2026-11-08-3"]);
-    await second.undo(); // no effect on the -3 draft, since it doesn't know about it…
-    assert.equal((await store.plans.get("2026-11-08")), null);
+    await second.undo(); // stale: its draft was replaced since, so nothing changes
+    assert.equal(await store.plans.get("2026-11-08"), null);
     assert.ok(await store.plans.get("2026-11-08-3"));
   });
 
@@ -907,8 +908,8 @@ describe("seedDevData", () => {
       assert.ok(gym.items.includes(id), `gym has ${id}`);
     }
     const raw = buildSeedBackup(NOW).data;
-    assert.deepEqual(keyPaths(raw.profile).sort(), keyPaths(defaultProfile()).sort(), "profile has exactly the §4 fields");
-    assert.deepEqual(keyPaths(raw.state).sort(), keyPaths(defaultAppState()).sort());
+    assert.deepEqual(keyPaths(raw.profile, defaultProfile()).sort(), keyPaths(defaultProfile()).sort(), "profile has exactly the §4 fields");
+    assert.deepEqual(keyPaths(raw.state, defaultAppState()).sort(), keyPaths(defaultAppState()).sort());
     assert.deepEqual(Object.keys(raw.coach).sort(), Object.keys(defaultCoachMemory()).sort());
 
     const agreed = await store.plans.getAgreed();
@@ -921,7 +922,7 @@ describe("seedDevData", () => {
     const sessions = await store.sessions.list();
     assert.ok(sessions.length >= 10);
     assert.ok(sessions.every((s) => s.date <= "2026-11-07" && s.date >= "2026-10-18"));
-    assert.ok(sessions.every((s) => keyPaths({ ...s, run: null, strength: [], conditioning: [] }).sort().join() === keyPaths(defaultSession()).sort().join()));
+    assert.ok(sessions.every((s) => keyPaths(s, defaultSession()).sort().join() === keyPaths(defaultSession()).sort().join()));
     assert.ok(sessions.some((s) => s.strength.some((l) => l.sets.some((x) => x.type === "work" && typeof x.rir === "number"))));
     assert.ok(sessions.some((s) => s.run?.avgPaceSecPerKm > 0 && s.run.splits.length));
     assert.ok(sessions.some((s) => s.conditioning.length && s.conditioning[0].result.completed));

@@ -1,7 +1,7 @@
 // Owner: Agent D. Settings sheet: theme, coach speed, equipment summary, backup, restart onboarding,
 // dev-data reset (mock mode only) and version.
 
-import { h, button, append, replaceChildren, segmented, openSheet, inlineConfirm, toast, safe, errorText, lsGet, lsSet, plural } from "./components.js";
+import { h, button, append, replaceChildren, segmented, openSheet, inlineConfirm, toast, safe, errorText, lsGet, plural } from "./components.js";
 import { prettifyId } from "./ops.js";
 
 const UI_VERSION = "1.0.0";
@@ -62,7 +62,7 @@ export function openSettings(ctx) {
       group("Coach", [row("Coach speed", "Smart thinks more. Fast answers sooner, for quick logging at the gym. Plans always use the most capable model.", speedSeg, "settings-speed")]),
       equipmentSection(api),
       dataSection(api),
-      runtime?.mode === "mock" ? devSection() : null,
+      runtime?.mode === "mock" && runtime.dev ? devSection() : null,
       h("p", { class: "settings-version num" }, `Personal Trainer ${UI_VERSION} · ${runtime?.mode === "mock" ? "dev mode" : "live"}`),
     ];
   }
@@ -177,19 +177,16 @@ export function openSettings(ctx) {
 
   function devSection() {
     const host = h("div", { class: "set-confirm-host" });
-    const go = (seed) => {
-      const theme = lsGet("pt.theme");
-      safe(() => runtime.db?.reset?.(), null);
+    const go = async (seed) => {
       try {
-        window.localStorage.clear();
+        await runtime.dev?.reset?.();
+        if (seed) await runtime.dev?.seed?.({ force: true });
       } catch {
-        /* nothing stored */
+        /* dev convenience only */
       }
-      if (theme) lsSet("pt.theme", theme);
       const url = new URL(window.location.href);
-      if (seed) url.searchParams.set("seed", "");
-      else url.searchParams.delete("seed");
-      window.location.replace(url.toString().replace("seed=", "seed").replace("seed&", "seed&"));
+      url.searchParams.delete("seed");
+      window.location.replace(url.toString());
     };
     append(host, [
       row("Reset dev data", "Clears the in-browser database and reloads as a first run.", h("div", { class: "btn-row" },

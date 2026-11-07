@@ -622,8 +622,8 @@ export function searchExercises(query, { equipment = null, modality = null, limi
     if (equipment && !equipmentCheck(e, equipment).ok) continue;
     let s = q.length ? scoreExercise(q, entry) : 1;
     if (muscles) {
-      if (e.primary.some((m) => muscles.includes(m))) s = Math.max(s, 50);
-      else if (e.secondary.some((m) => muscles.includes(m))) s = Math.max(s, 30);
+      if (e.primary.some((m) => muscles.includes(m))) s = Math.max(s, 70);
+      else if (e.secondary.some((m) => muscles.includes(m))) s = Math.max(s, 40);
     }
     if (s >= 25 || !q.length) results.push({ e, s, i: entry.i });
   }

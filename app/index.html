@@ -1,4 +1,21 @@
-<!-- SKELETON (owner: Agent D). Dev entry; see CONTRACT.md §3, §7. -->
 <title>Personal Trainer</title>
-<div id="app"></div>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- dev only: the published page gets its viewport meta from the platform skeleton -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..100,500..800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="./src/ui/styles.css">
+<script>
+  // first-paint theme (convenience only; the store's setting wins once loaded)
+  try { var t = localStorage.getItem("pt.theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+<div id="app">
+  <div class="boot" role="status">
+    <div class="boot-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.5 7v10M3.5 9.5v5M17.5 7v10M20.5 9.5v5M6.5 12h11"/></svg>
+    </div>
+    <p class="boot-text">Loading your training log…</p>
+  </div>
+</div>
 <script type="module" src="./src/main.js"></script>
