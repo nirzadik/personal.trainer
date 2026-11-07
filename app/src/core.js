@@ -145,6 +145,42 @@ export function formatDuration(sec) {
   return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
+// Daniels/Gilbert running equations (VDOT).
+const vdotPct = (t) => 0.8 + 0.1894393 * Math.exp(-0.012778 * t) + 0.2989558 * Math.exp(-0.1932605 * t);
+const vo2AtSpeed = (v) => -4.6 + 0.182258 * v + 0.000104 * v * v; // v in m/min
+const speedAtVo2 = (o) => (-0.182258 + Math.sqrt(0.182258 ** 2 + 4 * 0.000104 * (4.6 + o))) / (2 * 0.000104);
+const vdotOf = (meters, sec) => vo2AtSpeed(meters / (sec / 60)) / vdotPct(sec / 60);
+function raceSec(vdot, meters) { // time whose VDOT equals `vdot` (bisection; VDOT falls as time grows)
+  let lo = 30, hi = 60 * 60 * 12;
+  for (let i = 0; i < 80; i++) { const mid = (lo + hi) / 2; if (vdotOf(meters, mid) > vdot) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
+
+/**
+ * Training paces from a race or time trial (Daniels VDOT equations), matching the pace table in
+ * knowledge/plan.js §4.2: E = 70-62 % VDOT, T = 88.5-86.5 %, I = 100-97.5 %, R = 107-104 %, race paces from
+ * equivalent race times. All paces are whole seconds per km; ranges are [fast, slow].
+ * @param {{ distanceKm: number, timeSec: number }} race
+ * @returns {{ vdot: number, easy: number[], marathon: number, half: number, tenK: number, fiveK: number,
+ *   threshold: number[], interval: number[], repetition: number[] } | null} null for invalid input
+ */
+export function paceZones({ distanceKm, timeSec } = {}) {
+  const d = num(distanceKm), t = num(timeSec);
+  if (!(d >= 1) || !(t > 0)) return null;
+  const v = vdotOf(d * 1000, t);
+  if (!(v > 0) || !Number.isFinite(v)) return null;
+  const at = (f) => Math.round(60000 / speedAtVo2(v * f));
+  const race = (km) => Math.round(raceSec(v, km * 1000) / km);
+  return {
+    vdot: r1(v),
+    easy: [at(0.70), at(0.62)],
+    marathon: race(42.195), half: race(21.0975), tenK: race(10), fiveK: race(5),
+    threshold: [at(0.885), at(0.865)],
+    interval: [at(1.0), at(0.975)],
+    repetition: [at(1.07), at(1.04)],
+  };
+}
+
 /**
  * Local calendar date.
  * @param {Date} [now=new Date()]
