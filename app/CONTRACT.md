@@ -214,7 +214,8 @@ CondItem     = { exerciseId, name, reps, calories, distanceM, durationSec, loadK
 { id, ts, role: "user" | "assistant" | "event", text,
   actions: [ { type: "logged_session" | "updated_session" | "updated_profile" | "coach_note" | "plan_request",
                label, ref /* e.g. sessionId */ } ],   // "event" = system line such as "Plan approved"
-  error: null /* sample error code if the reply failed */ }
+  error: null /* sample error code if the reply failed */,
+  errorDetail: null /* the sample error message, ≤ 300 chars, for diagnosis */ }
 ```
 
 ---

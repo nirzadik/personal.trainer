@@ -13,6 +13,22 @@ export const CHAT_BUDGETS = Object.freeze({
   userMessageBytes: 16000, // the new message
 });
 
+/** Prefix of an app event (ChatMessage role "event", e.g. "Plan approved") when it is shown to Claude. */
+export const EVENT_PREFIX = "[App event]";
+/** Appended to an owner message whose reply failed with nothing kept, so Claude knows it went unanswered. */
+export const UNANSWERED_NOTE = "[App note: this message got no reply because of an app error.]";
+/** Last line of the instructions turn; marks where the conversation starts if turns get merged. */
+export const INSTRUCTIONS_END = "# End of instructions and app data. The conversation follows.";
+
+/**
+ * True for the `/clear` composer command (handled by the UI, never sent to Claude).
+ * @param {unknown} text
+ * @returns {boolean}
+ */
+export function isClearCommand(text) {
+  return /^\/clear\s*$/i.test(String(text ?? "").trim());
+}
+
 /** Mode lines, also read by sample-mock.js to pick a script. */
 export const MODE_LINE = Object.freeze({
   chat: "Mode: chat",
@@ -79,9 +95,10 @@ export function buildInstructionsTurn({ mode, rules, snapshot, toolNames = [], m
   const fallback = mode === "onboarding" ? FALLBACK_ONBOARDING_RULES : FALLBACK_CHAT_RULES;
   const ruleText = String(rules ?? "").trim() || fallback;
   const head = `${preamble}\n\n# Coaching rules\n${ruleText}\n\n# App data (current)\n`;
+  const tail = `\n\n${INSTRUCTIONS_END}`;
   const headCut = truncateBytes(head, Math.floor(maxBytes * 0.75));
-  const room = maxBytes - utf8Bytes(headCut);
-  return headCut + truncateBytes(String(snapshot ?? ""), Math.max(0, room));
+  const room = maxBytes - utf8Bytes(headCut) - utf8Bytes(tail);
+  return headCut + truncateBytes(String(snapshot ?? "").trim() || "(no data yet)", Math.max(0, room)) + tail;
 }
 
 function actionsNote(actions) {
@@ -90,12 +107,17 @@ function actionsNote(actions) {
   return "[saved by the app: " + list.map((a) => `${a.type}${a.label ? ` "${clip(a.label, 60)}"` : ""}${a.ref ? ` ref=${a.ref}` : ""}`).join("; ") + "]";
 }
 
+/** A stored reply that failed (it carries an error code). */
+const isFailedReply = (m) => m?.role === "assistant" && typeof m.error === "string" && m.error.length > 0;
+
 /**
  * Convert stored ChatMessages (oldest → newest) into sample turns for the history window:
- * the last `maxMessages`, then oldest dropped until ≤ maxBytes. Never returns empty content.
- * - assistant replies carry a short note of what their tools saved (so retries don't double-log);
- * - failed replies with no text and no actions are skipped;
- * - "event" lines (e.g. "Plan approved") become user turns marked as app events.
+ * the last `maxMessages`, then oldest dropped until ≤ maxBytes. Never returns empty content or another role.
+ * - failed replies are never replayed as text; if their tools saved something, only that note is kept
+ *   (so a retry doesn't double-log); an owner message left unanswered by a failure is marked with UNANSWERED_NOTE;
+ * - "event" lines (e.g. "Plan approved") become user-side notes "[App event] …";
+ * - `/clear` commands and messages of unknown roles are dropped.
+ * Consecutive same-role turns are left for normalizeTurns() to merge.
  * @param {object[]} messages
  * @param {{ maxMessages?: number, maxBytes?: number, messageBytes?: number }} [opts]
  * @returns {{ role: "user"|"assistant", content: string }[]}
@@ -107,18 +129,31 @@ export function historyToTurns(messages, {
 } = {}) {
   const list = (Array.isArray(messages) ? messages : []).filter(isPlainObject).slice(-maxMessages);
   const turns = [];
+  let lastUser = null; // the most recent owner turn not yet answered
   for (const m of list) {
-    const text = String(m.text ?? "").trim();
+    const text = typeof m.text === "string" ? m.text.trim() : "";
     if (m.role === "user") {
-      if (text) turns.push({ role: "user", content: truncateBytes(text, messageBytes) });
+      if (!text || isClearCommand(text)) continue;
+      lastUser = { role: "user", content: truncateBytes(text, messageBytes) };
+      turns.push(lastUser);
     } else if (m.role === "assistant") {
       const note = actionsNote(m.actions);
-      let body = text;
-      if (m.error) body = text ? `${text}\n(reply interrupted: ${m.error})` : (note ? `(reply interrupted: ${m.error})` : "");
-      const content = [body ? truncateBytes(body, messageBytes - utf8Bytes(note) - 2) : "", note].filter(Boolean).join("\n");
-      if (content) turns.push({ role: "assistant", content });
+      if (isFailedReply(m)) {
+        if (note) {
+          turns.push({ role: "assistant", content: `(the reply failed; ${note.slice(1, -1)})` });
+          lastUser = null;
+        } else if (lastUser && !lastUser.content.endsWith(UNANSWERED_NOTE)) {
+          lastUser.content = `${truncateBytes(lastUser.content, messageBytes - utf8Bytes(UNANSWERED_NOTE) - 1)}\n${UNANSWERED_NOTE}`;
+        }
+        continue;
+      }
+      const content = [text ? truncateBytes(text, messageBytes - utf8Bytes(note) - 2) : "", note].filter(Boolean).join("\n");
+      if (content) {
+        turns.push({ role: "assistant", content });
+        lastUser = null;
+      }
     } else if (m.role === "event") {
-      if (text) turns.push({ role: "user", content: `[app event] ${clip(text, 300)}` });
+      if (text) turns.push({ role: "user", content: `${EVENT_PREFIX} ${clip(text, 300)}` });
     }
   }
   let total = turns.reduce((n, t) => n + utf8Bytes(t.content), 0);
@@ -127,25 +162,57 @@ export function historyToTurns(messages, {
 }
 
 /**
- * Full turn array for a chat call: [instructions, ...history, newUserMessage].
- * Starts and ends with a user turn; a trailing history copy of the same user text (a manual retry) is dropped.
+ * Make a turn list valid for sample.d.ts: only user/assistant roles (anything else becomes a user-side note),
+ * no empty content, consecutive same-role turns merged (blank line between), starting and ending on a user turn
+ * (leading assistant turns are dropped; a trailing assistant turn is dropped). Returns [] when nothing is left.
+ * The one exception to merging: the leading instructions turn (it ends with INSTRUCTIONS_END) stays its own
+ * turn, as sample.d.ts documents ("a leading instructions turn before the viewer's first message").
+ * @param {Array<{ role: string, content: string }>} turns
+ * @param {{ keepFirst?: boolean }} [opts] keepFirst: never merge into the first turn (the instructions turn)
+ * @returns {{ role: "user"|"assistant", content: string }[]}
+ */
+export function normalizeTurns(turns, { keepFirst = false } = {}) {
+  const out = [];
+  for (const t of Array.isArray(turns) ? turns : []) {
+    if (!isPlainObject(t)) continue;
+    const content = typeof t.content === "string" ? t.content.trim() : "";
+    if (!content) continue;
+    const role = t.role === "assistant" ? "assistant" : "user";
+    const body = t.role === "user" || t.role === "assistant" ? content : `${EVENT_PREFIX} ${content}`;
+    const prev = out[out.length - 1];
+    const sealed = prev && ((keepFirst && out.length === 1) || prev.content.endsWith(INSTRUCTIONS_END));
+    if (prev && prev.role === role && !sealed) prev.content = `${prev.content}\n\n${body}`;
+    else out.push({ role, content: body });
+  }
+  while (out.length && out[0].role !== "user") out.shift();
+  while (out.length && out[out.length - 1].role !== "user") out.pop();
+  return out;
+}
+
+/**
+ * Full turn array for a chat call: [instructions, ...history, newUserMessage], normalized (see normalizeTurns).
+ * The history's trailing copy of the same owner text (a manual retry) and failed replies after it are dropped.
  * @param {{ instructions: string, history: object[], userText: string, budgets?: Partial<typeof CHAT_BUDGETS> }} opts
  * @returns {{ role: "user"|"assistant", content: string }[]}
  */
 export function buildChatTurns({ instructions, history, userText, budgets = {} }) {
   const b = { ...CHAT_BUDGETS, ...budgets };
-  const hist = historyToTurns(history, { maxMessages: b.historyMessages, maxBytes: b.historyBytes, messageBytes: b.messageBytes });
   const user = truncateBytes(String(userText ?? "").trim() || "(empty message)", b.userMessageBytes);
-  const last = hist[hist.length - 1];
-  if (last && last.role === "user" && last.content === user) hist.pop();
-  return [
+  const msgs = (Array.isArray(history) ? history : []).filter(isPlainObject);
+  let end = msgs.length;
+  while (end > 0 && isFailedReply(msgs[end - 1]) && !actionsNote(msgs[end - 1].actions)) end -= 1;
+  if (end > 0 && msgs[end - 1].role === "user" && String(msgs[end - 1].text ?? "").trim() === String(userText ?? "").trim()) {
+    msgs.splice(end - 1, msgs.length - end + 1);
+  }
+  const hist = historyToTurns(msgs, { maxMessages: b.historyMessages, maxBytes: b.historyBytes, messageBytes: b.messageBytes });
+  return normalizeTurns([
     { role: "user", content: truncateBytes(String(instructions ?? "").trim() || "(no instructions)", b.instructionsBytes) },
     ...hist,
     { role: "user", content: user },
-  ];
+  ], { keepFirst: true });
 }
 
 /** The user turn that opens onboarding (the owner tapped Start; nothing they typed). */
 export const ONBOARDING_START_TURN =
-  "[app event] The owner just tapped Start on the welcome screen. Greet them in one or two sentences, say how the intake works " +
+  "[App event] The owner just tapped Start on the welcome screen. Greet them in one or two sentences, say how the intake works " +
   "(a few short rounds, about 5 minutes, answers saved as you go, everything editable later), then ask the first round of questions.";

@@ -1,7 +1,7 @@
 // Pure training logic (owner: Agent A). See CONTRACT.md §5.2.
 // No DOM, no platform calls. Strength progression / e1RM / stall rules are a faithful port of
 // .claude/skills/personal-trainer/scripts/trainer.py (proved by tests/core.test.mjs).
-import { EXERCISES, getExercise, findExercise, expandEquipment, equipmentCheck } from "./catalog.js";
+import { EXERCISES, EQUIPMENT, getExercise, findExercise, expandEquipment, equipmentCheck } from "./catalog.js";
 
 // ================================================================== numbers & dates
 const num = (x) => (typeof x === "number" ? (Number.isFinite(x) ? x : null) : x == null || x === "" ? null : Number.isFinite(Number(x)) ? Number(x) : null);
@@ -876,6 +876,76 @@ const MAJOR_MUSCLES = ["chest", "upper_back", "lats", "quads", "hamstrings", "gl
 const RUN_SURFACES = ["outdoor_route", "track", "treadmill"];
 const NON_EXERCISE = /^(rest|transition|recover|recovery|walk rest)\b/i;
 
+/**
+ * Brevity limits for generated plan text (mirrored in knowledge PLAN_RULES and the Plan JSON spec).
+ * validatePlan reports a TOO_VERBOSE warning when a field goes over.
+ * @type {Readonly<{ focusChars: number, rationaleChars: number, rationaleSentences: number, intentChars: number,
+ *   itemNoteWords: number, prepNameChars: number, prepDetailWords: number, scalingChars: number, blockNoteChars: number, planNoteChars: number }>}
+ */
+export const PLAN_TEXT_LIMITS = Object.freeze({
+  focusChars: 60,
+  rationaleChars: 220,
+  rationaleSentences: 2,
+  intentChars: 90,
+  itemNoteWords: 8,
+  prepNameChars: 40,
+  prepDetailWords: 6,
+  scalingChars: 100,
+  blockNoteChars: 100,
+  planNoteChars: 100,
+});
+const textOf = (x) => (typeof x === "string" ? x.trim() : "");
+const wordCount = (x) => (textOf(x) ? textOf(x).split(/\s+/).length : 0);
+const sentenceCount = (x) => (textOf(x) ? (textOf(x).match(/[.!?]+(?=\s+\S|$)/g) || []).length || 1 : 0);
+
+/** TOO_VERBOSE findings for one workout: [{ path, label }] (label is short, for the aggregated message). */
+function verboseWorkout(w, wp) {
+  const L = PLAN_TEXT_LIMITS;
+  const out = [];
+  const intent = textOf(w.intent);
+  if (intent.length > L.intentChars) out.push({ path: `${wp}.intent`, label: `intent ${intent.length}/${L.intentChars} chars` });
+  let notes = 0, notesPath = null, prep = 0, prepPath = null;
+  (Array.isArray(w.blocks) ? w.blocks : []).forEach((b, bi) => {
+    const bp = `${wp}.blocks[${bi}]`;
+    if (!b || typeof b !== "object") return;
+    const items = Array.isArray(b.items) ? b.items : [];
+    if (b.kind === "warmup" || b.kind === "cooldown" || b.kind === "mobility") {
+      items.forEach((it, ii) => {
+        if (textOf(it?.name).length > L.prepNameChars || wordCount(it?.detail) > L.prepDetailWords) { prep++; prepPath ??= `${bp}.items[${ii}]`; }
+      });
+      return;
+    }
+    items.forEach((it, ii) => {
+      if (wordCount(it?.notes) > L.itemNoteWords) { notes++; notesPath ??= `${bp}.items[${ii}].notes`; }
+    });
+    if (b.kind === "conditioning") {
+      const sc = textOf(b.scaling);
+      if (sc.length > L.scalingChars || /\n/.test(sc)) out.push({ path: `${bp}.scaling`, label: `scaling ${sc.length}/${L.scalingChars} chars` });
+    }
+    if ((b.kind === "conditioning" || b.kind === "run") && textOf(b.notes).length > L.blockNoteChars) {
+      out.push({ path: `${bp}.notes`, label: `${b.kind} notes ${textOf(b.notes).length}/${L.blockNoteChars} chars` });
+    }
+  });
+  if (notes) out.push({ path: notesPath, label: `${notes} item note${notes > 1 ? "s" : ""} over ${L.itemNoteWords} words` });
+  if (prep) out.push({ path: prepPath, label: `${prep} warm-up/cool-down item${prep > 1 ? "s" : ""} too long (detail ≤ ${L.prepDetailWords} words)` });
+  return out;
+}
+
+/** TOO_VERBOSE findings for the plan-level text (focus, rationale, notes). */
+function verbosePlan(plan) {
+  const L = PLAN_TEXT_LIMITS;
+  const out = [];
+  const focus = textOf(plan.focus);
+  if (focus.length > L.focusChars) out.push({ path: "focus", label: `focus ${focus.length}/${L.focusChars} chars` });
+  const rat = textOf(plan.rationale);
+  if (rat.length > L.rationaleChars || sentenceCount(rat) > L.rationaleSentences) {
+    out.push({ path: "rationale", label: `rationale ${rat.length}/${L.rationaleChars} chars, ${sentenceCount(rat)}/${L.rationaleSentences} sentences` });
+  }
+  const long = (Array.isArray(plan.notes) ? plan.notes : []).map((n, i) => [i, textOf(n)]).filter(([, n]) => n.length > L.planNoteChars);
+  if (long.length) out.push({ path: `notes[${long[0][0]}]`, label: `${long.length} plan note${long.length > 1 ? "s" : ""} over ${L.planNoteChars} chars` });
+  return out;
+}
+
 /** Recent running baseline before a reference week (4 weeks, trimmed to weeks since the first log). */
 function runBaseline(sessions, profile, refWeekStart) {
   const rl = runningLoad(sessions, { weeks: 4, today: addDays(refWeekStart, -1) });
@@ -898,7 +968,8 @@ function runBaseline(sessions, profile, refWeekStart) {
  * errors: SCHEMA, UNKNOWN_EXERCISE, EQUIPMENT_MISSING, DISLIKED_EXERCISE, WORKOUT_COUNT, TOO_LONG,
  *   RUN_RAMP (planned km > max(avg × 1.15, avg + 5)), LONG_RUN_SPIKE (> longest × 1.3 and > longest + 3 km).
  * warnings: VOLUME_LOW (< 6 sets, major muscles), VOLUME_HIGH (> 22), INJURY_CONFLICT, HARD_DAYS_ADJACENT,
- *   NO_REST_RUN_EASY (< 70 % easy km), MISSING_ALTERNATIVES.
+ *   NO_REST_RUN_EASY (< 70 % easy km), MISSING_ALTERNATIVES, TOO_VERBOSE (text over PLAN_TEXT_LIMITS: at most one
+ *   issue for the plan-level text and one per workout, listed last).
  * Equipment checks need profile.equipment.locations; run baselines come from sessions in the 4 weeks before
  * plan.weekStart (falling back to profile.experience.running); both run checks are skipped when nothing is known.
  * @param {object} plan
@@ -1061,6 +1132,14 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
         `${workouts[i]?.id} and ${workouts[i + 1]?.id} are back-to-back hard sessions (intense run/conditioning or heavy legs).`);
     }
   }
+
+  const planVerbose = verbosePlan(plan);
+  if (planVerbose.length) warn("TOO_VERBOSE", null, planVerbose[0].path, `Plan text too long: ${planVerbose.map((v) => v.label).join("; ")}.`);
+  workouts.forEach((w, wi) => {
+    if (!w || typeof w !== "object") return;
+    const found = verboseWorkout(w, `workouts[${wi}]`);
+    if (found.length) warn("TOO_VERBOSE", w.id, found[0].path, `Text too long: ${found.map((v) => v.label).join("; ")}.`);
+  });
   return { ok: errors.length === 0, errors, warnings, stats };
 }
 
@@ -1190,6 +1269,147 @@ export function normalizeSession(input, { today, now } = {}) {
     createdBy: i.createdBy === "manual" ? "manual" : "chat",
     createdAt: i.createdAt || stamp,
     updatedAt: i.updatedAt || i.createdAt || stamp,
+  };
+}
+
+// ================================================================== logging a planned workout
+const LOADING_GROUPS = new Set(["free_weights", "machines"]);
+/** True when an exercise needs no external load (pull-up, push-up, dip…): no free-weight or machine equipment. */
+function isBodyweightExercise(ex) {
+  if (!ex) return false;
+  const ids = [...(ex.equipment?.all || []), ...(ex.equipment?.any || [])];
+  return !ids.some((id) => LOADING_GROUPS.has(EQUIPMENT[id]?.group));
+}
+/** Per-set rep prefill from a target ("9/9/8", "8", "8-12" → bottom, "AMRAP" → null). */
+function repsPerSet(targetReps, prescribed, n) {
+  const pick = (x) => parseRange(x)?.lo ?? null;
+  const parts = String(targetReps ?? "").split("/").map((x) => x.trim()).filter(Boolean);
+  if (parts.length > 1) return Array.from({ length: n }, (_, i) => pick(parts[Math.min(i, parts.length - 1)]));
+  const v = pick(parts[0] ?? prescribed) ?? pick(prescribed);
+  return Array.from({ length: n }, () => v);
+}
+/** Whole planned distance of a run block: totalKm, else segments + warm-up / cool-down / jog recoveries at easy pace. */
+function plannedRunKm(b, easy) {
+  if (num(b?.totalKm) > 0) return num(b.totalKm);
+  let km = runBlockKm(b, easy) + (((num(b?.warmupMin) || 0) + (num(b?.cooldownMin) || 0)) * 60) / easy;
+  for (const seg of b?.segments || []) {
+    if ((seg?.recoveryType ?? "jog") === "jog") km += ((num(seg?.reps) || 1) * (num(seg?.recoverySec) || 0)) / easy;
+  }
+  return km;
+}
+const COND_LABEL = { AMRAP: "AMRAP", EMOM: "EMOM", FOR_TIME: "For time", RFT: "Rounds for time", INTERVALS: "Intervals", TABATA: "Tabata", CHIPPER: "Chipper" };
+/** One-line description of a planned conditioning block: "12 min AMRAP: 10 Wall Ball Shot, 15 cal Row". */
+function condDescription(b) {
+  const label = COND_LABEL[b.format] || String(b.format || "Conditioning");
+  const minutes = num(b.minutes), rounds = num(b.rounds), cap = num(b.timeCapMin), work = num(b.workSec), rest = num(b.restSec);
+  let shape = label;
+  if (b.format === "AMRAP" || b.format === "EMOM") shape = minutes ? `${minutes} min ${label}` : label;
+  else if (b.format === "RFT" || b.format === "FOR_TIME") shape = `${rounds && rounds > 1 ? `${rounds} rounds ` : ""}${b.format === "RFT" ? "for time" : label.toLowerCase()}`;
+  else if (work) shape = `${label} ${rounds ? `${rounds} × ` : ""}${work} s on / ${rest || 0} s off`;
+  else if (minutes) shape = `${minutes} min ${label}`;
+  if (cap) shape += ` (cap ${cap} min)`;
+  shape = shape[0].toUpperCase() + shape.slice(1);
+  const items = (b.items || []).filter(Boolean).map((it) => {
+    const name = it.name || getExercise(it.exerciseId)?.name || it.exerciseId || "";
+    const amt = [num(it.reps) ? String(num(it.reps)) : null, num(it.calories) ? `${num(it.calories)} cal` : null,
+      num(it.distanceM) ? `${num(it.distanceM)} m` : null, num(it.durationSec) ? `${num(it.durationSec)} s` : null].filter(Boolean).join(" ");
+    return [amt, name, num(it.loadKg) ? `@ ${num(it.loadKg)} kg` : null].filter(Boolean).join(" ");
+  }).filter(Boolean);
+  return items.length ? `${shape}: ${items.join(", ")}` : shape;
+}
+
+/**
+ * Prefilled Session draft for logging a planned Workout (the Plan tab's "Mark as done").
+ * Strength items become exercises with `sets` work sets at the nextTarget load (else the planned loadKg) and
+ * reps (per set for "9/9/8", the bottom of a range, null for AMRAP) @ targetRir; run blocks become one `run`
+ * (summed distance incl. warm-up / cool-down / jog recoveries at easy pace, estimated duration, the main block's
+ * runType and target rpe); conditioning blocks become
+ * entries with a generated description, an empty result and rpe = targetRpe. Warm-up / cool-down / mobility
+ * blocks are not logged. Each strength / run / conditioning entry also carries a `target` object describing the
+ * plan (normalizeSession drops it). The result is normalizeSession-ready: id and timestamps are left null.
+ * @param {object} workout Workout
+ * @param {{ sessions?: object[], today?: string, planId?: string|null, profile?: object }} [opts]
+ * @returns {object} Session draft (status "done", createdBy "manual")
+ */
+export function sessionFromWorkout(workout, { sessions = [], today, planId = null, profile = null } = {}) {
+  const w = workout && typeof workout === "object" ? workout : {};
+  const day = isIso(today) ? today : todayISO();
+  const blocks = (Array.isArray(w.blocks) ? w.blocks : []).filter((b) => b && typeof b === "object");
+  const easy = num(profile?.experience?.running?.easyPaceSecPerKm) || DEFAULT_PACE;
+
+  const strength = [];
+  for (const b of blocks.filter((x) => x.kind === "strength")) {
+    for (const it of Array.isArray(b.items) ? b.items : []) {
+      if (!it || (!it.exerciseId && !it.name)) continue;
+      const ex = getExercise(it.exerciseId) || findExercise(it.name);
+      const t = nextTarget(sessions, it, { today: day });
+      const n = Math.max(1, Math.trunc(num(it.sets) || 1));
+      const loadKg = num(t?.loadKg) ?? num(it.loadKg);
+      const rir = it.targetRir == null || it.targetRir === "" ? null : parseTargetRir(it.targetRir);
+      const bodyweight = isBodyweightExercise(ex);
+      strength.push({
+        exerciseId: ex?.id ?? it.exerciseId ?? null,
+        name: String(it.name || ex?.name || it.exerciseId || ""),
+        sets: repsPerSet(t?.reps, it.reps, n).map((reps) => ({ type: "work", loadKg, bodyweight, reps, rir })),
+        target: { sets: n, reps: String(it.reps ?? ""), targetRir: rir, loadKg, nextReps: t?.reps ?? null, note: t?.note || "", reason: t?.reason || null, restSec: num(it.restSec) },
+      });
+    }
+  }
+
+  let run = null;
+  const runs = blocks.filter((x) => x.kind === "run");
+  if (runs.length) {
+    const main = runs.find((b) => !EASY_RUNS.has(b.runType)) || runs[0];
+    const km = runs.reduce((a, b) => a + plannedRunKm(b, easy), 0);
+    const sec = Math.round(runs.reduce((a, b) => a + runBlockMinutes(b, easy) * 60, 0));
+    const segs = Array.isArray(main.segments) ? main.segments : [];
+    const rpe = segs.map((x) => num(x?.target?.rpe)).find((x) => x != null) ?? null;
+    const pace = segs.map((x) => x?.target?.paceSecPerKm).find((x) => Array.isArray(x) && x.length) ?? null;
+    run = {
+      runType: RUN_TYPES.includes(main.runType) ? main.runType : "easy",
+      distanceKm: km > 0 ? r2(km) : null,
+      durationSec: sec > 0 ? sec : null,
+      avgPaceSecPerKm: km > 0 && sec > 0 ? Math.round(sec / km) : null,
+      avgHr: null, elevationM: null, rpe: clamp(rpe, 1, 10), splits: [],
+      target: { distanceKm: km > 0 ? r2(km) : null, durationSec: sec > 0 ? sec : null, paceSecPerKm: pace, rpe, segments: segs.length },
+    };
+  }
+
+  const conditioning = blocks.filter((x) => x.kind === "conditioning").map((b) => ({
+    format: COND_FORMATS.includes(b.format) ? b.format : null,
+    description: condDescription(b),
+    result: { rounds: null, reps: null, timeSec: null, calories: null, completed: true },
+    scaled: false,
+    rpe: clamp(num(b.targetRpe), 1, 10),
+    notes: "",
+    target: { minutes: num(b.minutes), rounds: num(b.rounds), timeCapMin: num(b.timeCapMin), targetRpe: num(b.targetRpe), scaling: textOf(b.scaling) },
+  }));
+
+  const kinds = [strength.length && "strength", run && "run", conditioning.length && "conditioning"].filter(Boolean);
+  const type = SESSION_TYPES.includes(w.type) ? w.type : kinds.length > 1 ? "hybrid" : kinds[0] || "other";
+  const est = num(w.estMinutes) ?? estimateWorkoutMinutes(w, { easyPaceSecPerKm: easy });
+  return {
+    id: null,
+    date: day,
+    planId: planId ?? null,
+    workoutId: w.id ?? null,
+    title: String(w.title || "").trim() || "Planned workout",
+    type,
+    status: "done",
+    missedReason: null,
+    durationMin: est > 0 ? Math.round(est) : null,
+    readiness: null,
+    sessionRpe: null,
+    notes: "",
+    pain: [],
+    strength,
+    conditioning,
+    run,
+    prs: [],
+    coachComment: "",
+    createdBy: "manual",
+    createdAt: null,
+    updatedAt: null,
   };
 }
 

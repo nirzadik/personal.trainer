@@ -8,9 +8,11 @@ import {
   addDaysISO, clip, cloneJson, fmtNum, fmtSets, formatSessionCompact, isIsoDate, isPlainObject,
   localISODate, sortSessionsAsc, sundayOf, truncateBytes, utf8Bytes, weekdayName,
 } from "./prompts/util.js";
-import { CHAT_TOOL_ORDER, NOTE_KINDS, ONBOARDING_TOOL_ORDER, TOOL_SPECS } from "./prompts/tools.js";
+import { CHAT_TOOL_ORDER, NOTE_KINDS, ONBOARDING_TOOL_ORDER, TOOL_ENUMS, TOOL_SPECS, checkToolSpec } from "./prompts/tools.js";
 import { buildContextSnapshot, formatPlanOverview, formatWorkout } from "./prompts/context.js";
-import { CHAT_BUDGETS, ONBOARDING_START_TURN, buildChatTurns, buildInstructionsTurn } from "./prompts/chat.js";
+import {
+  CHAT_BUDGETS, ONBOARDING_START_TURN, buildChatTurns, buildInstructionsTurn, isClearCommand, normalizeTurns,
+} from "./prompts/chat.js";
 import { buildPlanPrompt, buildRepairPrompt, formatPaces } from "./prompts/plan.js";
 import { SUMMARY_STALE_AFTER, buildSummaryPrompt, composeSummary, parseSummary } from "./prompts/summary.js";
 import { buildCommentPrompt, clampWords } from "./prompts/comment.js";
@@ -92,6 +94,8 @@ const TOOL_RESULT_MAX_BYTES = 12000;
 const SESSIONS_FETCH_LIMIT = 300;
 const SUMMARY_SCAN = 80;
 const DEFAULT_TIERS = ["default", "complex", "quick"];
+const MAX_TOOLS = 8;
+const ERROR_DETAIL_CHARS = 300;
 
 /**
  * @typedef {{ type: string, label: string, ref: string|null, undo?: () => Promise<void> }} CoachAction
@@ -175,7 +179,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     const code = KNOWN_SAMPLE_CODES.has(raw) ? raw : "upstream_error";
     if (PERMANENT_CODES.has(code)) deniedCode = code;
     if (code === "tools_unavailable") toolsBlocked = true;
-    const out = { code, message: String(e?.message ?? code) };
+    const message = typeof e?.message === "string" && e.message.trim() ? e.message : (raw !== code ? `${raw} (unknown code)` : code);
+    const out = { code, message: clip(message, 1000) };
     if (typeof e?.text === "string" && code !== "refused") out.text = e.text;
     return out;
   }
@@ -208,11 +213,31 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     return tiers.includes("default") ? "default" : undefined;
   }
 
+  /**
+   * Last line of defence before the platform (sample.d.ts invalid_request rules): turn arrays are re-normalized
+   * (user/assistant roles only, no empty content, consecutive roles merged, start and end on user), tools are
+   * dropped when malformed, and `cache` is omitted whenever tools are passed.
+   */
+  function safeCall(input, options) {
+    const o = withoutUndefined(options ?? {});
+    const turns = Array.isArray(input) ? normalizeTurns(input) : String(input ?? "");
+    if (Array.isArray(o.tools)) {
+      const seen = new Set();
+      o.tools = o.tools.filter((t) => !checkToolSpec(t).length && typeof t.execute === "function" && !seen.has(t.name) && seen.add(t.name));
+      if (!o.tools.length) delete o.tools;
+    }
+    if (o.tools) delete o.cache;
+    if (o.signal !== undefined && !(typeof o.signal === "object" && o.signal && "aborted" in o.signal)) delete o.signal;
+    if (o.onText !== undefined && typeof o.onText !== "function") delete o.onText;
+    return { input: turns, options: o };
+  }
+
   /** The one place `sample()` is called. Rejects a normalized { code, message, text? }. */
   async function callSample(input, options) {
     if (!sample) throw { code: "sample_unavailable", message: "sample is unavailable" };
+    const call = safeCall(input, options);
     try {
-      return await sample(input, withoutUndefined(options));
+      return await sample(call.input, call.options);
     } catch (e) {
       throw sampleError(e);
     }
@@ -220,9 +245,10 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
   /** The one place `sample.json()` is called (falls back to tolerant parsing of `sample()` on old runtimes). */
   async function callJson(input, options) {
     if (!sample) throw { code: "sample_unavailable", message: "sample is unavailable" };
+    const call = safeCall(input, options);
     try {
-      if (typeof sample.json === "function") return await sample.json(input, withoutUndefined(options));
-      const { text } = await sample(input, withoutUndefined(options));
+      if (typeof sample.json === "function") return await sample.json(call.input, call.options);
+      const { text } = await sample(call.input, call.options);
       const parsed = parseJsonLoose(text);
       if (parsed === undefined) throw { code: "invalid_json", message: "no JSON in reply", text };
       return parsed;
@@ -547,7 +573,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       const query = {};
       if (isIsoDate(input.from)) query.from = input.from;
       if (isIsoDate(input.to)) query.to = input.to;
-      if (SESSION_TYPES.includes(input.type)) query.type = input.type;
+      const wantedType = input.sessionType ?? input.type;
+      if (SESSION_TYPES.includes(wantedType)) query.type = wantedType;
       const inRange = (s) => (!query.from || s.date >= query.from) && (!query.to || s.date <= query.to) && (!query.type || s.type === query.type);
       const line = (s) => formatSessionCompact(s, { notesChars: 100, commentChars: 80 });
       if (input.exerciseId) {
@@ -566,8 +593,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     },
 
     async log_session(input, ctx, signal) {
-      const raw = isPlainObject(input.session) ? input.session : null;
-      if (!raw) throw new Error("session must be an object");
+      const raw = sessionFromToolInput(input);
+      if (!raw) throw new Error("send the session fields (sessionType, strength/run/conditioning, …)");
       const t = ctx.today;
       const [state, agreed, existing] = await Promise.all([
         soft(() => store.state.get(), {}), soft(() => store.plans.getAgreed()), soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []),
@@ -627,8 +654,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     },
 
     async update_session(input, ctx, signal) {
-      const id = String(input.id ?? "").trim();
-      if (!id) throw new Error("id is required");
+      const id = String(input.sessionId ?? input.id ?? "").trim();
+      if (!id) throw new Error("sessionId is required");
       if (!isPlainObject(input.patch)) throw new Error("patch must be an object");
       const existing = await store.sessions.get(id);
       if (!isPlainObject(existing)) throw new Error(`No session with id ${id}`);
@@ -719,7 +746,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
 
   function makeTools(mode, ctx, maxCount) {
     const order = mode === "onboarding" ? ONBOARDING_TOOL_ORDER : CHAT_TOOL_ORDER;
-    return order.slice(0, Math.max(0, maxCount)).map((name) => wrapTool(name, IMPLS[name], ctx));
+    return order.filter((name) => TOOL_SPECS[name] && IMPLS[name] && !checkToolSpec(TOOL_SPECS[name]).length)
+      .slice(0, Math.max(0, maxCount)).map((name) => wrapTool(name, IMPLS[name], ctx));
   }
 
   // ---------- chat ----------
@@ -773,25 +801,33 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     coachMem.summary = stored;
   }
 
-  async function persistReply(text, actions, error) {
+  async function persistReply(text, actions, error, detail) {
     const message = { role: "assistant", text: String(text ?? ""), actions: actions.map(({ type, label, ref }) => ({ type, label, ref: ref ?? null })), error: error ?? null };
+    const errorDetail = errorDetailOf(error, detail);
+    if (errorDetail) message.errorDetail = errorDetail;
     await soft(() => store.chat.append(message));
+  }
+  function toolCount(lim) {
+    if (!isPlainObject(lim?.tools) || toolsBlocked) return 0;
+    const n = Number(lim.tools.maxCount);
+    return Number.isFinite(n) ? Math.max(0, Math.min(MAX_TOOLS, Math.floor(n))) : MAX_TOOLS;
   }
 
   async function send(text, { signal, onText, onTool } = {}) {
     const userText = String(text ?? "").trim();
     const actions = [];
-    if (!userText) return { text: "", actions, error: "invalid_request" };
+    if (!userText) return { text: "", actions, error: "invalid_request", errorDetail: "empty message" };
+    if (isClearCommand(userText)) return { text: "", actions, error: null, command: "clear" }; // a UI command, never sent to Claude
     if (!store) return { text: "", actions, error: "no_user" };
 
     let prior;
     let profile;
     try {
       prior = (await store.chat.recent(CHAT_BUDGETS.historyMessages + SUMMARY_SCAN)) ?? [];
-      const last = prior[prior.length - 1];
-      const prev = prior[prior.length - 2];
-      const isRetry = (last?.role === "user" && String(last.text ?? "").trim() === userText) ||
-        (last?.role === "assistant" && last.error && prev?.role === "user" && String(prev.text ?? "").trim() === userText);
+      // A manual retry re-sends the last owner message: don't store it twice (trailing failed replies are skipped).
+      let k = prior.length - 1;
+      while (k >= 0 && prior[k]?.role === "assistant" && prior[k].error && !(prior[k].actions ?? []).length) k -= 1;
+      const isRetry = prior[k]?.role === "user" && String(prior[k].text ?? "").trim() === userText;
       if (!isRetry) await store.chat.append({ role: "user", text: userText, actions: [], error: null });
       profile = (await store.profile.get()) ?? {};
       profileCache = profile;
@@ -820,7 +856,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         // Otherwise carry on without a fresh summary; the main call is a different request, not a retry.
       }
       data.coach = memoryForPrompt(coachMem); // include a summary written just now
-      const maxCount = lim.tools && !toolsBlocked ? Math.min(8, Number(lim.tools.maxCount) || 8) : 0;
+      const maxCount = toolCount(lim);
       const ctx = { mode, actions, onTool, today: t };
       const tools = makeTools(mode, ctx, maxCount);
       const instructions = instructionsFor(mode, data, tools.map((x) => x.name));
@@ -838,8 +874,9 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     } catch (e) {
       const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
       const kept = err.code === "refused" ? "" : (typeof err.text === "string" ? err.text : partial);
-      await persistReply(kept, actions, err.code);
-      return { text: kept, actions, error: err.code };
+      const errorDetail = errorDetailOf(err.code, err.message);
+      await persistReply(kept, actions, err.code, err.message);
+      return { text: kept, actions, error: err.code, ...(errorDetail ? { errorDetail } : {}) };
     }
   }
 
@@ -859,7 +896,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       await soft(() => store.state.update({ onboarding: { status: "in_progress" } }));
       const { t, state, data } = await chatContext("onboarding", profile);
       const lim = await getLimits();
-      const maxCount = lim.tools && !toolsBlocked ? Math.min(8, Number(lim.tools.maxCount) || 8) : 0;
+      const maxCount = toolCount(lim);
       const tools = makeTools("onboarding", { mode: "onboarding", actions, onTool, today: t }, maxCount);
       const instructions = instructionsFor("onboarding", data, tools.map((x) => x.name));
       const res = await callSample([{ role: "user", content: instructions }, { role: "user", content: ONBOARDING_START_TURN }], {
@@ -875,8 +912,9 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     } catch (e) {
       const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
       const kept = err.code === "refused" ? "" : (typeof err.text === "string" ? err.text : partial);
-      if (actions.length) await persistReply(kept, actions, err.code);
-      return { text: kept, actions, error: err.code };
+      const errorDetail = errorDetailOf(err.code, err.message);
+      if (actions.length) await persistReply(kept, actions, err.code, err.message);
+      return { text: kept, actions, error: err.code, ...(errorDetail ? { errorDetail } : {}) };
     }
   }
 
@@ -1079,6 +1117,49 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
 }
 
 // ---------- module-private helpers ----------
+
+/** `ChatMessage.errorDetail`: the platform's developer message for a failed call (≤ 300 chars), for debugging. */
+function errorDetailOf(code, message) {
+  if (!code || code === "cancelled") return "";
+  const msg = String(message ?? "").replace(/\s+/g, " ").trim();
+  if (!msg || msg === code) return "";
+  return clip(msg, ERROR_DETAIL_CHARS);
+}
+
+/**
+ * Map log_session's tool input (keyword-free names, flat; or the older `{ session: {...} }` shape with
+ * Session field names) to a Session-shaped object for core.normalizeSession. Null when nothing usable was sent.
+ * @param {object} input
+ * @returns {object|null}
+ */
+export function sessionFromToolInput(input) {
+  const src = isPlainObject(input?.session) ? input.session : input;
+  if (!isPlainObject(src) || !Object.keys(src).length) return null;
+  const { sessionType, workoutTitle, ...rest } = src;
+  const s = { ...rest };
+  if (sessionType !== undefined) s.type = sessionType;
+  if (workoutTitle !== undefined) s.title = workoutTitle;
+  if (s.missedReason !== undefined && s.missedReason !== null && !TOOL_ENUMS.MISSED_REASONS.includes(s.missedReason)) s.missedReason = "other";
+  if (Array.isArray(s.strength)) {
+    s.strength = s.strength.filter(isPlainObject).map((ex) => ({
+      ...ex,
+      sets: (Array.isArray(ex.sets) ? ex.sets : []).filter(isPlainObject).map(({ warmup, setType, ...st }) => ({
+        ...st,
+        type: st.type === "warmup" || setType === "warmup" || warmup === true ? "warmup" : "work",
+        loadKg: Number.isFinite(Number(st.loadKg)) && st.loadKg !== null && st.loadKg !== "" ? Number(st.loadKg) : null,
+        rir: Number.isFinite(Number(st.rir)) && st.rir !== null && st.rir !== "" ? Number(st.rir) : null,
+      })),
+    }));
+  }
+  if (Array.isArray(s.conditioning)) {
+    s.conditioning = s.conditioning.filter(isPlainObject).map(({ metconFormat, summary, rounds, reps, timeSec, calories, completed, ...c }) => {
+      const result = isPlainObject(c.result) ? { ...c.result } : {};
+      for (const [k, v] of Object.entries({ rounds, reps, timeSec, calories, completed })) if (v !== undefined) result[k] = v;
+      return { ...c, format: metconFormat ?? c.format ?? null, description: String(summary ?? c.description ?? ""), result };
+    });
+  }
+  return s;
+}
 
 function defaultTitle(type) {
   return ({ strength: "Strength session", run: "Run", conditioning: "Conditioning", hybrid: "Hybrid session", mobility: "Mobility" })[type] ?? "Workout";

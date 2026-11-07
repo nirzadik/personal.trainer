@@ -6,12 +6,16 @@ import assert from "node:assert/strict";
 
 import { createCoach, errorCopy, SAMPLE_ERROR_CODES } from "../src/brain.js";
 import { createMockSample, parseWorkoutReport } from "../src/sample-mock.js";
-import { buildChatTurns, buildInstructionsTurn, historyToTurns, CHAT_BUDGETS, MODE_LINE } from "../src/prompts/chat.js";
+import {
+  buildChatTurns, buildInstructionsTurn, historyToTurns, normalizeTurns, CHAT_BUDGETS, MODE_LINE, UNANSWERED_NOTE, INSTRUCTIONS_END,
+} from "../src/prompts/chat.js";
 import { buildContextSnapshot } from "../src/prompts/context.js";
 import { buildPlanPrompt, PLAN_PROMPT_MARKER, REPAIR_PROMPT_MARKER } from "../src/prompts/plan.js";
 import { SUMMARY_PROMPT_MARKER, parseSummary } from "../src/prompts/summary.js";
 import { COMMENT_PROMPT_MARKER, clampWords } from "../src/prompts/comment.js";
-import { TOOL_SPECS, CHAT_TOOL_ORDER, ONBOARDING_TOOL_ORDER } from "../src/prompts/tools.js";
+import {
+  TOOL_SPECS, CHAT_TOOL_ORDER, ONBOARDING_TOOL_ORDER, checkToolSchema, checkToolSpec, SCHEMA_KEYWORDS, SCHEMA_TYPES, RESERVED_PROPERTY_NAMES,
+} from "../src/prompts/tools.js";
 import { truncateBytes, utf8Bytes } from "../src/prompts/util.js";
 
 // ---------- stubs ----------
@@ -221,18 +225,23 @@ test("history window: ≤ 24 messages, ≤ 30 KB, oldest dropped, no empty turns
   assert.ok(!turns.some((t) => t.content.startsWith("msg 35 "))); // oldest dropped
 });
 
-test("history: failed replies keep their saved actions, empty failures are skipped, events become user turns", () => {
+test("history: failed replies keep only their saved actions, unanswered messages are marked, events become user notes", () => {
   const turns = historyToTurns([
     { role: "user", text: "did squats" },
-    { role: "assistant", text: "", actions: [{ type: "logged_session", label: "Logged · Lower A", ref: "s1" }], error: "upstream_error" },
+    { role: "assistant", text: "partial that must not be replayed", actions: [{ type: "logged_session", label: "Logged · Lower A", ref: "s1" }], error: "upstream_error" },
     { role: "user", text: "hello" },
     { role: "assistant", text: "", actions: [], error: "rate_limited" },
     { role: "event", text: "Plan approved" },
+    { role: "user", text: "/clear" },
+    { role: "system", text: "never a role" },
   ]);
   assert.equal(turns.length, 4);
-  assert.match(turns[1].content, /reply interrupted: upstream_error/);
+  assert.equal(turns[1].role, "assistant");
+  assert.ok(!turns[1].content.includes("partial"));
   assert.match(turns[1].content, /logged_session "Logged · Lower A" ref=s1/);
-  assert.equal(turns[3].content, "[app event] Plan approved");
+  assert.equal(turns[2].content, `hello\n${UNANSWERED_NOTE}`);
+  assert.equal(turns[3].content, "[App event] Plan approved");
+  assert.ok(turns.every((t) => t.role === "user" || t.role === "assistant"));
 });
 
 test("buildChatTurns starts and ends with user, drops a duplicated trailing user turn (manual retry)", () => {
@@ -304,7 +313,7 @@ test("send: log_session via the mock advances the rotation, streams, reports too
   // call shape
   const call = sample.calls[0];
   assertValidTurns(call.input);
-  assert.equal(call.cache, false);
+  assert.equal(call.cache, undefined, "cache is omitted when tools are passed");
   assert.equal(call.modelTier, "default");
   assert.equal(call.toolNames.length, 8);
   assert.ok(call.input[0].content.includes("CHAT_RULES_MARKER"));
@@ -331,7 +340,7 @@ test("send: quick chat tier and the tools.maxCount limit are respected", async (
   assert.equal(opts.modelTier, "quick");
   assert.equal(opts.tools.length, 3);
   assert.deepEqual(opts.tools.map((t) => t.name), CHAT_TOOL_ORDER.slice(0, 3));
-  assert.equal(opts.cache, false);
+  assert.equal("cache" in opts, false, "cache must not be passed with tools");
 });
 
 test("send: no tools are passed when limits() reports none", async () => {
@@ -770,4 +779,220 @@ test("integration: onboarding → plan → today → log with real core, catalog
   assert.equal(logged.actions[0]?.type, "logged_session");
   assert.deepEqual((await store.state.get()).rotation.done, [plan.workouts[0].id]);
   for (const c of sample.calls) if (Array.isArray(c.input)) assert.ok(utf8Bytes(c.input[0].content) <= CHAT_BUDGETS.instructionsBytes);
+});
+
+// ---------- regression: every chat send failed with invalid_request after onboarding (live, 2026-11-07) ----------
+
+/** An independent walk of the conservative JSON Schema subset (does not reuse checkToolSchema). */
+function walkSchema(node, path, problems) {
+  const allowedKeys = new Set(["type", "properties", "required", "items", "enum", "description"]);
+  assert.ok(isObj(node), `${path} is an object`);
+  for (const k of Object.keys(node)) if (!allowedKeys.has(k)) problems.push(`${path}: keyword ${k}`);
+  if (typeof node.type !== "string" || !["object", "array", "string", "number", "integer", "boolean"].includes(node.type)) problems.push(`${path}: type ${JSON.stringify(node.type)}`);
+  if ("description" in node && (typeof node.description !== "string" || utf8Bytes(node.description) > 1024)) problems.push(`${path}: description`);
+  if ("enum" in node && (node.type !== "string" || !node.enum.every((v) => typeof v === "string"))) problems.push(`${path}: enum`);
+  if (node.type === "object") {
+    for (const [name, sub] of Object.entries(node.properties ?? {})) {
+      if (RESERVED_PROPERTY_NAMES.includes(name)) problems.push(`${path}: property named ${name}`);
+      walkSchema(sub, `${path}.${name}`, problems);
+    }
+    for (const r of node.required ?? []) if (!(r in (node.properties ?? {}))) problems.push(`${path}: required ${r} undeclared`);
+  } else if (node.type === "array") {
+    if (!isObj(node.items)) problems.push(`${path}: array without items`);
+    else walkSchema(node.items, `${path}[]`, problems);
+  } else if ("properties" in node || "items" in node || "required" in node) problems.push(`${path}: structure on a scalar`);
+}
+
+test("tool schemas: conservative subset only (no type arrays, null, oneOf/anyOf/$ref, keyword-named fields), ≤ 4 KB pretty, descriptions ≤ 1 KB", () => {
+  for (const [name, spec] of Object.entries(TOOL_SPECS)) {
+    const problems = [];
+    walkSchema(spec.inputSchema, name, problems);
+    assert.deepEqual(problems, [], name);
+    assert.equal(spec.inputSchema.type, "object");
+    assert.ok(utf8Bytes(JSON.stringify(spec.inputSchema, null, 2)) <= 4096, `${name} pretty size ${utf8Bytes(JSON.stringify(spec.inputSchema, null, 2))}`);
+    assert.ok(utf8Bytes(spec.description) <= 1024, `${name} description`);
+    assert.match(spec.name, /^[A-Za-z0-9_-]{1,128}$/);
+    assert.deepEqual(checkToolSpec(spec), [], name);
+    assert.ok(!/"type":\s*(\[|"null")/.test(JSON.stringify(spec.inputSchema)), `${name} has a type array or null type`);
+  }
+  assert.deepEqual(SCHEMA_KEYWORDS, ["type", "properties", "required", "items", "enum", "description"]);
+  assert.ok(SCHEMA_TYPES.includes("object"));
+});
+
+test("checkToolSchema rejects the constructs the platform may refuse", () => {
+  const ok = { type: "object", properties: { a: { type: "number" } }, required: ["a"] };
+  assert.deepEqual(checkToolSchema(ok), []);
+  const bad = [
+    { type: "object", properties: { a: { type: ["number", "null"] } } },
+    { type: "object", properties: { a: { type: "null" } } },
+    { type: "object", properties: { a: { anyOf: [{ type: "string" }, { type: "number" }] } } },
+    { type: "object", properties: { a: { $ref: "#/x" } } },
+    { type: "object", properties: { a: { type: "string" } }, additionalProperties: false },
+    { type: "object", properties: { type: { type: "string" } } },
+    { type: "object", properties: { a: { enum: ["x", "y"] } } },
+    { type: "object", properties: { a: { type: "array" } } },
+    { type: "object", required: ["missing"] },
+    { type: "object", properties: { a: { type: "string", description: "x".repeat(5000) } } },
+    { type: "string" },
+  ];
+  for (const s of bad) assert.ok(checkToolSchema(s).length > 0, JSON.stringify(s).slice(0, 80));
+});
+
+test("mock enforces the platform's invalid_request rules (roles, empty turns, schemas, cache with tools)", async () => {
+  const sample = createMockSample({ delayMs: 0, chunkMs: 0 });
+  const tool = (inputSchema) => ({ name: "t", description: "d", inputSchema, execute() { return "ok"; } });
+  const rejects = (p, re) => assert.rejects(p, (e) => e.code === "invalid_request" && (!re || re.test(e.message)));
+  await rejects(sample([{ role: "user", content: "x" }, { role: "event", content: "Plan approved" }, { role: "user", content: "y" }]), /role "event"/);
+  await rejects(sample([{ role: "user", content: "x" }, { role: "assistant", content: "" }, { role: "user", content: "y" }]), /empty content/);
+  await rejects(sample([{ role: "user", content: "x" }, { role: "assistant", content: "y" }]), /start and end/);
+  await rejects(sample("hi", { tools: [tool({ type: "object", properties: { a: { type: ["number", "null"] } } })] }), /inputSchema refused/);
+  await rejects(sample("hi", { tools: [tool({ type: "object", properties: { a: { type: "number" } } })], cache: { gcTime: 1000 } }));
+  await rejects(sample("hi", { signal: new AbortController() }));
+  await rejects(sample("hi", { modelTier: "turbo" }));
+  await rejects(sample("hi", { tools: Array.from({ length: 17 }, (_, i) => ({ ...tool(), name: `t${i}` })) }));
+  const ok = await sample("hi", { tools: [tool({ type: "object", properties: { a: { type: "number" } } })], cache: false });
+  assert.equal(typeof ok.text, "string");
+});
+
+/** The live timeline, with synthetic text: onboarding chat, plan approved event, /clear and failed empty replies. */
+function liveTimeline() {
+  let n = 0;
+  const m = (role, text, extra = {}) => ({ id: `m${++n}`, ts: `2026-11-07T09:${String(n).padStart(2, "0")}:00.000Z`, role, text, actions: [], error: null, ...extra });
+  return [
+    m("assistant", "Hi, I'm your coach. First, seven quick safety questions."),
+    m("user", "all no"),
+    m("assistant", "Thanks, saved. Round 2: goals?", { actions: [{ type: "updated_profile", label: "Profile updated · screening", ref: null }] }),
+    m("user", "strength plus endurance, 5 days"),
+    m("assistant", "Your intake is done and saved.", { actions: [{ type: "plan_request", label: "Plan requested", ref: "generate" }, { type: "updated_profile", label: "Onboarding complete", ref: null }] }),
+    m("event", "Plan approved: Week 1 calibration"),
+    m("user", "/clear"),
+    m("assistant", "", { error: "invalid_request" }),
+    m("user", "im starting my workout"),
+    m("assistant", "", { error: "invalid_request" }),
+    m("user", "Today I did workout number 1"),
+    m("assistant", "", { error: "invalid_request" }),
+    m("assistant", "", { error: "invalid_request" }),
+  ];
+}
+
+function assertPlatformValid(call) {
+  assertValidTurns(call.input);
+  for (let i = 2; i < call.input.length; i++) assert.notEqual(call.input[i].role, call.input[i - 1].role, `turns ${i - 1}/${i} share a role`);
+  assert.ok(call.input[0].content.endsWith(INSTRUCTIONS_END));
+  for (const t of call.options?.tools ?? []) assert.deepEqual(checkToolSpec(t), [], t.name);
+  if (call.options?.tools) assert.equal("cache" in call.options, false);
+}
+
+test("regression: after onboarding + plan approved + failed empty replies, the next send builds valid turns and tools", async () => {
+  const mock = createMockSample({ delayMs: 0, chunkMs: 0 });
+  const calls = [];
+  const sample = async (input, options) => { calls.push({ input, options }); return mock(input, options); };
+  sample.json = mock.json;
+  sample.limits = mock.limits;
+  const store = makeStore({ chat: liveTimeline() });
+  const { coach } = coachWith({ sample, store });
+
+  const res = await coach.send("What's my workout today?");
+  assert.equal(res.error, null, res.errorDetail);
+  const call = calls[0];
+  assertPlatformValid(call);
+  assert.equal(call.options.tools.length, 8);
+  const contents = call.input.map((t) => t.content);
+  assert.ok(contents.some((c) => c.includes("[App event] Plan approved: Week 1 calibration")));
+  assert.ok(!contents.some((c) => /^\/clear$/m.test(c)), "/clear never reaches Claude");
+  assert.ok(contents.some((c) => c.includes(`Today I did workout number 1\n${UNANSWERED_NOTE}`)));
+  assert.equal(call.input.at(-1).content.split("\n\n").at(-1), "What's my workout today?");
+  assert.ok(!call.input.some((t) => t.role === "assistant" && /invalid_request/.test(t.content)));
+
+  // a manual retry of the last failed message is not stored twice and works
+  const before = store._data.chat.filter((x) => x.role === "user").length;
+  const retry = await coach.send("Today I did workout number 1");
+  assert.equal(retry.error, null);
+  assertPlatformValid(calls[1]);
+  assert.equal(store._data.chat.filter((x) => x.role === "user").length, before + 1); // only the first new message was added
+});
+
+test("regression: a stored event right before the new message is merged into the final user turn", () => {
+  const turns = buildChatTurns({
+    instructions: `RULES\n\n${INSTRUCTIONS_END}`,
+    history: [{ role: "assistant", text: "hello" }, { role: "event", text: "Plan approved: W1" }, { role: "assistant", text: "", error: "upstream_error" }],
+    userText: "next?",
+  });
+  assert.deepEqual(turns.map((t) => t.role), ["user", "assistant", "user"]);
+  assert.equal(turns[2].content, "[App event] Plan approved: W1\n\nnext?");
+});
+
+test("normalizeTurns: other roles become notes, empties dropped, same roles merged, starts/ends on user", () => {
+  const out = normalizeTurns([
+    { role: "assistant", content: "lead" }, { role: "user", content: "a" }, { role: "user", content: "b" },
+    { role: "event", content: "x" }, { role: "assistant", content: "  " }, { role: "assistant", content: "c" }, { role: "assistant", content: "trail" },
+  ]);
+  assert.deepEqual(out, [{ role: "user", content: "a\n\nb\n\n[App event] x" }]);
+  assert.deepEqual(normalizeTurns([{ role: "user", content: `I\n${INSTRUCTIONS_END}` }, { role: "user", content: "q" }]).length, 2);
+  assert.deepEqual(normalizeTurns([]), []);
+});
+
+test("a rejected call keeps code and message: errorDetail (≤ 300 chars) is stored and returned", async () => {
+  const long = "tools[0].inputSchema: Claude's API refused the schema: " + "x".repeat(600);
+  const sample = scriptedSample(async () => { throw { code: "invalid_request", message: long }; });
+  const { coach, store } = coachWith({ sample });
+  const res = await coach.send("hi");
+  assert.equal(res.error, "invalid_request");
+  assert.ok(res.errorDetail.startsWith("tools[0].inputSchema"));
+  const saved = store._data.chat.at(-1);
+  assert.equal(saved.role, "assistant");
+  assert.equal(saved.error, "invalid_request");
+  assert.ok(saved.errorDetail.length <= 300 && saved.errorDetail.startsWith("tools[0]"));
+  // the failed reply is excluded from the next call's turns
+  const sample2 = scriptedSample(async () => ({ text: "ok" }));
+  const again = createCoach({ runtime: { sample: sample2, uid: "u1" }, store, core: makeCore(), catalog: CATALOG, knowledge: KNOWLEDGE, now: () => new Date("2026-11-07T10:00:00Z") });
+  await again.send("hello again");
+  assert.deepEqual(sample2.calls[0].input.map((t) => t.role), ["user", "user"]);
+  assert.match(sample2.calls[0].input[1].content, /^hi\n\[App note.*\n\nhello again$/s);
+});
+
+test("/clear is a UI command: never stored, never sent to Claude", async () => {
+  const sample = scriptedSample(async () => ({ text: "ok" }));
+  const { coach, store } = coachWith({ sample });
+  const res = await coach.send("  /clear ");
+  assert.equal(res.command, "clear");
+  assert.equal(res.error, null);
+  assert.equal(sample.calls.length, 0);
+  assert.equal(store._data.chat.length, 0);
+});
+
+test("log_session accepts the keyword-free flat tool input and maps it to a Session", async () => {
+  const { sessionFromToolInput } = await import("../src/brain.js");
+  const s = sessionFromToolInput({
+    sessionType: "hybrid", workoutTitle: "Full body", workoutId: "next",
+    strength: [{ name: "Back squat", sets: [{ reps: 5, warmup: true }, { loadKg: 100, reps: 5, rir: 2 }] }],
+    conditioning: [{ metconFormat: "AMRAP", summary: "12 min burpees", rounds: 5, completed: true }],
+  });
+  assert.equal(s.type, "hybrid");
+  assert.equal(s.title, "Full body");
+  assert.deepEqual(s.strength[0].sets, [{ reps: 5, type: "warmup", loadKg: null, rir: null }, { loadKg: 100, reps: 5, rir: 2, type: "work" }]);
+  assert.deepEqual(s.conditioning[0], { format: "AMRAP", description: "12 min burpees", result: { rounds: 5, completed: true } });
+  assert.equal(sessionFromToolInput({ session: { type: "run" } }).type, "run");
+  assert.equal(sessionFromToolInput({}), null);
+});
+
+test("after store.chat.clear() the next send starts fresh and works (real store)", { skip: REAL ? false : "other modules not implemented yet" }, async () => {
+  const { createStore, createMockDb } = REAL;
+  const now = () => new Date("2026-11-07T10:00:00Z");
+  const store = createStore(createMockDb(), "u1", { now });
+  await store.profile.update(profileOf());
+  for (const msg of liveTimeline()) await store.chat.append(msg);
+  const coachMem = await store.coach.addNote({ kind: "goal", text: "Squat 120" });
+  const sample = scriptedSample(async () => ({ text: "Fresh start." }));
+  const coach = createCoach({ runtime: { sample, uid: "u1" }, store, core: makeCore(), catalog: CATALOG, knowledge: KNOWLEDGE, now });
+  const { undo } = await store.chat.clear();
+  assert.deepEqual(await store.chat.recent(50), []);
+  const res = await coach.send("hello");
+  assert.equal(res.error, null);
+  assert.deepEqual(sample.calls[0].input.map((t) => t.role), ["user", "user"]);
+  assert.equal(sample.calls[0].input[1].content, "hello");
+  assert.match(sample.calls[0].input[0].content, /Squat 120/, "long-term memory still in the context");
+  assert.ok(coachMem.note || coachMem.id || coachMem.undo);
+  await undo();
+  assert.ok((await store.chat.recent(50)).length >= liveTimeline().length);
 });

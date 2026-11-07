@@ -3,12 +3,16 @@
 
 import {
   h, icon, button, append, replaceChildren, createTicker, fmtElapsed, fmtRelDay, dateOfTs,
-  errorText, safe, toUnsub, lsGet, lsSet, isCoarsePointer, toast, reducedMotion,
+  errorText, safe, toUnsub, lsGet, lsSet, isCoarsePointer, toast, reducedMotion, openSheet,
 } from "./components.js";
 import { renderMarkdown } from "./markdown.js";
 
 const DRAFT_KEY = "pt.chatDraft";
 const RECENT_COUNT = 80;
+const CLEAR_RE = /^\/clear\s*$/i;
+/** Shown in every clear-chat confirmation (Coach tab, Settings, /clear). */
+export const CLEAR_CHAT_COPY = "Clear the whole conversation? Only the chat messages are deleted. The coach's long-term memory (summary and notes), your profile, plans and workout history are kept.";
+const CLEARED_EVENT = "Chat cleared. The coach's memory, your profile, plans and history are kept.";
 const SUGGESTIONS = [
   { label: "What's my workout today?", send: "What's my workout today?" },
   { label: "Log a workout", prefill: "Today I did " },
@@ -37,6 +41,7 @@ export function mountChat(el, ctx) {
   const unsubs = [];
 
   /** @type {any[]} */ let older = [];
+  let clearing = false;
   /** @type {any[]} */ let todayMsgs = [];
   let todayDate = ctx.today();
   let dayUnsub = () => {};
@@ -123,19 +128,23 @@ export function mountChat(el, ctx) {
   }
 
   // ---- data --------------------------------------------------------------------------------
-  if (store) {
-    Promise.resolve()
+  function loadRecent({ replaceToday = false } = {}) {
+    return Promise.resolve()
       .then(() => store.chat.recent(RECENT_COUNT))
       .then((msgs) => {
         const arr = Array.isArray(msgs) ? msgs : [];
         older = arr.filter((m) => msgDate(m) !== todayDate);
-        if (!todayMsgs.length) todayMsgs = arr.filter((m) => msgDate(m) === todayDate);
+        if (replaceToday || !todayMsgs.length) todayMsgs = arr.filter((m) => msgDate(m) === todayDate);
       })
       .catch(() => {})
       .finally(() => {
         loaded = true;
         render({ stick: true });
       });
+  }
+
+  if (store) {
+    loadRecent();
     subscribeToday();
   } else {
     loaded = true;
@@ -235,7 +244,7 @@ export function mountChat(el, ctx) {
   }
 
   function messageNode(m, { isLast, isLastPlanReq }) {
-    const sig = JSON.stringify([m.text, m.actions, m.error, isLast, isLastPlanReq, actionStateSig(m), m.pending]);
+    const sig = JSON.stringify([m.text, m.actions, m.error, m.errorDetail, isLast, isLastPlanReq, actionStateSig(m), m.pending]);
     const cached = nodeCache.get(m.id);
     if (cached && cached.sig === sig) return cached.el;
     let node;
@@ -249,7 +258,7 @@ export function mountChat(el, ctx) {
         m.text ? h("div", { class: "md" }, renderMarkdown(m.text)) : null,
         actionCards(m, { isLastPlanReq }),
         m.error && m.error !== "cancelled"
-          ? h("div", { class: "msg-error" }, errorLineFor(m.error, isLast ? () => retryFrom(m) : null))
+          ? h("div", { class: "msg-error" }, errorLineFor(m.error, isLast ? () => retryFrom(m) : null, m.errorDetail))
           : null,
       );
     }
@@ -333,13 +342,15 @@ export function mountChat(el, ctx) {
     return { updated_profile: "Profile updated", coach_note: "Noted" }[type] || "Done";
   }
 
-  function errorLineFor(code, onRetry) {
+  function errorLineFor(code, onRetry, detail) {
     const line = h("div", { class: "error-line", role: "alert" },
       icon("alert", { size: 18 }),
       h("span", { class: "error-text" }, errorText(coach, code)),
       onRetry && retryable(code) ? button({ label: "Retry", icon: "refresh", kind: "secondary", small: true, onClick: onRetry, disabled: Boolean(inflight) }) : null,
     );
-    return line;
+    if (!detail) return line;
+    // The platform's developer message, kept so failures can be debugged (textContent only).
+    return h("div", { class: "error-block" }, line, h("p", { class: "error-detail" }, `${code}: ${String(detail).slice(0, 300)}`));
   }
 
   function retryable(code) {
@@ -390,7 +401,7 @@ export function mountChat(el, ctx) {
     // error line not represented by a persisted message
     const persistedErr = lastError && msgs.some((m) => m.role === "assistant" && m.error && m.ts >= lastError.sinceTs);
     errorEl.hidden = !lastError || Boolean(persistedErr) || Boolean(inflight);
-    if (!errorEl.hidden) replaceChildren(errorEl, errorLineFor(lastError.code, lastError.retry));
+    if (!errorEl.hidden) replaceChildren(errorEl, errorLineFor(lastError.code, lastError.retry, lastError.detail));
 
     // composer
     const canChat = Boolean(coach) && status.available !== false;
@@ -460,11 +471,93 @@ export function mountChat(el, ctx) {
     input.value = "";
     lsSet(DRAFT_KEY, null);
     autoGrow();
+    if (CLEAR_RE.test(text)) {
+      confirmClear(); // a command for the app, never sent to Claude
+      renderChrome();
+      return;
+    }
     send(text);
+  }
+
+  // ---- clear chat --------------------------------------------------------------------------
+  /** Open the in-page confirmation (a small sheet) for clearing the conversation. */
+  function confirmClear() {
+    if (!store) return;
+    if (inflight || clearing) {
+      toast({ text: "Wait for the coach to finish, then clear the chat." });
+      return;
+    }
+    openSheet({
+      title: "Clear chat?",
+      id: "clear-chat-sheet",
+      build: (api) => {
+        const yes = button({
+          id: "clear-chat-yes",
+          label: "Clear chat",
+          icon: "trash",
+          kind: "danger",
+          onClick: async () => {
+            yes.disabled = true;
+            await clearChat();
+            api.close();
+          },
+        });
+        const no = button({ id: "clear-chat-no", label: "Cancel", kind: "ghost", onClick: () => api.close() });
+        setTimeout(() => no.focus(), 0);
+        return h("div", { class: "confirm" },
+          h("p", { class: "confirm-text" }, CLEAR_CHAT_COPY),
+          h("div", { class: "confirm-actions" }, no, yes),
+        );
+      },
+    });
+  }
+
+  /**
+   * Delete the conversation (store.chat.clear), show a "Chat cleared" event and offer Undo.
+   * Coach memory, profile, plans and history are not touched.
+   * @returns {Promise<boolean>} true when cleared
+   */
+  async function clearChat() {
+    if (!store || inflight || clearing) return false;
+    clearing = true;
+    try {
+      const res = await store.chat.clear();
+      older = [];
+      todayMsgs = [];
+      nodeCache.clear();
+      lastError = null;
+      stopped = null;
+      checkDayRollover();
+      const ev = await Promise.resolve(safe(() => store.chat.append({ role: "event", text: CLEARED_EVENT, actions: [], error: null }), null)).catch(() => null);
+      render({ stick: true });
+      toast({
+        text: "Chat cleared",
+        action: {
+          label: "Undo",
+          fn: async () => {
+            try {
+              await ev?.undo?.();
+              await res?.undo?.();
+              nodeCache.clear();
+              await loadRecent({ replaceToday: true });
+            } catch (err) {
+              toast({ text: errorText(coach, err), kind: "error" });
+            }
+          },
+        },
+      });
+      return true;
+    } catch (err) {
+      toast({ text: errorText(coach, err), kind: "error" });
+      return false;
+    } finally {
+      clearing = false;
+    }
   }
 
   async function send(text) {
     if (inflight || !coach) return;
+    if (CLEAR_RE.test(String(text ?? "").trim())) { confirmClear(); return; }
     checkDayRollover();
     await run("send", text, (opts) => coach.send(text, opts));
   }
@@ -514,14 +607,14 @@ export function mountChat(el, ctx) {
         },
       });
       partial = res?.text || inflight.stream;
-      if (res?.error && res.error !== "cancelled") lastError = { code: res.error, sinceTs, retry };
+      if (res?.error && res.error !== "cancelled") lastError = { code: res.error, sinceTs, retry, detail: res.errorDetail };
       if (res?.error === "cancelled" && partial) stopped = { text: partial, sinceTs };
     } catch (err) {
       partial = err?.text || inflight?.stream || "";
       if (err?.code === "cancelled") {
         if (partial) stopped = { text: partial, sinceTs };
       } else {
-        lastError = { code: err?.code || "upstream_error", sinceTs, retry };
+        lastError = { code: err?.code || "upstream_error", sinceTs, retry, detail: typeof err?.message === "string" ? err.message : "" };
         if (partial && err?.code !== "refused") stopped = { text: partial, sinceTs };
       }
     } finally {
@@ -593,6 +686,10 @@ export function mountChat(el, ctx) {
       send(text);
     },
     isBusy: () => Boolean(inflight),
+    /** Ask to clear the conversation (in-page confirm). */
+    confirmClear: () => confirmClear(),
+    /** Clear the conversation now (the caller already confirmed). @returns {Promise<boolean>} */
+    clear: () => clearChat(),
   };
 
   autoGrow();

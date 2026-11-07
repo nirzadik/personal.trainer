@@ -3,6 +3,7 @@
 
 import { h, button, append, replaceChildren, segmented, openSheet, inlineConfirm, toast, safe, errorText, lsGet, plural } from "./components.js";
 import { prettifyId } from "./ops.js";
+import { CLEAR_CHAT_COPY } from "./chat.js";
 
 const UI_VERSION = "1.0.0";
 
@@ -171,8 +172,48 @@ export function openSettings(ctx) {
       });
       append(host, [row("Setup", "Go through the onboarding chat again: safety check, goals, schedule, equipment.", restartBtn, "settings-restart")]);
       children.push(host);
+
+      const clearHost = h("div", { class: "set-confirm-host" });
+      const clearBtn = button({
+        id: "settings-clear-chat",
+        label: "Clear chat",
+        icon: "trash",
+        kind: "secondary",
+        small: true,
+        onClick: () => inlineConfirm(clearHost, {
+          text: CLEAR_CHAT_COPY,
+          confirmLabel: "Clear chat",
+          danger: true,
+          idPrefix: "settings-clear-chat",
+          onConfirm: async () => {
+            if (ctx.chat?.isBusy?.()) {
+              toast({ text: "Wait for the coach to finish, then clear the chat." });
+              return;
+            }
+            const ok = ctx.chat?.clear ? await ctx.chat.clear() : await clearDirect();
+            if (ok) {
+              api.close();
+              ctx.nav("coach");
+            }
+          },
+        }),
+      });
+      append(clearHost, [row("Conversation", "Delete the chat messages and start a fresh conversation. The coach's memory, your profile, plans and history stay.", clearBtn, "settings-clear-chat")]);
+      children.push(clearHost);
     }
     return children.length ? group("Your data", children) : null;
+  }
+
+  /** Fallback when the Coach tab failed to mount: clear through the store with an Undo toast. */
+  async function clearDirect() {
+    try {
+      const res = await store.chat.clear();
+      toast({ text: "Chat cleared", action: { label: "Undo", fn: () => res?.undo?.() } });
+      return true;
+    } catch (err) {
+      toast({ text: errorText(coach, err), kind: "error" });
+      return false;
+    }
   }
 
   function devSection() {

@@ -819,6 +819,26 @@ function buildStore(db, uid, now) {
       if (limit != null) q = q.limit(limit);
       return (await q.get()).docs.map((d) => d.data().date ?? d.id);
     }),
+    /**
+     * Delete every chat day doc (the whole conversation). Nothing else is touched: coach memory
+     * (summary, notes), profile, plans, sessions and state stay as they are.
+     * `undo` puts the deleted messages back; messages written since the clear are kept (merged by id, in ts order).
+     * @returns {Promise<{ days: number, messages: number, undo: () => Promise<void> }>}
+     */
+    clear: guard(async () => {
+      const snap = await daysColl().get();
+      const removed = snap.docs.map((d) => ({ id: d.id, data: clone(d.data()) }));
+      await pool(removed.map((r) => () => rmw(`${P.chat}/${r.id}`, () => DELETE)), 4);
+      const undo = makeUndo(() => pool(removed.map((r) => () => rmw(`${P.chat}/${r.id}`, (cur) => {
+        const before = Array.isArray(r.data?.messages) ? r.data.messages : [];
+        if (!cur) return r.data;
+        const ids = new Set(before.map((m) => m?.id));
+        const since = (Array.isArray(cur.messages) ? cur.messages : []).filter((m) => !ids.has(m?.id));
+        const merged = [...before, ...since].sort((a, b) => String(a?.ts ?? "").localeCompare(String(b?.ts ?? "")));
+        return { ...clone(cur), ...clone(r.data), messages: merged.slice(-LIMITS.chatMessagesPerDay) };
+      })), 4));
+      return { days: removed.length, messages: removed.reduce((n, r) => n + (r.data?.messages?.length ?? 0), 0), undo };
+    }),
   };
 
   // -- backup -----------------------------------------------------------------

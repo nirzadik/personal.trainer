@@ -278,6 +278,7 @@ ul, ol { margin: 0; padding: 0; }
   padding: 1px 6px;
 }
 
+.topbar-actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .btn-header { color: var(--header-fg); background: transparent; border-color: transparent; }
 .btn-header:hover { background: color-mix(in srgb, var(--header-fg) 12%, transparent); }
 
@@ -585,6 +586,15 @@ html.composing.kb-open .tabbar { display: none; }
 }
 .error-line > .icon { color: var(--pain); flex: none; }
 .error-text { flex: 1 1 200px; font-size: var(--fs-sm); }
+.error-block { display: grid; gap: 4px; }
+/* The platform's developer message under an error line, for debugging. */
+.error-detail {
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--ink-2);
+  padding: 0 12px;
+  overflow-wrap: anywhere;
+}
 
 .confirm {
   display: grid;

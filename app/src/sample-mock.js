@@ -8,7 +8,8 @@
 // Dev helpers: type "!fail <code>" in the chat to make the next reply fail with that sample error code.
 // `mock.calls` and `mock.toolCalls` record what was asked (for tests and debugging).
 
-import { MODE_LINE } from "./prompts/chat.js";
+import { EVENT_PREFIX, INSTRUCTIONS_END, MODE_LINE, UNANSWERED_NOTE } from "./prompts/chat.js";
+import { checkToolSpec } from "./prompts/tools.js";
 import { ALLOWED_HEADING, PLAN_PROMPT_MARKER, PROFILE_HEADING, REPAIR_PROMPT_MARKER, RUN_CAPS_HEADING } from "./prompts/plan.js";
 import { SUMMARY_PROMPT_MARKER } from "./prompts/summary.js";
 import { COMMENT_PROMPT_MARKER } from "./prompts/comment.js";
@@ -98,7 +99,7 @@ function validateCall(input, options, verb) {
   } else if (Array.isArray(input)) {
     if (!input.length) throw fail("invalid_request", "input has no turns");
     input.forEach((t, i) => {
-      if (!isObj(t) || (t.role !== "user" && t.role !== "assistant")) throw fail("invalid_request", `turn ${i} has an invalid role`);
+      if (!isObj(t) || (t.role !== "user" && t.role !== "assistant")) throw fail("invalid_request", `turn ${i} has an invalid role${isObj(t) ? ` "${String(t.role)}"` : ""}`);
       if (typeof t.content !== "string" || !t.content.trim()) throw fail("invalid_request", `turn ${i} has empty content`);
     });
     if (input[0].role !== "user" || input[input.length - 1].role !== "user") throw fail("invalid_request", "turns must start and end with a user turn");
@@ -111,6 +112,10 @@ function validateCall(input, options, verb) {
   if (o.signal !== undefined && !(typeof o.signal === "object" && o.signal && "aborted" in o.signal)) throw fail("invalid_request", "signal must be an AbortSignal (pass ctl.signal)");
   if (o.modelTier !== undefined && ![...LIMITS.modelTiers, "inherit"].includes(o.modelTier)) throw fail("invalid_request", `unknown modelTier ${o.modelTier}`);
   if (o.cache !== undefined && !(typeof o.cache === "boolean" || isObj(o.cache))) throw fail("invalid_request", "cache must be true, false or {gcTime, refresh}");
+  if (isObj(o.cache) && (Object.keys(o.cache).some((k) => k !== "gcTime" && k !== "refresh") || ("gcTime" in o.cache && !(Number.isFinite(o.cache.gcTime) && o.cache.gcTime > 0)))) {
+    throw fail("invalid_request", "cache must be true, false or {gcTime, refresh} with gcTime > 0");
+  }
+  if (o.images !== undefined) throw fail("images_unavailable", "this artifact does not declare images");
   if (o.tools !== undefined) {
     if (!Array.isArray(o.tools)) throw fail("invalid_request", "tools must be an array");
     if (o.tools.length > LIMITS.tools.maxCount) throw fail("invalid_request", `at most ${LIMITS.tools.maxCount} tools`);
@@ -122,6 +127,9 @@ function validateCall(input, options, verb) {
       names.add(t.name);
       if (typeof t.description !== "string" || !t.description.trim() || bytes(t.description) > 1024) throw fail("invalid_request", `tools[${i}].description must be 1 B-1 KB`);
       if (t.inputSchema !== undefined && (!isObj(t.inputSchema) || t.inputSchema.type !== "object" || bytes(JSON.stringify(t.inputSchema)) > 4096)) throw fail("invalid_request", `tools[${i}].inputSchema must be an object schema ≤ 4 KB`);
+      // Stand-in for "a tool inputSchema Claude's API refused": the conservative subset the app commits to.
+      const schemaProblems = checkToolSpec(t);
+      if (schemaProblems.length) throw fail("invalid_request", `tools[${i}] (${t.name}) inputSchema refused: ${schemaProblems[0]}`);
       if (typeof t.execute !== "function") throw fail("invalid_request", `tools[${i}].execute must be a function`);
     });
   }
@@ -132,11 +140,36 @@ function validateCall(input, options, verb) {
 
 function promptParts(input) {
   if (typeof input === "string") return { instructions: "", lastUser: input, turns: [{ role: "user", content: input }], whole: input };
+  const first = input[0].content;
+  const cut = first.indexOf(INSTRUCTIONS_END);
+  const instructions = cut >= 0 ? first.slice(0, cut + INSTRUCTIONS_END.length) : first;
+  const lastContent = input.length === 1 ? (cut >= 0 ? first.slice(cut + INSTRUCTIONS_END.length) : "") : input[input.length - 1].content;
   return {
-    instructions: input[0].content,
-    lastUser: input[input.length - 1].content,
+    instructions,
+    lastUser: newestMessage(lastContent),
     turns: input,
     whole: input.map((t) => t.content).join("\n\n"),
+  };
+}
+
+/** The owner's newest message inside a (possibly merged) user turn: what follows the last app event/note block. */
+function newestMessage(content) {
+  const blocks = String(content ?? "").trim().split(/\n{2,}/);
+  let i = -1;
+  blocks.forEach((b, j) => { if (b.toLowerCase().startsWith(EVENT_PREFIX.toLowerCase()) || b.includes(UNANSWERED_NOTE)) i = j; });
+  const rest = blocks.slice(i + 1).join("\n\n").trim();
+  return rest || (i >= 0 ? blocks[i] : String(content ?? "").trim());
+}
+
+/** A parsed Session (parseWorkoutReport) in log_session's tool-input shape (tools.js names). */
+function toToolSession(session) {
+  const { type, title, conditioning, strength, ...rest } = session;
+  return {
+    ...rest,
+    sessionType: type,
+    ...(title ? { workoutTitle: title } : {}),
+    ...(strength ? { strength: strength.map((ex) => ({ ...ex, sets: ex.sets.map(({ type: setType, loadKg, rir, ...st }) => ({ ...st, ...(loadKg != null ? { loadKg } : {}), ...(rir != null ? { rir } : {}), ...(setType === "warmup" ? { warmup: true } : {}) })) })) } : {}),
+    ...(conditioning ? { conditioning: conditioning.map(({ format, description, result, ...c }) => ({ ...c, metconFormat: format, summary: description, ...Object.fromEntries(Object.entries(result ?? {}).filter(([, v]) => v != null)) })) } : {}),
   };
 }
 
@@ -616,7 +649,7 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
     if (mode === "onboarding") {
       const profile = parseProfileFromPrompt(parts.instructions);
       const step = onboardingStep(profile) ?? "screening";
-      if (user.startsWith("[app event]") || !tools.has("update_profile")) {
+      if (user.toLowerCase().startsWith(EVENT_PREFIX.toLowerCase()) || !tools.has("update_profile")) {
         await write(`Hi${profile?.name ? ` ${profile.name}` : ""}! I'm your coach. We'll set you up in a few short rounds (about 5 minutes). I save as we go, and you can change anything later.\n\n${ONBOARDING_QUESTIONS[step === "done" ? "screening" : step]}`);
         return;
       }
@@ -655,7 +688,7 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
       const { session } = parseWorkoutReport(user);
       if (!can("log_session")) { await write("I can't save workouts from this view. Use **History → Add workout** and I'll comment on it there."); return; }
       await write("Nice, logging that now.");
-      const res = asObj(await callTool("log_session", { session }));
+      const res = asObj(await callTool("log_session", toToolSession(session)));
       if (res.text?.startsWith?.("Error")) { await write(`I couldn't log it: ${res.text.replace(/^Error:\s*/, "")}. Want to try again with the sets spelled out?`); return; }
       const lines = ["Logged:", describeSession(session)];
       if (res.prs?.length) lines.push("", `**New PR${res.prs.length > 1 ? "s" : ""}**: ${res.prs.map((p) => `${titleCase(p.exerciseId ?? "")} ${p.kind} ${p.value}`).join(", ")}`);

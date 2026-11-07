@@ -38,49 +38,51 @@ export const PLAN_BUDGETS = Object.freeze({
  */
 export const PLAN_JSON_SPEC = `Reply with ONLY one JSON object, no prose before or after. Use null for unknown numbers and [] for empty lists. No other keys.
 {
-  "focus": string,              // one line, ≤ 90 chars
-  "rationale": string,          // 2-5 sentences that reference the recent history numbers above
+  "focus": string,              // one line, ≤ 60 chars
+  "rationale": string,          // ≤ 2 short sentences, ≤ 220 chars, citing 1-2 recent history numbers above
   "workouts": [Workout],        // exactly the required number, in rotation order (the order they should be done)
-  "notes": [string]             // ≤ 5 short notes: deload hints, swaps, safety reminders
+  "notes": [string]             // ≤ 5 notes, each ≤ 100 chars: deload hints, swaps, safety reminders
 }
 Workout = { "id": "W1" | "W2" | …, "title": string, "type": "strength" | "run" | "conditioning" | "hybrid" | "mobility",
-            "locationId": one of the owner's location ids, "estMinutes": number, "intent": string (why this session), "blocks": [Block] }
+            "locationId": one of the owner's location ids, "estMinutes": number, "intent": string (1 sentence, ≤ 90 chars), "blocks": [Block] }
 Block is one of:
-  { "kind": "warmup" | "cooldown" | "mobility", "minutes": number, "items": [ { "name": string, "detail": string } ] }
+  { "kind": "warmup" | "cooldown" | "mobility", "minutes": number, "items": [ { "name": short string, "detail": string ≤ 6 words } ] }
   { "kind": "strength", "items": [StrengthItem] }
   { "kind": "conditioning", "format": "AMRAP" | "EMOM" | "FOR_TIME" | "RFT" | "INTERVALS" | "TABATA" | "CHIPPER",
     "minutes": number|null, "rounds": number|null, "timeCapMin": number|null, "workSec": number|null, "restSec": number|null,
-    "items": [CondItem], "targetRpe": number|null, "scaling": string, "notes": string }
+    "items": [CondItem], "targetRpe": number|null, "scaling": string (one line, ≤ 100 chars), "notes": string (≤ 100 chars or "") }
   { "kind": "run", "runType": "easy" | "long" | "tempo" | "threshold" | "intervals" | "hills" | "fartlek" | "recovery" | "strides" | "race",
     "warmupMin": number|null, "cooldownMin": number|null, "totalKm": number,
     "segments": [ { "reps": number, "distanceM": number|null, "durationSec": number|null,
                     "target": { "paceSecPerKm": [lo, hi] | null, "hrZone": number|null, "rpe": number|null },
                     "recoverySec": number|null, "recoveryType": "jog" | "walk" | "stand" | null } ],
-    "notes": string }
+    "notes": string (≤ 100 chars or "") }
 StrengthItem = { "exerciseId": allowed id, "name": string, "sets": number, "reps": string ("8-12" | "5" | "AMRAP"),
                  "targetRir": number|null, "loadKg": number|null, "restSec": number, "progression": "linear" | "double" | "rpe" | "none",
-                 "incrementKg": number|null, "tempo": string|null, "notes": string, "alternatives": [allowed ids], "supersetGroup": "A" | "B" | null }
+                 "incrementKg": number|null, "tempo": string|null, "notes": string (≤ 8 words or ""), "alternatives": [allowed ids], "supersetGroup": "A" | "B" | null }
 CondItem = { "exerciseId": allowed id, "name": string, "reps": number|null, "calories": number|null, "distanceM": number|null,
-             "durationSec": number|null, "loadKg": number|null, "notes": string }   // unused fields null
+             "durationSec": number|null, "loadKg": number|null, "notes": string (≤ 8 words or "") }   // unused fields null
 Rules for the JSON:
 - Every exerciseId and every alternatives entry MUST come from the provided exercise list for that workout's locationId. Never invent ids.
 - Paces are seconds per km (paceSecPerKm [lo, hi]); take them from the app-computed paces above, never convert yourself.
 - loadKg: copy the app-computed target when one is listed for that exercise; otherwise null (the app computes it from history). Never estimate.
 - Give each strength item 1-2 alternatives from the allowed list.
 - estMinutes must fit the session length; the app re-checks durations, equipment, run ramp and weekly volume.
-- totalKm is the run's whole distance including warm-up and cool-down.`;
+- totalKm is the run's whole distance including warm-up and cool-down.
+- Be brief (the app flags TOO_VERBOSE): the owner reads this on a phone. Never restate numbers the fields already hold
+  (sets, reps, RIR, rest, load, pace) in notes; say each cue or safety reminder once in the whole plan, not in every workout.`;
 
 /** A compact example showing the shape (not content to copy). */
 export const PLAN_EXAMPLE = JSON.stringify({
-  focus: "Build squat and bench volume; keep runs easy",
-  rationale: "Squat e1RM rose 3% over 4 weeks with RIR on target, so loads progress. Weekly km held at 12 with no pain, so the long run grows by 1 km.",
+  focus: "Wk 3 build: squat and bench up, runs easy",
+  rationale: "Squat e1RM +3% with RIR on target: loads up. Runs held at 12 km, no pain: long run +1 km.",
   workouts: [
     {
-      id: "W1", title: "Lower A", type: "strength", locationId: "gym", estMinutes: 55, intent: "Heavy squat, moderate hinge",
+      id: "W1", title: "Lower A", type: "strength", locationId: "gym", estMinutes: 55, intent: "Heavy squat; legs fresh for W3",
       blocks: [
-        { kind: "warmup", minutes: 8, items: [{ name: "Bike", detail: "5 min easy" }, { name: "Ramp-up sets", detail: "3 sets to working weight" }] },
+        { kind: "warmup", minutes: 8, items: [{ name: "Bike", detail: "5 min easy" }, { name: "Leg swings", detail: "10/side" }] },
         { kind: "strength", items: [
-          { exerciseId: "back_squat", name: "Back squat", sets: 3, reps: "5", targetRir: 2, loadKg: 102.5, restSec: 180, progression: "linear", incrementKg: 2.5, tempo: null, notes: "", alternatives: ["goblet_squat"], supersetGroup: null },
+          { exerciseId: "back_squat", name: "Back squat", sets: 3, reps: "5", targetRir: 2, loadKg: 102.5, restSec: 180, progression: "linear", incrementKg: 2.5, tempo: null, notes: "ramp: bar×10, ~50%×5, ~75%×3", alternatives: ["goblet_squat"], supersetGroup: null },
         ] },
       ],
     },
@@ -89,11 +91,11 @@ export const PLAN_EXAMPLE = JSON.stringify({
       blocks: [
         { kind: "run", runType: "easy", warmupMin: 0, cooldownMin: 0, totalKm: 6, segments: [
           { reps: 1, distanceM: 6000, durationSec: null, target: { paceSecPerKm: [360, 390], hrZone: 2, rpe: 3 }, recoverySec: null, recoveryType: null },
-        ], notes: "Conversational pace" },
+        ], notes: "Conversational; slower is fine" },
       ],
     },
   ],
-  notes: ["Swap W1 and W2 freely if legs are sore"],
+  notes: ["Swap W1 and W2 if legs are sore"],
 });
 
 const PATTERN_ORDER = ["squat", "hinge", "lunge", "h_push", "v_push", "h_pull", "v_pull", "carry", "core", "isolation", "plyo", "olympic", "gymnastics", "cardio"];

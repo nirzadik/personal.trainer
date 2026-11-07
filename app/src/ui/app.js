@@ -196,6 +196,17 @@ export function mountApp(root, { runtime, store, coach, core, catalog }) {
     onClick: () => ctx.openSettings(),
   }, icon("settings", { size: 22 }));
 
+  // Coach tab only: clear the conversation (in-page confirm owned by chat.js).
+  const clearChatBtn = h("button", {
+    type: "button",
+    class: "btn btn-icon btn-header",
+    id: "clear-chat",
+    "aria-label": "Clear chat",
+    title: "Clear chat",
+    hidden: true,
+    onClick: () => ctx.chat?.confirmClear?.(),
+  }, icon("trash", { size: 20 }));
+
   const header = h("header", { class: "topbar" },
     h("div", { class: "topbar-inner" },
       h("div", { class: "brand" },
@@ -203,7 +214,7 @@ export function mountApp(root, { runtime, store, coach, core, catalog }) {
         h("span", { class: "brand-name" }, "Personal Trainer"),
         runtime?.mode === "mock" ? h("span", { class: "dev-tag", title: "Dev mode: simulated coach, data in this browser" }, "Dev") : null,
       ),
-      settingsBtn,
+      h("div", { class: "topbar-actions" }, clearChatBtn, settingsBtn),
     ),
   );
 
@@ -286,6 +297,7 @@ export function mountApp(root, { runtime, store, coach, core, catalog }) {
   function show(route) {
     const changed = ctx.route !== route;
     ctx.route = route;
+    clearChatBtn.hidden = route !== "coach" || !store;
     for (const r of ROUTES) {
       views[r].hidden = r !== route;
       tabs[ROUTES.indexOf(r)].toggleAttribute("aria-current", r === route);

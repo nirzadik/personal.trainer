@@ -764,6 +764,38 @@ describe("store: chat", () => {
     assert.deepEqual(await fresh.store.chat.days(), []);
   });
 
+  test("clear() deletes every chat day and nothing else; undo restores them and keeps newer messages", async () => {
+    const { store, db, now } = setup({ now: clock("2026-11-05T09:00:00") });
+    await store.chat.append({ role: "user", text: "old day" });
+    now.set("2026-11-07T09:00:00");
+    await store.chat.append({ role: "user", text: "hi" });
+    await store.chat.append({ role: "assistant", text: "", error: "invalid_request" });
+    await store.coach.addNote({ kind: "goal", text: "Squat 120 kg" });
+    await store.coach.setSummary("Long-term summary");
+    await store.profile.update({ name: "Sam" });
+    const others = Object.entries(db.__mock.dump()).filter(([p]) => !p.includes("/chat/"));
+
+    const res = await store.chat.clear();
+    assert.equal(res.days, 2);
+    assert.equal(res.messages, 3);
+    assert.deepEqual(await store.chat.days(), []);
+    assert.deepEqual(await store.chat.recent(10), []);
+    assert.deepEqual(Object.entries(db.__mock.dump()).filter(([p]) => !p.includes("/chat/")), others, "memory, profile etc. untouched");
+    assert.equal((await store.coach.get()).summary, "Long-term summary");
+
+    now.advance(60_000);
+    await store.chat.append({ role: "event", text: "Chat cleared" });
+    await res.undo();
+    assert.deepEqual((await store.chat.recent(10)).map((m) => m.text), ["old day", "hi", "", "Chat cleared"]);
+    assert.deepEqual(await store.chat.days(), ["2026-11-07", "2026-11-05"]);
+
+    const empty = setup();
+    const r2 = await empty.store.chat.clear();
+    assert.equal(r2.days, 0);
+    await r2.undo();
+    assert.deepEqual(await empty.store.chat.days(), []);
+  });
+
   test("a day doc stays under the 256 KiB cap by dropping its oldest messages", async () => {
     const { store, db } = setup();
     for (let i = 0; i < 30; i++) await store.chat.append({ role: "assistant", text: `${i} ${"x".repeat(10_000)}` });

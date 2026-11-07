@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as core from "../src/core.js";
 import { getExercise } from "../src/catalog.js";
+import { PLAN_JSON_SPEC, PLAN_EXAMPLE } from "../src/prompts/plan.js";
+import { PLAN_RULES } from "../src/knowledge/plan.js";
 import { FIXTURE, buildSessions, chronological, pythonAvailable, runPython, daysBefore } from "./fixtures/a-trainer-harness.mjs";
 
 const EXPECTED = JSON.parse(readFileSync(new URL("./fixtures/a-trainer-expected.json", import.meta.url), "utf8"));
@@ -505,6 +507,143 @@ test("validatePlan: warnings", () => {
   const base = warns(() => {});
   assert.deepEqual(codes(base).filter((c) => c !== "VOLUME_LOW"), ["HARD_DAYS_ADJACENT"], JSON.stringify(base));
   assert.deepEqual(base.filter((w) => w.code === "HARD_DAYS_ADJACENT").map((w) => w.workoutId), ["W4"], "heavy legs then the long run");
+});
+
+test("validatePlan: TOO_VERBOSE warning for over-long plan text", () => {
+  const ctx = { profile: OK_PROFILE, sessions: history4w(), today: TODAY };
+  const L = core.PLAN_TEXT_LIMITS;
+  assert.deepEqual([L.focusChars, L.rationaleChars, L.rationaleSentences, L.intentChars, L.itemNoteWords, L.prepDetailWords], [60, 220, 2, 90, 8, 6]);
+  const verbose = (mutate) => { const p = goodPlan(); mutate(p); return core.validatePlan(p, ctx); };
+  assert.ok(!verbose(() => {}).warnings.some((w) => w.code === "TOO_VERBOSE"), "concise plan passes");
+  // within limits: exactly at the edges
+  const edge = verbose((p) => {
+    p.focus = "x".repeat(60);
+    p.rationale = "Squat e1RM up 3%. Runs held at 20 km.";
+    p.workouts[0].intent = "y".repeat(90);
+    p.workouts[0].blocks[1].items[0].notes = "one two three four five six seven eight";
+    p.workouts[0].blocks[0].items[0].detail = "5 min easy, then leg swings";
+  });
+  assert.ok(!edge.warnings.some((w) => w.code === "TOO_VERBOSE"), JSON.stringify(edge.warnings.filter((w) => w.code === "TOO_VERBOSE")));
+  const v = verbose((p) => {
+    p.focus = "Build squat and bench volume while keeping all runs very easy and conversational";
+    p.rationale = "One. Two. Three sentences is one too many.";
+    p.notes = ["n".repeat(140)];
+    p.workouts[0].intent = "This session exists to progress the bench press and the row while keeping the shoulders healthy and fresh.";
+    p.workouts[0].blocks[1].items[0].notes = "Pause one second on the chest and keep the shoulder blades pinned";
+    p.workouts[0].blocks[1].items[1].notes = "Brace hard, pull to the lower ribs, no body english at all please";
+    p.workouts[0].blocks[0].items[0].detail = "five minutes easy rowing to raise the heart rate";
+    p.workouts[1].blocks.push({ kind: "conditioning", format: "AMRAP", minutes: 8, items: [{ exerciseId: "air_squat", reps: 10 }], targetRpe: 7, scaling: "s".repeat(120), notes: "" });
+  });
+  assert.equal(v.ok, v.errors.length === 0, "warnings never fail a plan");
+  assert.ok(!v.errors.some((e) => e.code === "TOO_VERBOSE"), "TOO_VERBOSE is a warning");
+  const tv = v.warnings.filter((w) => w.code === "TOO_VERBOSE");
+  const plan = tv.find((w) => w.workoutId === null);
+  assert.equal(plan.path, "focus");
+  assert.match(plan.message, /focus 80\/60 chars/);
+  assert.match(plan.message, /rationale .*3\/2 sentences/);
+  assert.match(plan.message, /1 plan note over 100 chars/);
+  const w1 = tv.find((w) => w.workoutId === "W1");
+  assert.equal(w1.path, "workouts[0].intent");
+  assert.match(w1.message, /intent \d+\/90 chars/);
+  assert.match(w1.message, /2 item notes over 8 words/);
+  assert.match(w1.message, /1 warm-up\/cool-down item too long/);
+  const w2 = tv.find((w) => w.workoutId === "W2");
+  assert.equal(w2.path, "workouts[1].blocks[1].scaling");
+  assert.equal(tv.length, 3, "one issue for the plan text + one per wordy workout");
+  assert.deepEqual(Object.keys(w1).sort(), ["code", "message", "path", "workoutId"]);
+  assert.equal(v.warnings.at(-1).code, "TOO_VERBOSE", "listed after the training warnings");
+  const long = verbose((p) => { p.rationale = "r".repeat(221) + "."; });
+  assert.ok(long.warnings.some((w) => w.code === "TOO_VERBOSE" && w.path === "rationale"));
+});
+
+test("plan brevity: rules, JSON spec and example agree with PLAN_TEXT_LIMITS", () => {
+  const L = core.PLAN_TEXT_LIMITS;
+  assert.ok(Buffer.byteLength(PLAN_RULES, "utf8") <= 40 * 1024, "PLAN_RULES ≤ 40 KB");
+  for (const t of [`≤ ${L.focusChars} char`, `≤ ${L.rationaleChars} char`, `≤ ${L.intentChars} char`, `≤ ${L.itemNoteWords} words`, `≤ ${L.prepDetailWords} words`]) {
+    assert.ok(PLAN_RULES.includes(t), `PLAN_RULES mentions ${t}`);
+    assert.ok(PLAN_JSON_SPEC.includes(t), `PLAN_JSON_SPEC mentions ${t}`);
+  }
+  assert.ok(!/2-5 sentences/.test(PLAN_RULES + PLAN_JSON_SPEC));
+  const example = { ...JSON.parse(PLAN_EXAMPLE), weekStart: "2026-11-08" };
+  const v = core.validatePlan(example, {});
+  assert.deepEqual(v.warnings.filter((w) => w.code === "TOO_VERBOSE"), [], "the example obeys the limits");
+});
+
+// ------------------------------------------------------------------ logging a planned workout
+test("sessionFromWorkout: strength items prefilled from nextTarget", () => {
+  const sessions = history4w();
+  const plan = goodPlan();
+  const w = plan.workouts[0];
+  const d = core.sessionFromWorkout(w, { sessions, today: TODAY, planId: plan.id });
+  assert.deepEqual([d.id, d.date, d.planId, d.workoutId, d.title, d.type, d.status, d.createdBy, d.durationMin], [null, TODAY, plan.id, "W1", "Upper", "strength", "done", "manual", 55]);
+  assert.deepEqual([d.run, d.conditioning, d.pain, d.prs], [null, [], [], []]);
+  assert.equal(d.strength.length, 6, "warm-up items are not logged");
+  for (const [i, it] of w.blocks[1].items.entries()) {
+    const ex = d.strength[i];
+    const t = core.nextTarget(sessions, it, { today: TODAY });
+    assert.equal(ex.exerciseId, it.exerciseId);
+    assert.equal(ex.sets.length, it.sets, `${it.exerciseId} planned set count`);
+    assert.ok(ex.sets.every((st) => st.type === "work" && st.rir === it.targetRir), `${it.exerciseId} rir`);
+    assert.equal(ex.sets[0].loadKg, t.loadKg ?? it.loadKg, `${it.exerciseId} target load`);
+    assert.equal(ex.target.reason, t.reason);
+    assert.equal(ex.target.reps, it.reps);
+  }
+  const bench = d.strength[0];
+  assert.equal(bench.name, "Bench Press");
+  assert.equal(bench.sets[0].bodyweight, false);
+  const chin = d.strength.find((x) => x.exerciseId === "chin_up");
+  assert.ok(chin.sets.every((st) => st.bodyweight), "chin-up is a bodyweight movement");
+  // normalizeSession-ready: keeps the sets, drops the plan targets
+  const n = core.normalizeSession(d, { today: TODAY });
+  assert.deepEqual(n.strength[0].sets, bench.sets);
+  assert.equal("target" in n.strength[0], false);
+  assert.deepEqual([n.planId, n.workoutId, n.createdBy, n.type], [plan.id, "W1", "manual", "strength"]);
+  assert.ok(Array.isArray(core.detectPrs(n, sessions)));
+});
+
+test("sessionFromWorkout: per-set reps, ranges, AMRAP and no history", () => {
+  const last = core.normalizeSession({ date: "2026-11-03", strength: [{ exerciseId: "bench_press", sets: ["80x9@2", "80x9@2", "80x8@2"] }] }, { today: TODAY });
+  const item = { exerciseId: "bench_press", sets: 3, reps: "8-12", targetRir: 2, loadKg: null, progression: "double", incrementKg: 2.5 };
+  const w = { id: "W1", title: "Push", type: "strength", blocks: [{ kind: "strength", items: [item, { exerciseId: "push_up", sets: 2, reps: "AMRAP", targetRir: null }, { exerciseId: "overhead_press", sets: 2, reps: "6-10", targetRir: "1-2" }] }] };
+  const d = core.sessionFromWorkout(w, { sessions: [last], today: TODAY });
+  assert.equal(core.nextTarget([last], item, { today: TODAY }).reps, "10/10/9");
+  assert.deepEqual(d.strength[0].sets.map((st) => [st.loadKg, st.reps, st.rir]), [[80, 10, 2], [80, 10, 2], [80, 9, 2]]);
+  assert.deepEqual(d.strength[1].sets.map((st) => [st.loadKg, st.reps, st.rir, st.bodyweight]), [[null, null, null, true], [null, null, null, true]], "AMRAP leaves reps blank");
+  assert.deepEqual(d.strength[2].sets.map((st) => [st.loadKg, st.reps, st.rir]), [[null, 6, 1], [null, 6, 1]], "no history: bottom of range, load blank");
+  assert.equal(d.strength[2].target.reason, "no_history");
+  assert.ok(d.durationMin > 0, "estimated when estMinutes is missing");
+});
+
+test("sessionFromWorkout: run and conditioning blocks", () => {
+  const plan = goodPlan();
+  const long = core.sessionFromWorkout(plan.workouts[3], { today: TODAY, planId: plan.id });
+  assert.equal(long.type, "run");
+  assert.deepEqual([long.run.runType, long.run.distanceKm, long.run.durationSec, long.run.avgPaceSecPerKm, long.run.rpe], ["long", 11, 3960, 360, 3]);
+  assert.deepEqual(long.run.target.paceSecPerKm, [345, 375]);
+  assert.equal(core.normalizeSession(long).run.distanceKm, 11);
+  const hybrid = {
+    id: "W5", title: "Squat + metcon", type: "hybrid", estMinutes: 50, blocks: [
+      { kind: "strength", items: [{ exerciseId: "back_squat", sets: 3, reps: "5", targetRir: 2, loadKg: 100 }] },
+      { kind: "conditioning", format: "AMRAP", minutes: 12, items: [{ exerciseId: "wall_ball", reps: 10, loadKg: 6 }, { exerciseId: "burpee", reps: 8 }], targetRpe: 8, scaling: "Lighter ball", notes: "" },
+      { kind: "run", runType: "intervals", warmupMin: 10, cooldownMin: 5, segments: [{ reps: 4, distanceM: 400, target: { paceSecPerKm: [250, 260], rpe: 8 }, recoverySec: 90, recoveryType: "jog" }] },
+    ],
+  };
+  const d = core.sessionFromWorkout(hybrid, { today: TODAY, profile: { experience: { running: { easyPaceSecPerKm: 330 } } } });
+  assert.equal(d.type, "hybrid");
+  assert.deepEqual(d.strength[0].sets.map((st) => [st.loadKg, st.reps]), [[100, 5], [100, 5], [100, 5]]);
+  assert.equal(d.conditioning.length, 1);
+  const c = d.conditioning[0];
+  assert.equal(c.format, "AMRAP");
+  assert.match(c.description, /^12 min AMRAP: 10 Wall Ball Shot @ 6 kg, 8 Burpee$/);
+  assert.deepEqual(c.result, { rounds: null, reps: null, timeSec: null, calories: null, completed: true });
+  assert.deepEqual([c.rpe, c.scaled, c.target.scaling], [8, false, "Lighter ball"]);
+  assert.equal(d.run.runType, "intervals");
+  assert.equal(d.run.rpe, 8);
+  assert.ok(d.run.distanceKm > 1.6 && d.run.durationSec > 15 * 60, JSON.stringify(d.run));
+  const none = core.sessionFromWorkout(null, { today: TODAY });
+  assert.deepEqual([none.type, none.strength, none.run, none.workoutId, none.date], ["other", [], null, null, TODAY]);
+  const mob = core.sessionFromWorkout({ id: "W6", title: "Mobility", type: "mobility", blocks: [{ kind: "mobility", minutes: 20, items: [{ name: "Hips", detail: "90/90" }] }] }, { today: TODAY });
+  assert.deepEqual([mob.type, mob.durationMin, mob.strength.length], ["mobility", 20, 0]);
 });
 
 // ------------------------------------------------------------------ sessions

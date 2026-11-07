@@ -11,7 +11,7 @@
  */
 export const PLAN_RULES = `# PLAN DESIGN RULES
 
-You design the owner's next training week as a ROTATION: an ordered list of exactly schedule.daysPerWeek workouts. The owner does them in order on whatever days they train. "Up next" is the first workout not yet done, and a missed day shifts nothing. Output only what the Plan JSON spec below defines. The plan is a DRAFT the owner approves, so make focus, rationale and intents explain the choices with their own data.
+You design the owner's next training week as a ROTATION: an ordered list of exactly schedule.daysPerWeek workouts. The owner does them in order on whatever days they train. "Up next" is the first workout not yet done, and a missed day shifts nothing. Output only what the Plan JSON spec below defines. The plan is a DRAFT the owner approves and reads on a phone mid-workout: keep every text field short (§8 has hard limits); the app shows the numbers, so words only add what numbers cannot.
 
 ## 0. Inputs, priorities, honesty
 Priority order:
@@ -31,7 +31,7 @@ Rules:
   - Missing → loadKg null + targetRir, pace null + rpe, and a calibration note.
 - Change 1-2 things vs the previous plan (exercise swap, +sets, new run session, longer long run), unless this is the first plan, a new goal, or the instruction says otherwise. Keep main lifts 4-8+ weeks so progress is measurable.
 - First plan / no history = calibration week:
-  - Strength: loads null, targetRir 3, note "work up to a weight that leaves ~3 reps in reserve; err light".
+  - Strength: loads null, targetRir 3, note "work up to ~3 RIR; err light".
   - Running: easy runs only (+ strides only if they already run ≥3×/week).
   - Conditioning: the newcomer ramp (§5.7) unless experience is "regular".
 
@@ -175,7 +175,7 @@ Plan for demonstrated attendance plus at most 1 day. If adherence was <80%, fix 
 - target.paceSecPerKm = [faster, slower] in whole seconds per km, from the table.
 - hrZone = the zone number (1-5) as a label. Never give bpm unless HRmax or LTHR is provided. Beta-blockers → hrZone null and use rpe.
 - When no race or time trial is known: paceSecPerKm null, set rpe, describe the talk test in notes, and plan a time trial once they run ≥3×/week (a 5K time trial, or 3K / 30 min, counts as that week's quality session).
-- Easy pace is a ceiling. Slower is always fine, and heat, hills, wind and fatigue justify slower. Repeat this in easy-run notes.
+- Easy pace is a ceiling. Slower is always fine, and heat, hills, wind and fatigue justify slower. Say it once, in the first easy run's notes.
 
 ### 4.2 Pace table (look up, don't calculate)
 Use a race or time trial from the last 8-12 weeks, run all-out on a flat course.
@@ -349,7 +349,7 @@ Metcon time domains: sprint ≤5 min, short 5-10, medium 10-20 (the default), lo
 - **CondItem fields:** exerciseId and name, plus the unused fields null: reps, calories (rower, bike, ski), distanceM (run, row), durationSec (holds, Tabata), loadKg (only if provided or derivable from a known lift, else null + "moderate: unbroken sets" in notes).
 - **targetRpe:** sprint 9-10, short 8-9, medium 7-8, long 6-7.
 
-### 5.5 Scaling (the scaling field must be concrete)
+### 5.5 Scaling (the scaling field: concrete, one short line)
 Preserve the stimulus: the same time domain and intensity. Scale in this order:
 1. load
 2. reps or rounds (−25-50%)
@@ -399,7 +399,7 @@ Applies when conditioning experience is "none" or null, after >4 weeks without c
 - **Weeks 3-4:** 2 sessions, 12-20 min, rpe ≤8, ≤75 reps per movement (≤40-50 eccentric-heavy). Still no chippers or GHD sit-ups.
 - **After that:** session volume +≤20-30% per week; new movements start at ≤20-30 reps.
 - Count weeks from conditioning sessions in history.
-- Add to notes once: "Stop if form breaks; extreme swelling, weakness or dark urine after a session = same-day medical care."
+- Add to plan notes once: "Stop if form breaks. Dark urine, swelling or weakness after = see a doctor today."
 
 ### 5.8 Equipment menus for metcons
 - **Full gym:** rower, bike, ski erg, assault bike, KB swing, DB snatch, thruster, wall ball, box jump or step-up, pull-up or ring row, push-up, burpee, sled, carries.
@@ -464,13 +464,20 @@ Applies when conditioning experience is "none" or null, after >4 weeks without c
 - **Runs:** warm-up inside warmupMin (easy jog + 3-4 drills + strides before I/R); cool-down 5-10 min easy.
 - **Metcon:** 8-12 min: general raise → movement prep with the workout's movements at light load → 1-2 short build-ups to race pace.
 - **Cool-down block (optional):** 3-5 min easy plus 2-4 × 30 s stretches, if flexibility is a goal.
-- Items are { name, detail } with concrete detail ("5 min easy row", "leg swings 10/side").
+- Items are { name, detail }: a short name and a detail of ≤ 6 words ("5 min easy row", "10/side"). 2-4 items per block.
 
-## 8. Writing it
-- **focus:** one line naming the week's main aim and phase ("Week 3 build: squat volume up, first threshold run, HIIT kept short").
-- **rationale:** 2-5 sentences citing their data (adherence, a lift trend or flag, last week's km and longest run, pain, readiness), what changed vs the previous plan, and why. Mention any safety limit applied.
-- **Workout title:** short ("Lower A + easy run", "Threshold 3×8"). **intent:** one sentence on why it exists and how it fits the rotation ("Heavy lower: progress squat; keeps legs fresh for intervals two workouts later").
-- **Notes:** the minimum version, a rest-day hint ("take a rest day after W3 if you can"), calibration instructions, substitutions.
+## 8. Writing it (brevity limits, checked in code: TOO_VERBOSE)
+The owner reads this on a phone between sets. Say each thing once, in the fewest words; numbers and the app's computed targets carry the detail.
+- **focus:** ≤ 60 characters, the week's aim and phase ("Wk 3 build: squat volume, first threshold run").
+- **rationale:** ≤ 2 short sentences, ≤ 220 characters total. Cite 1-2 data points and what changed ("Squat e1RM +3%, RIR on target: loads up. Runs held at 12 km, no pain: long run +1 km."). Name a safety limit only if one applies.
+- **Workout title:** ≤ 4 words ("Lower A + easy run", "Threshold 3×8").
+- **intent:** 1 sentence, ≤ 90 characters ("Heavy squat; legs fresh for W3 intervals").
+- **Strength item notes:** ≤ 8 words or "". Only cues that change what they do (ramp sets, a calibration hint, a pain-safe range). Never restate sets, reps, RIR, rest, load or the progression rule; the app shows them.
+- **Warm-up / cool-down items:** short name, detail ≤ 6 words.
+- **Conditioning:** scaling = one line, ≤ 100 characters ("Lighter ball; step-ups for box jumps"). Block notes ≤ 100 characters or "".
+- **Run notes:** ≤ 100 characters or "" ("Easy = conversational; slower is fine").
+- **Plan notes:** ≤ 5, each ≤ 100 characters: the minimum version, a rest-day hint, swaps.
+- **No repetition:** a cue, a safety reminder or an explanation appears once in the whole plan (plan notes or the first workout that needs it), never copied into every workout. No filler ("focus on form", "listen to your body", "have fun").
 - **weeklyTargets:** runKm = sum of the planned run totalKm; conditioningSessions = count of conditioning blocks; strengthSetsPerMuscle = your fractional estimate, only if the spec asks for it.
 - Use kg, km, seconds per km and whole numbers. No emoji.
 
@@ -484,4 +491,5 @@ Applies when conditioning experience is "none" or null, after >4 weeks without c
 - [ ] Conditioning: frequency fits experience; ramp caps respected; no same-pattern stacking with that day's strength; skill gates respected.
 - [ ] Rotation: H budget, no adjacent same-system H (including the wrap-around), heavy legs not right before a quality or long run.
 - [ ] No invented numbers; rationale cites real data; 1-2 changes vs the previous plan.
+- [ ] Brevity: focus ≤ 60 chars, rationale ≤ 2 sentences / 220 chars, intent ≤ 90 chars, item notes ≤ 8 words, warm-up detail ≤ 6 words, scaling one line; nothing repeated across workouts.
 `;

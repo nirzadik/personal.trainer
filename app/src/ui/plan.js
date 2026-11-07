@@ -1,12 +1,40 @@
 // Owner: Agent D. Plan tab: agreed plan in rotation order (Done / Up next / Later) with targets from
-// core.nextTarget, the draft with validation chips and Approve / Ask for changes / Regenerate, and
-// plan generation with an elapsed timer and Stop.
+// core.nextTarget, Mark as done / Done as planned / Skip per workout (logged sessions link to History),
+// the draft with validation chips and Approve / Ask for changes / Regenerate, and plan generation with an
+// elapsed timer and Stop. Styles for the logging actions and one-line clamps: plan-log.css.
 
 import {
   h, icon, button, append, replaceChildren, pill, typePill, emptyState, errorLine, inlineConfirm, toast,
-  createTicker, fmtElapsed, fmtWeekRange, fmtKg, fmtRest, fmtPace, fmtKm, plural, safe, errorText, TYPE_LABEL,
+  createTicker, fmtElapsed, fmtWeekRange, fmtKg, fmtRest, fmtPace, fmtKm, fmtRelDay, plural, safe, errorText, TYPE_LABEL,
 } from "./components.js";
 import { exerciseName, prettifyId } from "./ops.js";
+import { openWorkoutLog } from "./history.js";
+import { MISSED_REASONS, findLoggedSession, logAsPlanned, missingForDirectSave, skipWorkout, workoutDraft } from "./quicklog.js";
+
+/** Text longer than this gets a one-line clamp that expands on tap. */
+const CLAMP_CHARS = 38;
+
+/**
+ * One-line text (ellipsis via .pl-line) that expands on tap when long.
+ * @param {string} text
+ * @param {string} cls
+ * @param {Node} [lead] optional leading node (e.g. a bold label)
+ * @returns {HTMLElement}
+ */
+function lineClamp(text, cls, lead = null) {
+  const t = String(text || "");
+  if (t.length <= CLAMP_CHARS) return h("p", { class: cls }, lead, t);
+  const el = h("p", { class: [cls, "pl-line"], role: "button", tabindex: "0", "aria-expanded": "false", title: t }, lead, t);
+  const toggle = () => el.setAttribute("aria-expanded", String(el.classList.toggle("is-open")));
+  el.addEventListener("click", toggle);
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  });
+  return el;
+}
 
 const STAGE_COPY = {
   context: "Gathering your profile and history",
@@ -30,6 +58,8 @@ export function mountPlan(el, ctx) {
   const unsubs = [];
   const expanded = new Set(); // `${planId}:${workoutId}`
   const touched = new Set(); // plans whose expansion the user changed
+  const skipping = new Map(); // `${planId}:${workoutId}` → { reason, notes } while the Skip panel is open
+  const busy = new Set(); // workouts with a one-tap save in flight
   let job = null; // { kind, ctl, ticker, t0, progress, error, retry }
   let showAllIssues = false;
 
@@ -216,10 +246,14 @@ export function mountPlan(el, ctx) {
         h("p", {}, plan.rationale),
       ) : null,
       targetsRow(plan),
-      h("ol", { class: "workouts" }, workouts.map((w, i) => h("li", {}, workoutCard(plan, w, i, {
-        status: done.includes(w.id) ? "done" : next?.id === w.id ? "next" : "later",
-        withTargets: true,
-      })))),
+      h("ol", { class: "workouts" }, workouts.map((w, i) => {
+        const logged = done.includes(w.id) ? findLoggedSession(ctx, plan, w.id) : null;
+        return h("li", {}, workoutCard(plan, w, i, {
+          status: done.includes(w.id) ? (logged?.status === "missed" ? "skipped" : "done") : next?.id === w.id ? "next" : "later",
+          withTargets: true,
+          logged,
+        }));
+      })),
       showGenerate ? h("div", { class: "plan-cta" }, generateButton(complete ? "Generate next week" : "Generate next week"),
         h("p", { class: "field-hint" }, "Uses the most capable model. You'll review the draft before it replaces this plan.")) : null,
     );
@@ -247,17 +281,23 @@ export function mountPlan(el, ctx) {
     );
   }
 
-  function workoutCard(plan, w, idx, { status, withTargets }) {
+  function workoutCard(plan, w, idx, { status, withTargets, logged = null }) {
     const key = `${plan.id}:${w.id}`;
     const isOpen = expanded.has(key);
     const bodyId = `wbody-${plan.id}-${w.id}`.replace(/[^\w-]/g, "_");
     const statusPill = status === "done" ? h("span", { class: "pill pill-ok" }, icon("check", { size: 14 }), "Done")
+      : status === "skipped" ? pill("Skipped", "neutral")
       : status === "next" ? pill("Up next", "next")
       : status === "later" ? pill("Later", "neutral") : null;
+    // Logging actions (agreed plan only): visible under the head for Up next / Done / Skipped, inside the body for Later.
+    const canLog = withTargets && Boolean(store) && plan.status === "agreed";
+    const actionsInBody = canLog && status === "later" && !skipping.has(key);
+    const actions = () => (canLog ? workoutActions(plan, w, idx, status, logged) : null);
     const loc = (ctx.data.profile?.equipment?.locations || []).find((l) => l.id === w.locationId)?.name;
     const meta = [TYPE_LABEL[w.type] || prettifyId(w.type), w.estMinutes ? `${w.estMinutes} min` : null, loc].filter(Boolean).join(" · ");
     const body = h("div", { class: "workout-body", id: bodyId, hidden: !isOpen });
-    if (isOpen) fillBody(body, w, withTargets);
+    const fill = () => fillBody(body, w, withTargets, actionsInBody ? actions() : null);
+    if (isOpen) fill();
     const toggle = h("button", {
       type: "button",
       class: "workout-head",
@@ -271,7 +311,7 @@ export function mountPlan(el, ctx) {
         const open = expanded.has(key);
         toggle.setAttribute("aria-expanded", String(open));
         body.hidden = !open;
-        if (open && !body.childNodes.length) fillBody(body, w, withTargets);
+        if (open && !body.childNodes.length) fill();
       },
     },
       h("span", { class: "w-index num", "aria-hidden": "true" }, String(idx + 1)),
@@ -282,13 +322,118 @@ export function mountPlan(el, ctx) {
       statusPill,
       h("span", { class: "w-chev", "aria-hidden": "true" }, icon("chevron", { size: 20 })),
     );
-    return h("article", { class: ["workout-card", `is-${status || "draft"}`] }, toggle, body);
+    return h("article", { class: ["workout-card", `is-${status || "draft"}`], id: `wcard-${bodyId}` }, toggle, canLog && !actionsInBody ? actions() : null, body);
   }
 
-  function fillBody(body, w, withTargets) {
+  function fillBody(body, w, withTargets, footer = null) {
     replaceChildren(body,
-      w.intent ? h("p", { class: "w-intent" }, w.intent) : null,
+      w.intent ? lineClamp(w.intent, "w-intent") : null,
       (w.blocks || []).map((b) => blockView(b, withTargets)),
+      footer,
+    );
+  }
+
+  // ---- logging from the plan -------------------------------------------------------------------
+  function workoutActions(plan, w, idx, status, logged) {
+    const key = `${plan.id}:${w.id}`;
+    const slug = `${idx + 1}`;
+    const skip = skipping.get(key);
+    if (skip) return skipPanel(plan, w, key, slug, skip);
+    const viewBtn = logged ? button({
+      id: `w${slug}-view`,
+      label: "View in History",
+      icon: "arrow",
+      kind: "quiet",
+      small: true,
+      onClick: () => {
+        ctx.nav("history");
+        ctx.history?.openSession(logged.id);
+      },
+    }) : null;
+    if (status === "done" || status === "skipped") {
+      const what = status === "skipped"
+        ? `Skipped${logged?.missedReason ? ` · ${(MISSED_REASONS.find(([v]) => v === logged.missedReason)?.[1] || logged.missedReason).toLowerCase()}` : ""}`
+        : logged ? `Logged ${relDay(logged.date)}` : "Done";
+      return h("div", { class: "w-actions w-actions-logged" },
+        h("span", { class: "w-logged num" }, what),
+        viewBtn,
+        status === "skipped" ? button({ id: `w${slug}-done`, label: "Log it", icon: "check", kind: "ghost", small: true, onClick: () => openWorkoutLog(ctx, plan, w) }) : null,
+      );
+    }
+    const isBusy = busy.has(key);
+    return h("div", { class: ["w-actions", status === "next" && "is-next"] },
+      button({ id: `w${slug}-done`, label: "Mark as done", icon: "check", kind: status === "next" ? "primary" : "secondary", small: true, disabled: isBusy, onClick: () => openWorkoutLog(ctx, plan, w) }),
+      button({ id: `w${slug}-asplanned`, label: "As planned", ariaLabel: `Done exactly as planned: log ${w.title || w.id} with the planned values`, kind: "secondary", small: true, disabled: isBusy, onClick: () => doneAsPlanned(plan, w, key) }),
+      button({ id: `w${slug}-skip`, label: "Skip", kind: "ghost", small: true, disabled: isBusy, onClick: () => { skipping.set(key, { reason: "time", notes: "" }); render(); focusLater(`#w${slug}-skip-reason-time`); } }),
+    );
+  }
+
+  function relDay(iso) {
+    const rel = fmtRelDay(iso, ctx.today());
+    return /^(Today|Yesterday)$/.test(rel) ? rel.toLowerCase() : rel;
+  }
+
+  function focusLater(sel) {
+    requestAnimationFrame(() => el.querySelector(sel)?.focus());
+  }
+
+  async function doneAsPlanned(plan, w, key) {
+    if (busy.has(key)) return;
+    const missing = missingForDirectSave(safe(() => workoutDraft(ctx, plan, w), null));
+    if (missing.length) {
+      openWorkoutLog(ctx, plan, w, { note: `Add ${missing.slice(0, 2).join(" and ")}${missing.length > 2 ? " and more" : ""}: the plan has no number for it yet.` });
+      return;
+    }
+    busy.add(key);
+    render();
+    try {
+      const saved = await logAsPlanned(ctx, plan, w);
+      if (!saved) openWorkoutLog(ctx, plan, w);
+    } catch (err) {
+      toast({ text: errorText(coach, err), kind: "error" });
+    } finally {
+      busy.delete(key);
+      render();
+    }
+  }
+
+  function skipPanel(plan, w, key, slug, skip) {
+    const chips = MISSED_REASONS.map(([v, label]) => h("button", {
+      type: "button",
+      class: "chip",
+      id: `w${slug}-skip-reason-${v}`,
+      "aria-pressed": String(skip.reason === v),
+      onClick: (e) => {
+        skip.reason = v;
+        for (const b of e.currentTarget.parentNode.children) b.setAttribute("aria-pressed", String(b === e.currentTarget));
+      },
+    }, label));
+    const confirmBtn = button({
+      id: `w${slug}-skip-confirm`,
+      label: "Skip workout",
+      kind: "secondary",
+      small: true,
+      onClick: async () => {
+        confirmBtn.disabled = true;
+        try {
+          await skipWorkout(ctx, plan, w, skip);
+          skipping.delete(key);
+        } catch (err) {
+          confirmBtn.disabled = false;
+          toast({ text: errorText(coach, err), kind: "error" });
+        }
+        render();
+      },
+    });
+    return h("div", { class: "w-actions w-skip", role: "group", "aria-label": `Skip ${w.title || w.id}` },
+      h("p", { class: "field-label" }, "Why skip it?"),
+      h("div", { class: "pl-reasons" }, chips),
+      h("input", { id: `w${slug}-skip-note`, class: "input", type: "text", value: skip.notes, placeholder: "Note (optional)", "aria-label": "Skip note", autocomplete: "off", onInput: (e) => { skip.notes = e.target.value; } }),
+      h("p", { class: "field-hint" }, "Logged as missed in History. Up next moves on."),
+      h("div", { class: "btn-row" },
+        confirmBtn,
+        button({ id: `w${slug}-skip-cancel`, label: "Cancel", kind: "ghost", small: true, onClick: () => { skipping.delete(key); render(); } }),
+      ),
     );
   }
 
@@ -326,7 +471,8 @@ export function mountPlan(el, ctx) {
           h("div", { class: "lift-main" },
             h("p", { class: "lift-name" }, tag ? h("span", { class: "ss-tag" }, tag) : null, it.name || exerciseName(ctx.catalog, it.exerciseId)),
             h("p", { class: "lift-rx num" }, rx, extra ? h("span", { class: "lift-extra" }, ` · ${extra}`) : null),
-            target?.note || it.notes ? h("p", { class: "lift-note" }, target?.note || it.notes) : null,
+            it.notes ? lineClamp(it.notes, "lift-note lift-cue") : null,
+            target?.note && target.note !== it.notes ? lineClamp(target.note, "lift-note") : null,
             alts.length ? h("p", { class: "lift-alts" }, h("span", { class: "alts-label" }, "Swap"), ` ${alts.join(", ")}`) : null,
           ),
           withTargets || tLoad != null ? h("div", { class: "lift-target", title: target?.reason || "" },
@@ -370,7 +516,7 @@ export function mountPlan(el, ctx) {
     return h("section", { class: "block block-run" },
       h("h4", { class: "block-title" }, "Run", h("span", { class: "block-sub num" }, head)),
       rows.length ? h("ul", { class: "segments" }, rows) : null,
-      b.notes ? h("p", { class: "block-note" }, b.notes) : null,
+      b.notes ? lineClamp(b.notes, "block-note") : null,
     );
   }
 
@@ -399,8 +545,8 @@ export function mountPlan(el, ctx) {
           it.notes ? h("span", { class: "li-detail" }, ` · ${it.notes}`) : null,
         );
       })),
-      b.scaling ? h("p", { class: "block-note" }, h("strong", {}, "Scaling "), b.scaling) : null,
-      b.notes ? h("p", { class: "block-note" }, b.notes) : null,
+      b.scaling ? lineClamp(b.scaling, "block-note", h("strong", {}, "Scaling ")) : null,
+      b.notes ? lineClamp(b.notes, "block-note") : null,
     );
   }
 
