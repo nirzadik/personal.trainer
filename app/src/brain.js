@@ -1,2 +1,1083 @@
-// SKELETON (owner: Agent B). See CONTRACT.md §5.4.
-export function createCoach({ runtime, store, core, catalog, knowledge }) { throw new Error('brain.createCoach: not implemented yet (skeleton)'); }
+// The coach: chat, onboarding, plan generation, session comments (owner: Agent B). See CONTRACT.md §5.4.
+//
+// Everything platform- or data-related comes in through createCoach({ runtime, store, core, catalog, knowledge }),
+// so tests can inject stubs. Claude is only ever called from a method the UI runs on a tap: never from a tool,
+// a loop or a timer, and failures are never retried by code (sample.d.ts).
+
+import {
+  addDaysISO, clip, cloneJson, fmtNum, fmtSets, formatSessionCompact, isIsoDate, isPlainObject,
+  localISODate, sortSessionsAsc, sundayOf, truncateBytes, utf8Bytes, weekdayName,
+} from "./prompts/util.js";
+import { CHAT_TOOL_ORDER, NOTE_KINDS, ONBOARDING_TOOL_ORDER, TOOL_SPECS } from "./prompts/tools.js";
+import { buildContextSnapshot, formatPlanOverview, formatWorkout } from "./prompts/context.js";
+import { CHAT_BUDGETS, ONBOARDING_START_TURN, buildChatTurns, buildInstructionsTurn } from "./prompts/chat.js";
+import { buildPlanPrompt, buildRepairPrompt } from "./prompts/plan.js";
+import { SUMMARY_STALE_AFTER, buildSummaryPrompt, composeSummary, parseSummary } from "./prompts/summary.js";
+import { buildCommentPrompt, clampWords } from "./prompts/comment.js";
+
+/** Every error code sample.d.ts defines. */
+export const SAMPLE_ERROR_CODES = Object.freeze([
+  "invalid_request", "prompt_too_large", "images_unavailable", "tools_unavailable", "image_rejected",
+  "cancelled", "not_granted", "session_expired", "sampling_disabled", "not_declared", "rate_limited",
+  "refused", "empty_completion", "invalid_json", "upstream_error", "capability_disabled",
+  "capability_removed", "transform_error", "queue_overflow",
+]);
+
+/** Codes after which Claude stays unusable for this view (sample.d.ts: "hide the feature, never re-ask"). */
+const PERMANENT_CODES = new Set(["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"]);
+/** A failed pre-send summary with one of these ends the send (the main call would fail the same way). */
+const SUMMARY_FATAL_CODES = new Set(["cancelled", "rate_limited", "session_expired", "queue_overflow", ...PERMANENT_CODES]);
+const KNOWN_SAMPLE_CODES = new Set(SAMPLE_ERROR_CODES);
+const APP_CODES = new Set(["no_user", "sample_unavailable", "not_found", "store_error", "no_draft"]);
+
+const ERROR_COPY = Object.freeze({
+  cancelled: "Stopped.",
+  invalid_request: "The app sent a request Claude couldn't read. Try again; if it keeps happening, it's a bug in the app.",
+  transform_error: "The app couldn't prepare that request. Try again; if it keeps happening, it's a bug in the app.",
+  prompt_too_large: "That was too much to send in one go. Try a shorter message.",
+  queue_overflow: "Too many requests piled up. Reload the page, then try again.",
+  not_granted: "The coach needs permission to use Claude. Reload the page and choose Allow.",
+  sampling_disabled: "Claude isn't available for this account right now.",
+  not_declared: "This version of the app can't use Claude. Reload to get the latest version.",
+  capability_disabled: "Claude can't be used in this view. Open the app in the Claude app.",
+  capability_removed: "This Claude app version can't run the coach. Update the Claude app.",
+  images_unavailable: "Images can't be sent from this view.",
+  tools_unavailable: "The coach can't save or look things up in this view, so replies are chat only.",
+  image_rejected: "That image couldn't be used. Try a different one.",
+  rate_limited: "You've hit a usage limit. Wait a little, then tap Retry.",
+  session_expired: "Your Claude session expired. Sign in again, then tap Retry.",
+  refused: "The coach couldn't answer that. Try asking another way.",
+  empty_completion: "The coach came back empty. Try asking a bit differently.",
+  invalid_json: "The plan came back garbled. Tap Generate to try again.",
+  upstream_error: "Connection problem. Your message is saved; tap Retry.",
+  no_user: "You're not signed in, so nothing can be saved. Sign in to Claude and reload.",
+  sample_unavailable: "The coach needs the Claude app. Open this page in Claude to chat.",
+  not_found: "That workout no longer exists.",
+  store_error: "Couldn't save your data. Check your connection and try again.",
+  no_draft: "There's no draft plan to change. Generate one first.",
+});
+
+/**
+ * Short user-facing message for a sample or store error code. Unknown codes read as `upstream_error`.
+ * @param {string} code
+ * @returns {string}
+ */
+export function errorCopy(code) {
+  return ERROR_COPY[code] ?? ERROR_COPY.upstream_error;
+}
+
+const PROGRESS_LABELS = Object.freeze({
+  preparing: "Gathering your history…",
+  generating: "Writing the plan…",
+  validating: "Checking equipment, volume and run load…",
+  repairing: "Fixing what the checks found…",
+  saving: "Saving the draft…",
+  done: "Draft ready",
+});
+
+const SESSION_TYPES = ["strength", "run", "conditioning", "hybrid", "mobility", "other"];
+const PROFILE_KEYS = ["name", "age", "sex", "heightCm", "weightKg", "screening", "injuries", "goals", "schedule", "equipment", "experience", "preferences", "onboarded"];
+const SESSION_PATCH_KEYS = ["date", "title", "type", "status", "missedReason", "durationMin", "readiness", "sessionRpe", "notes", "pain", "strength", "conditioning", "run", "coachComment"];
+const TOOL_RESULT_MAX_BYTES = 12000;
+const SESSIONS_FETCH_LIMIT = 300;
+const SUMMARY_SCAN = 80;
+const DEFAULT_TIERS = ["default", "complex", "quick"];
+
+/**
+ * @typedef {{ type: string, label: string, ref: string|null, undo?: () => Promise<void> }} CoachAction
+ *   `undo` is only on the in-memory result (functions are never persisted).
+ * @typedef {{ text: string, actions: CoachAction[], error: string|null }} SendResult
+ * @typedef {{ phase: "preparing"|"generating"|"validating"|"repairing"|"saving"|"done", label: string, chars?: number, issues?: number }} PlanProgress
+ * @typedef {object} Coach
+ * @property {() => { available: boolean, reason: "sample_unavailable"|"not_granted"|"no_user"|null, code: string|null }} status
+ * @property {() => boolean} isOnboarding
+ * @property {(text: string, opts?: { signal?: AbortSignal, onText?: (u: {text: string, delta?: string}) => void, onTool?: (e: {name: string, phase: "start"|"done"|"error", label: string}) => void }) => Promise<SendResult>} send
+ * @property {(opts?: { signal?: AbortSignal, onText?: Function, onTool?: Function }) => Promise<SendResult>} startOnboarding
+ * @property {(opts?: { instruction?: string, signal?: AbortSignal, onProgress?: (p: PlanProgress) => void }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} generatePlan
+ * @property {(instruction: string, opts?: { signal?: AbortSignal, onProgress?: (p: PlanProgress) => void }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} reviseDraft
+ * @property {(sessionId: string, opts?: { signal?: AbortSignal }) => Promise<string>} commentOnSession
+ * @property {(code: string) => string} errorCopy
+ */
+
+/**
+ * Create the coach (CONTRACT §5.4).
+ *
+ * Failure semantics: `send` and `startOnboarding` always resolve `{ text, actions, error }`;
+ * `generatePlan`, `reviseDraft` and `commentOnSession` reject `{ code, message }` (same shape as sample errors).
+ *
+ * @param {object} deps
+ * @param {{ sample?: Function|null, uid?: string|null }} deps.runtime from env.getRuntime()
+ * @param {object} deps.store from store.createStore()
+ * @param {object} deps.core core.js namespace
+ * @param {object} deps.catalog catalog.js namespace
+ * @param {object} deps.knowledge knowledge/index.js namespace
+ * @param {() => Date} [deps.now] clock, for tests
+ * @returns {Coach}
+ */
+export function createCoach({ runtime, store, core, catalog, knowledge, now } = {}) {
+  const sample = typeof runtime?.sample === "function" ? runtime.sample : null;
+  const K = knowledge ?? {};
+  const cat = catalog ?? {};
+  const C = core ?? {};
+  const clock = typeof now === "function" ? now : () => new Date();
+
+  let deniedCode = null;      // permanent sample denial seen in this view
+  let toolsBlocked = false;   // tools_unavailable seen in this view
+  let noUser = !store || (isPlainObject(runtime) && "uid" in runtime && !runtime.uid);
+  let profileCache;           // undefined until first load
+  let limitsPromise = null;
+
+  // ---------- small helpers ----------
+
+  const attempt = (fn, fallback = null) => {
+    try {
+      const v = fn();
+      return v === undefined ? fallback : v;
+    } catch {
+      return fallback;
+    }
+  };
+  const soft = async (fn, fallback = null) => {
+    try {
+      const v = await fn();
+      return v === undefined ? fallback : v;
+    } catch {
+      return fallback;
+    }
+  };
+  const emit = (cb, payload) => {
+    if (typeof cb !== "function") return;
+    try { cb(payload); } catch { /* UI callback errors never break the coach */ }
+  };
+  const nowIso = () => clock().toISOString();
+  const today = () => {
+    const t = attempt(() => C.todayISO(clock()));
+    return isIsoDate(t) ? t : localISODate(clock());
+  };
+  const weekStartOf = (iso) => {
+    const w = attempt(() => C.weekStartOf(iso));
+    return isIsoDate(w) ? w : sundayOf(iso);
+  };
+  const withoutUndefined = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+
+  function sampleError(e) {
+    const raw = isPlainObject(e) && typeof e.code === "string" ? e.code : "upstream_error";
+    const code = KNOWN_SAMPLE_CODES.has(raw) ? raw : "upstream_error";
+    if (PERMANENT_CODES.has(code)) deniedCode = code;
+    if (code === "tools_unavailable") toolsBlocked = true;
+    const out = { code, message: String(e?.message ?? code) };
+    if (typeof e?.text === "string" && code !== "refused") out.text = e.text;
+    return out;
+  }
+  function anyError(e) {
+    if (isPlainObject(e) && typeof e.code === "string") {
+      if (e.code === "no_user") noUser = true;
+      return { code: KNOWN_SAMPLE_CODES.has(e.code) || APP_CODES.has(e.code) ? e.code : "store_error", message: String(e.message ?? e.code) };
+    }
+    return { code: "store_error", message: String(e?.message ?? e) };
+  }
+
+  function getLimits() {
+    if (!limitsPromise) {
+      limitsPromise = (async () => {
+        const fallback = { maxPromptBytes: 262144, tools: { maxCount: 8 }, modelTiers: DEFAULT_TIERS };
+        if (!sample || typeof sample.limits !== "function") return fallback;
+        try {
+          const l = await sample.limits();
+          return isPlainObject(l) ? l : fallback;
+        } catch {
+          return fallback;
+        }
+      })();
+    }
+    return limitsPromise;
+  }
+  function tierFor(wanted, lim) {
+    const tiers = Array.isArray(lim?.modelTiers) && lim.modelTiers.length ? lim.modelTiers : DEFAULT_TIERS;
+    if (tiers.includes(wanted)) return wanted;
+    return tiers.includes("default") ? "default" : undefined;
+  }
+
+  /** The one place `sample()` is called. Rejects a normalized { code, message, text? }. */
+  async function callSample(input, options) {
+    if (!sample) throw { code: "sample_unavailable", message: "sample is unavailable" };
+    try {
+      return await sample(input, withoutUndefined(options));
+    } catch (e) {
+      throw sampleError(e);
+    }
+  }
+  /** The one place `sample.json()` is called (falls back to tolerant parsing of `sample()` on old runtimes). */
+  async function callJson(input, options) {
+    if (!sample) throw { code: "sample_unavailable", message: "sample is unavailable" };
+    try {
+      if (typeof sample.json === "function") return await sample.json(input, withoutUndefined(options));
+      const { text } = await sample(input, withoutUndefined(options));
+      const parsed = parseJsonLoose(text);
+      if (parsed === undefined) throw { code: "invalid_json", message: "no JSON in reply", text };
+      return parsed;
+    } catch (e) {
+      throw sampleError(e);
+    }
+  }
+  function unavailableCode() {
+    if (!store) return "no_user";
+    const st = status();
+    return st.available ? null : st.code;
+  }
+
+  // ---------- profile cache (isOnboarding is synchronous) ----------
+
+  if (store?.profile) {
+    Promise.resolve()
+      .then(() => store.profile.get())
+      .then((p) => { if (profileCache === undefined) profileCache = p ?? null; }, (e) => { if (e?.code === "no_user") noUser = true; });
+    attempt(() => store.profile.subscribe?.((p) => { profileCache = isPlainObject(p) ? p : null; }));
+  }
+
+  // ---------- data helpers ----------
+
+  function profileLocations(profile) {
+    const locs = Array.isArray(profile?.equipment?.locations) ? profile.equipment.locations.filter((l) => isPlainObject(l) && l.id) : [];
+    return locs.length ? locs : [{ id: profile?.equipment?.defaultLocationId || "gym", name: "Gym", items: [] }];
+  }
+  function equipmentSet(profile, locationId) {
+    const s = attempt(() => C.availableEquipment(profile, locationId));
+    if (s instanceof Set) return s;
+    if (Array.isArray(s)) return new Set(s);
+    const loc = profileLocations(profile).find((l) => l.id === locationId);
+    return new Set(Array.isArray(loc?.items) ? loc.items : []);
+  }
+  function exerciseOk(ex, set) {
+    const r = attempt(() => C.exerciseAllowed(ex.id, set));
+    if (isPlainObject(r) && typeof r.ok === "boolean") return r.ok;
+    const all = Array.isArray(ex.equipment?.all) ? ex.equipment.all : [];
+    const any = Array.isArray(ex.equipment?.any) ? ex.equipment.any : [];
+    return all.every((e) => set.has(e)) && (!any.length || any.some((e) => set.has(e)));
+  }
+  function isDisliked(ex, dislikes) {
+    if (!dislikes.length) return false;
+    const names = [ex.id, ex.name, ...(Array.isArray(ex.aliases) ? ex.aliases : [])].map((s) => String(s ?? "").toLowerCase());
+    return dislikes.some((d) => names[0] === d || (d.length >= 4 && names.some((n) => n.includes(d))));
+  }
+  function allowedByLocation(profile) {
+    const exercises = Array.isArray(cat.EXERCISES) ? cat.EXERCISES.filter((e) => isPlainObject(e) && e.id) : [];
+    if (!exercises.length) return [];
+    const dislikes = (Array.isArray(profile?.preferences?.dislikes) ? profile.preferences.dislikes : [])
+      .map((d) => String(d).toLowerCase().trim()).filter(Boolean);
+    return profileLocations(profile).map((loc) => {
+      const set = equipmentSet(profile, loc.id);
+      return {
+        id: loc.id,
+        name: loc.name,
+        exercises: exercises.filter((ex) => !isDisliked(ex, dislikes) && exerciseOk(ex, set))
+          .map((ex) => ({ id: ex.id, name: ex.name, pattern: ex.pattern })),
+      };
+    });
+  }
+  function exerciseName(id) {
+    const ex = attempt(() => cat.getExercise?.(id));
+    return isPlainObject(ex) ? ex.name : null;
+  }
+  function withTargets(workout, sessionsAsc, t) {
+    const w = cloneJson(workout);
+    for (const b of Array.isArray(w?.blocks) ? w.blocks : []) {
+      if (b?.kind !== "strength" || !Array.isArray(b.items)) continue;
+      for (const item of b.items) {
+        const target = attempt(() => C.nextTarget(sessionsAsc, item, { today: t }));
+        if (isPlainObject(target)) item.target = { loadKg: target.loadKg ?? null, reps: target.reps ?? null, note: target.note ?? target.reason ?? "" };
+      }
+    }
+    return w;
+  }
+  function strengthItems(plan) {
+    const map = new Map();
+    for (const w of Array.isArray(plan?.workouts) ? plan.workouts : []) {
+      for (const b of Array.isArray(w?.blocks) ? w.blocks : []) {
+        if (b?.kind !== "strength") continue;
+        for (const it of Array.isArray(b.items) ? b.items : []) {
+          if (isPlainObject(it) && it.exerciseId && !map.has(it.exerciseId)) map.set(it.exerciseId, it);
+        }
+      }
+    }
+    return map;
+  }
+  function targetsFor(items, sessionsAsc, t, max) {
+    const out = [];
+    for (const item of items) {
+      if (out.length >= max) break;
+      const target = attempt(() => C.nextTarget(sessionsAsc, item, { today: t }));
+      if (isPlainObject(target)) out.push({ exerciseId: item.exerciseId, loadKg: target.loadKg ?? null, reps: target.reps ?? null, note: clip(target.note ?? "", 90) });
+    }
+    return out;
+  }
+  function runLoadOf(sessionsAsc, t) {
+    const weeks = attempt(() => C.runningLoad(sessionsAsc, { weeks: 4, today: t }));
+    if (Array.isArray(weeks) && weeks.length) {
+      const km = weeks.map((w) => Number(w?.km) || 0);
+      return {
+        avgWeeklyKm: Math.round((km.reduce((a, b) => a + b, 0) / weeks.length) * 10) / 10,
+        longestKm: Math.max(0, ...weeks.map((w) => Number(w?.longestKm) || 0)),
+        weeks: weeks.length,
+      };
+    }
+    const from = addDaysISO(t, -27);
+    const runs = sessionsAsc.filter((s) => s.date >= from && s.date <= t && Number(s.run?.distanceKm) > 0);
+    const total = runs.reduce((n, s) => n + Number(s.run.distanceKm), 0);
+    return { avgWeeklyKm: Math.round((total / 4) * 10) / 10, longestKm: Math.max(0, ...runs.map((s) => Number(s.run.distanceKm))), weeks: 4 };
+  }
+  async function loadSessionsAsc() {
+    return sortSessionsAsc(await soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []));
+  }
+  function memoryForPrompt(coach) {
+    if (!isPlainObject(coach)) return {};
+    return { ...coach, summary: parseSummary(coach.summary).text };
+  }
+  function chainUndo(fns) {
+    const list = fns.filter((f) => typeof f === "function");
+    if (!list.length) return undefined;
+    return async () => { for (const f of [...list].reverse()) await f(); };
+  }
+  const guard = (signal) => {
+    if (signal?.aborted) throw new Error("Stopped by the owner before saving.");
+  };
+  const clampInt = (v, lo, hi, dflt) => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+  };
+
+  // ---------- tools ----------
+
+  function fitToolResult(result) {
+    if (typeof result === "string") return truncateBytes(result, TOOL_RESULT_MAX_BYTES);
+    const json = JSON.stringify(result ?? null);
+    return utf8Bytes(json) <= TOOL_RESULT_MAX_BYTES ? result : truncateBytes(json, TOOL_RESULT_MAX_BYTES);
+  }
+
+  function wrapTool(name, impl, ctx) {
+    const spec = TOOL_SPECS[name];
+    return {
+      name: spec.name,
+      description: spec.description,
+      inputSchema: spec.inputSchema,
+      execute: async (input, context) => {
+        const signal = context?.signal;
+        emit(ctx.onTool, { name, phase: "start", label: spec.startLabel });
+        try {
+          guard(signal);
+          const out = await impl(isPlainObject(input) ? input : {}, ctx, signal);
+          emit(ctx.onTool, { name, phase: "done", label: out.label });
+          return fitToolResult(out.result);
+        } catch (err) {
+          const message = clip(String(err?.message ?? err ?? "failed"), 300);
+          emit(ctx.onTool, { name, phase: "error", label: `${spec.startLabel.replace(/…$/, "")} failed` });
+          throw new Error(message);
+        }
+      },
+    };
+  }
+
+  function prepareProfilePatch(patchIn, current) {
+    const patch = {};
+    const notes = [];
+    for (const [k, v] of Object.entries(patchIn)) {
+      if (!PROFILE_KEYS.includes(k)) { notes.push(`ignored unknown field ${k}`); continue; }
+      patch[k] = cloneJson(v);
+    }
+    const equipmentIds = isPlainObject(cat.EQUIPMENT) ? Object.keys(cat.EQUIPMENT) : [];
+    if ("equipment" in patch) {
+      const eq = isPlainObject(patch.equipment) ? patch.equipment : {};
+      const out = { ...eq };
+      if (Array.isArray(eq.locations)) {
+        const existing = Array.isArray(current?.equipment?.locations) ? current.equipment.locations.filter(isPlainObject) : [];
+        const merged = existing.map((l) => ({ ...l }));
+        for (const raw of eq.locations.filter(isPlainObject)) {
+          const id = String(raw.id || raw.name || "gym").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "gym";
+          const loc = { ...raw, id };
+          if (Array.isArray(loc.items)) {
+            const items = [...new Set(loc.items.map((x) => String(x).trim()).filter(Boolean))];
+            const unknown = equipmentIds.length ? items.filter((x) => !equipmentIds.includes(x)) : [];
+            if (unknown.length) notes.push(`unknown equipment ids ignored: ${unknown.join(", ")}`);
+            loc.items = equipmentIds.length ? items.filter((x) => equipmentIds.includes(x)) : items;
+          }
+          const i = merged.findIndex((l) => l.id === id);
+          if (i >= 0) merged[i] = { ...merged[i], ...loc };
+          else merged.push({ name: id[0].toUpperCase() + id.slice(1).replace(/_/g, " "), items: [], dumbbellMaxKg: null, kettlebellsKg: [], notes: "", ...loc });
+        }
+        out.locations = merged;
+      }
+      const locIds = (out.locations ?? current?.equipment?.locations ?? []).map((l) => l?.id).filter(Boolean);
+      if (out.defaultLocationId && !locIds.includes(out.defaultLocationId)) {
+        notes.push(`defaultLocationId ${out.defaultLocationId} is not a location; kept ${locIds[0] ?? "gym"}`);
+        delete out.defaultLocationId;
+      }
+      if (!out.defaultLocationId && !locIds.includes(current?.equipment?.defaultLocationId) && locIds.length) out.defaultLocationId = locIds[0];
+      patch.equipment = out;
+    }
+    if ("injuries" in patch) {
+      const incoming = Array.isArray(patch.injuries) ? patch.injuries.filter(isPlainObject) : [];
+      const merged = (Array.isArray(current?.injuries) ? current.injuries.filter(isPlainObject) : []).map((x) => ({ ...x }));
+      for (const inj of incoming) {
+        const area = String(inj.area ?? "").trim();
+        if (!area) continue;
+        const i = merged.findIndex((x) => String(x.area ?? "").toLowerCase() === area.toLowerCase());
+        const next = { ...inj, area, updatedAt: nowIso() };
+        if (i >= 0) merged[i] = { ...merged[i], ...next };
+        else merged.push({ status: "current", painScore: null, aggravators: "", notes: "", ...next });
+      }
+      patch.injuries = merged;
+    }
+    if (isPlainObject(patch.screening)) {
+      const outcomes = ["cleared", "cleared_with_modifications", "needs_clearance"];
+      if ("outcome" in patch.screening && patch.screening.outcome !== null && !outcomes.includes(patch.screening.outcome)) {
+        notes.push(`screening.outcome must be one of ${outcomes.join(", ")}`);
+        delete patch.screening.outcome;
+      }
+      if ((patch.screening.answers || patch.screening.outcome) && !patch.screening.screenedAt) patch.screening.screenedAt = nowIso();
+    }
+    if (isPlainObject(patch.schedule)) {
+      if ("daysPerWeek" in patch.schedule) patch.schedule.daysPerWeek = clampInt(patch.schedule.daysPerWeek, 1, 7, 3);
+      if ("minutesPerSession" in patch.schedule) patch.schedule.minutesPerSession = clampInt(patch.schedule.minutesPerSession, 10, 240, 60);
+    }
+    if (isPlainObject(patch.experience) && "level" in patch.experience &&
+        ![null, "novice", "late_novice", "intermediate", "advanced"].includes(patch.experience.level)) {
+      notes.push("experience.level must be novice, late_novice, intermediate or advanced");
+      delete patch.experience.level;
+    }
+    if ("onboarded" in patch && typeof patch.onboarded !== "boolean") delete patch.onboarded;
+    const changed = Object.keys(patch);
+    if (changed.length) patch.updatedAt = nowIso();
+    return { patch, notes, changed };
+  }
+
+  const IMPLS = {
+    async update_profile(input, ctx, signal) {
+      if (!isPlainObject(input.patch)) throw new Error("patch must be an object of Profile fields");
+      const current = (await store.profile.get()) ?? {};
+      const { patch, notes, changed } = prepareProfilePatch(input.patch, current);
+      if (!changed.length) throw new Error(`Nothing to update${notes.length ? `: ${notes.join("; ")}` : ""}`);
+      guard(signal);
+      const undos = [(await store.profile.update(patch))?.undo];
+      const finished = patch.onboarded === true && !current.onboarded;
+      if (finished) undos.push((await store.state.update({ onboarding: { status: "done" } }))?.undo);
+      const fresh = await soft(() => store.profile.get());
+      if (isPlainObject(fresh)) profileCache = fresh;
+      const fields = changed.filter((k) => k !== "onboarded");
+      const label = finished ? "Onboarding complete" : `Profile updated · ${fields.join(", ") || "onboarding"}`;
+      ctx.actions.push({ type: "updated_profile", label, ref: null, undo: chainUndo(undos) });
+      return { label, result: { ok: true, updated: changed, ...(notes.length ? { notes } : {}), ...(finished ? { onboarded: true } : {}) } };
+    },
+
+    async get_plan(input, ctx) {
+      const which = ["next", "agreed", "draft"].includes(input.which) ? input.which : "next";
+      const state = (await soft(() => store.state.get())) ?? {};
+      const plan = which === "draft" ? await store.plans.getDraft() : await store.plans.getAgreed();
+      if (!plan) {
+        return { label: "Checked the plan", result: which === "draft" ? "No draft plan." : "No agreed plan yet. Offer to request one with request_plan." };
+      }
+      const done = state.rotation?.planId === plan.id && Array.isArray(state.rotation.done) ? state.rotation.done : [];
+      if (which === "next" || input.workoutId) {
+        const w = which === "next" && !input.workoutId
+          ? attempt(() => C.nextWorkout(plan, state))
+          : (plan.workouts ?? []).find((x) => x.id === String(input.workoutId));
+        if (!w) {
+          return { label: "Checked the plan", result: input.workoutId ? `No workout ${input.workoutId} in that plan.` : `All ${plan.workouts?.length ?? 0} workouts of plan ${plan.id} are done. Suggest requesting next week's plan.` };
+        }
+        const full = which === "draft" ? w : withTargets(w, await loadSessionsAsc(), ctx.today);
+        const idx = (plan.workouts ?? []).findIndex((x) => x.id === w.id);
+        return {
+          label: `Checked ${clip(w.title, 30)}`,
+          result: { planId: plan.id, position: `${idx + 1} of ${plan.workouts?.length ?? "?"}`, done, workout: formatWorkout(full) },
+        };
+      }
+      const v = plan.validation;
+      return {
+        label: "Checked the plan",
+        result: {
+          overview: formatPlanOverview(plan, { done: which === "agreed" ? done : [], label: which === "draft" ? "Draft plan" : "Agreed plan" }),
+          rationale: clip(plan.rationale, 500),
+          ...(isPlainObject(v) ? { validation: { ok: v.ok, errors: (v.errors ?? []).slice(0, 6).map((e) => e.message), warnings: (v.warnings ?? []).slice(0, 6).map((e) => e.message) } } : {}),
+        },
+      };
+    },
+
+    async get_history(input) {
+      const limit = clampInt(input.limit ?? 8, 1, 20, 8);
+      const query = {};
+      if (isIsoDate(input.from)) query.from = input.from;
+      if (isIsoDate(input.to)) query.to = input.to;
+      if (SESSION_TYPES.includes(input.type)) query.type = input.type;
+      const inRange = (s) => (!query.from || s.date >= query.from) && (!query.to || s.date <= query.to) && (!query.type || s.type === query.type);
+      const line = (s) => formatSessionCompact(s, { notesChars: 100, commentChars: 80 });
+      if (input.exerciseId) {
+        const ex = attempt(() => cat.getExercise?.(String(input.exerciseId))) ?? attempt(() => cat.findExercise?.(String(input.exerciseId)));
+        const id = ex?.id ?? String(input.exerciseId);
+        const all = (await store.sessions.list({ ...query, limit: SESSIONS_FETCH_LIMIT })) ?? [];
+        const matching = all.filter((s) => inRange(s) && (s.strength ?? []).some((e) => e?.exerciseId === id));
+        const stats = attempt(() => C.exerciseStats(sortSessionsAsc(all), id));
+        return {
+          label: `Read ${ex?.name ?? id} history`,
+          result: { exerciseId: id, count: matching.length, sessions: matching.slice(0, limit).map(line), stats: compactStats(stats) },
+        };
+      }
+      const list = ((await store.sessions.list({ ...query, limit })) ?? []).filter(inRange).slice(0, limit);
+      return { label: "Read history", result: { count: list.length, sessions: list.map(line) } };
+    },
+
+    async log_session(input, ctx, signal) {
+      const raw = isPlainObject(input.session) ? input.session : null;
+      if (!raw) throw new Error("session must be an object");
+      const t = ctx.today;
+      const [state, agreed, existing] = await Promise.all([
+        soft(() => store.state.get(), {}), soft(() => store.plans.getAgreed()), soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []),
+      ]);
+      const notes = [];
+      let workoutId = typeof raw.workoutId === "string" && raw.workoutId.trim() ? raw.workoutId.trim() : null;
+      let planned = null;
+      if (workoutId && agreed) {
+        if (/^(next|today|up ?next|todays?)$/i.test(workoutId)) workoutId = attempt(() => C.nextWorkout(agreed, state))?.id ?? null;
+        planned = (agreed.workouts ?? []).find((w) => w.id === workoutId) ?? null;
+        if (!planned) notes.push(`workout ${raw.workoutId} is not in the agreed plan; logged as unplanned`);
+      } else if (workoutId) notes.push("no agreed plan; logged as unplanned");
+      const base = {
+        ...raw,
+        type: SESSION_TYPES.includes(raw.type) ? raw.type : (planned?.type ?? "other"),
+        date: isIsoDate(raw.date) ? raw.date : t,
+        title: String(raw.title ?? "").trim() || planned?.title || defaultTitle(raw.type),
+        workoutId: planned ? planned.id : null,
+        planId: planned ? agreed.id : null,
+        status: ["done", "partial", "missed"].includes(raw.status) ? raw.status : "done",
+        createdBy: "chat",
+      };
+      const session = C.normalizeSession(base, { today: t });
+      if (!isPlainObject(session)) throw new Error("could not read that session");
+      const prior = sortSessionsAsc(existing);
+      session.prs = attempt(() => C.detectPrs(session, prior), Array.isArray(session.prs) ? session.prs : []);
+      guard(signal);
+      const res = await store.sessions.add(session);
+      const id = res?.id ?? res?.session?.id ?? session.id ?? null;
+      const undos = [res?.undo];
+      let rotation = state?.rotation;
+      if (planned && session.status !== "missed") {
+        const next = attempt(() => C.markWorkoutDone(state, agreed, planned.id));
+        if (isPlainObject(next)) {
+          undos.push((await store.state.update({ rotation: next }))?.undo);
+          rotation = next;
+        }
+      }
+      const saved = { ...session, id };
+      const after = [...prior, saved];
+      const items = strengthItems(agreed);
+      const nextTargets = targetsFor((saved.strength ?? []).map((e) => items.get(e?.exerciseId)).filter(Boolean), after, t, 8);
+      const upNext = agreed ? attempt(() => C.nextWorkout(agreed, { ...state, rotation })) : null;
+      const label = sessionLabel(saved);
+      ctx.actions.push({ type: "logged_session", label, ref: id, undo: chainUndo(undos) });
+      return {
+        label,
+        result: {
+          id,
+          logged: formatSessionCompact(saved, { notesChars: 80, withId: false }),
+          prs: (saved.prs ?? []).slice(0, 6).map((p) => ({ exerciseId: p.exerciseId, kind: p.kind, value: p.value, previous: p.previous ?? null })),
+          nextTargets,
+          upNext: upNext ? `${upNext.id} ${upNext.title}` : (agreed ? "rotation complete" : null),
+          ...(notes.length ? { notes } : {}),
+        },
+      };
+    },
+
+    async update_session(input, ctx, signal) {
+      const id = String(input.id ?? "").trim();
+      if (!id) throw new Error("id is required");
+      if (!isPlainObject(input.patch)) throw new Error("patch must be an object");
+      const existing = await store.sessions.get(id);
+      if (!isPlainObject(existing)) throw new Error(`No session with id ${id}`);
+      const clean = {};
+      const ignored = [];
+      for (const [k, v] of Object.entries(input.patch)) (SESSION_PATCH_KEYS.includes(k) ? (clean[k] = cloneJson(v)) : ignored.push(k));
+      if (!Object.keys(clean).length) throw new Error(`Nothing to update (allowed: ${SESSION_PATCH_KEYS.join(", ")})`);
+      if ("coachComment" in clean) clean.coachComment = clampWords(String(clean.coachComment ?? ""), 120);
+      const merged = attempt(() => C.normalizeSession({ ...existing, ...clean }, { today: ctx.today }), { ...existing, ...clean });
+      const patch = {};
+      for (const k of Object.keys(clean)) patch[k] = merged[k] ?? clean[k];
+      if ("strength" in clean || "run" in clean) {
+        const prior = sortSessionsAsc(await soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []))
+          .filter((s) => s.id !== id && String(s.date) <= String(merged.date));
+        const prs = attempt(() => C.detectPrs({ ...merged, id }, prior));
+        if (Array.isArray(prs)) patch.prs = prs;
+      }
+      patch.updatedAt = nowIso();
+      guard(signal);
+      const res = await store.sessions.update(id, patch);
+      const title = clip(existing.title || existing.type || "session", 30);
+      const label = Object.keys(clean).length === 1 && "coachComment" in clean ? `Comment saved · ${title}` : `Updated · ${title}`;
+      ctx.actions.push({ type: "updated_session", label, ref: id, undo: res?.undo });
+      return {
+        label,
+        result: { id, updated: Object.keys(clean), session: formatSessionCompact({ ...existing, ...patch }, { notesChars: 80, commentChars: 80 }), ...(ignored.length ? { ignored } : {}) },
+      };
+    },
+
+    async request_plan(input, ctx, signal) {
+      let kind = input.kind === "revise" ? "revise" : "generate";
+      const note = [];
+      if (kind === "revise" && !(await soft(() => store.plans.getDraft()))) {
+        kind = "generate";
+        note.push("there is no draft, so this is a request for a new plan");
+      }
+      const instruction = clip(String(input.instruction ?? ""), 400);
+      guard(signal);
+      const res = await store.state.update({ pendingPlanRequest: { kind, instruction, createdAt: nowIso() } });
+      const label = kind === "revise" ? "Plan change requested" : "Plan requested";
+      ctx.actions.push({ type: "plan_request", label, ref: kind, undo: res?.undo });
+      return {
+        label,
+        result: { ok: true, kind, next: "The owner now sees a Generate plan button. Tell them to tap it (it takes 1-3 minutes). Do not write the plan yourself.", ...(note.length ? { note: note[0] } : {}) },
+      };
+    },
+
+    async add_coach_note(input, ctx, signal) {
+      const text = clip(String(input.text ?? ""), 300);
+      if (!text) throw new Error("text is required");
+      const kind = NOTE_KINDS.includes(input.kind) ? input.kind : "insight";
+      guard(signal);
+      const res = await store.coach.addNote({ kind, text });
+      const label = `Noted · ${clip(text, 40)}`;
+      ctx.actions.push({ type: "coach_note", label, ref: res?.id ?? res?.note?.id ?? null, undo: res?.undo });
+      return { label, result: { ok: true, kind } };
+    },
+
+    async get_exercise_info(input) {
+      const query = clip(String(input.query ?? ""), 80);
+      if (!query) throw new Error("query is required");
+      const ex = attempt(() => cat.getExercise?.(query)) ?? attempt(() => cat.findExercise?.(query));
+      if (!isPlainObject(ex)) {
+        const sugg = attempt(() => cat.searchExercises?.(query, { limit: 5 }), []);
+        return {
+          label: "Looked up exercise",
+          result: { found: false, query, suggestions: (Array.isArray(sugg) ? sugg : []).filter(isPlainObject).map((e) => `${e.id} (${e.name})`) },
+        };
+      }
+      const profile = (await soft(() => store.profile.get())) ?? {};
+      const locs = profileLocations(profile);
+      const allowed = locs.map((loc) => {
+        const r = attempt(() => C.exerciseAllowed(ex.id, equipmentSet(profile, loc.id)));
+        return { location: loc.id, ok: isPlainObject(r) ? !!r.ok : exerciseOk(ex, equipmentSet(profile, loc.id)), missing: Array.isArray(r?.missing) ? r.missing : [] };
+      });
+      const defLoc = profile?.equipment?.defaultLocationId ?? locs[0].id;
+      const subs = attempt(() => C.findSubstitutes(ex.id, equipmentSet(profile, defLoc), profile, { limit: 3 }), []);
+      return {
+        label: `Looked up ${clip(ex.name, 30)}`,
+        result: {
+          id: ex.id, name: ex.name, pattern: ex.pattern, modality: ex.modality, primary: ex.primary, secondary: ex.secondary,
+          equipment: ex.equipment, unit: ex.unit, skill: ex.skill, jointStress: ex.jointStress, allowed,
+          substitutes: (Array.isArray(subs) ? subs : []).slice(0, 3).map((id) => (exerciseName(id) ? `${id} (${exerciseName(id)})` : String(id))),
+        },
+      };
+    },
+  };
+
+  function makeTools(mode, ctx, maxCount) {
+    const order = mode === "onboarding" ? ONBOARDING_TOOL_ORDER : CHAT_TOOL_ORDER;
+    return order.slice(0, Math.max(0, maxCount)).map((name) => wrapTool(name, IMPLS[name], ctx));
+  }
+
+  // ---------- chat ----------
+
+  async function chatContext(mode, profile) {
+    const t = today();
+    const [coachMem, state, agreed, draft, sessionsDesc] = await Promise.all([
+      soft(() => store.coach.get(), {}), soft(() => store.state.get(), {}), soft(() => store.plans.getAgreed()),
+      soft(() => store.plans.getDraft()), soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []),
+    ]);
+    const sessionsAsc = sortSessionsAsc(sessionsDesc);
+    const data = {
+      mode, today: t, weekday: weekdayName(t), profile, coach: memoryForPrompt(coachMem),
+      equipmentNames: isPlainObject(cat.EQUIPMENT) ? cat.EQUIPMENT : {},
+    };
+    if (mode === "chat") {
+      const next = agreed ? attempt(() => C.nextWorkout(agreed, state)) : null;
+      Object.assign(data, {
+        agreedPlan: agreed, draftPlan: draft, state,
+        nextWorkout: next ? withTargets(next, sessionsAsc, t) : null,
+        trainingSummary: attempt(() => C.trainingSummary(sessionsAsc, profile, { weeks: 4, today: t })),
+        recentSessions: [...sessionsAsc].reverse().slice(0, 3),
+      });
+    }
+    return { t, coachMem: coachMem ?? {}, state: state ?? {}, data };
+  }
+
+  function instructionsFor(mode, data, toolNames) {
+    const rules = mode === "onboarding" ? K.ONBOARDING_RULES : K.CHAT_RULES;
+    const head = buildInstructionsTurn({ mode, rules, snapshot: "", toolNames });
+    const room = CHAT_BUDGETS.instructionsBytes - utf8Bytes(head);
+    const snapshot = buildContextSnapshot(data, { maxBytes: Math.max(2000, Math.min(26000, room)) });
+    return buildInstructionsTurn({ mode, rules, snapshot, toolNames });
+  }
+
+  async function maybeSummarize(prior, coachMem, lim, signal, t) {
+    const older = prior.slice(0, Math.max(0, prior.length - CHAT_BUDGETS.historyMessages));
+    if (!older.length) return;
+    const { throughTs, text } = parseSummary(coachMem?.summary);
+    const isNew = (m) => !throughTs || (typeof m.ts === "string" && m.ts > throughTs);
+    const pending = older.filter(isNew);
+    if (prior.filter(isNew).length <= SUMMARY_STALE_AFTER || !pending.length) return;
+    const batch = pending.slice(-SUMMARY_SCAN);
+    const res = await callSample(buildSummaryPrompt({ previousSummary: text, messages: batch, today: t }), {
+      modelTier: tierFor("quick", lim), cache: false, signal,
+    });
+    const last = batch[batch.length - 1];
+    const stored = composeSummary(res.text, typeof last?.ts === "string" ? last.ts : nowIso());
+    await soft(() => store.coach.setSummary(stored));
+    coachMem.summary = stored;
+  }
+
+  async function persistReply(text, actions, error) {
+    const message = { role: "assistant", text: String(text ?? ""), actions: actions.map(({ type, label, ref }) => ({ type, label, ref: ref ?? null })), error: error ?? null };
+    await soft(() => store.chat.append(message));
+  }
+
+  async function send(text, { signal, onText, onTool } = {}) {
+    const userText = String(text ?? "").trim();
+    const actions = [];
+    if (!userText) return { text: "", actions, error: "invalid_request" };
+    if (!store) return { text: "", actions, error: "no_user" };
+
+    let prior;
+    let profile;
+    try {
+      prior = (await store.chat.recent(CHAT_BUDGETS.historyMessages + SUMMARY_SCAN)) ?? [];
+      const last = prior[prior.length - 1];
+      const prev = prior[prior.length - 2];
+      const isRetry = (last?.role === "user" && String(last.text ?? "").trim() === userText) ||
+        (last?.role === "assistant" && last.error && prev?.role === "user" && String(prev.text ?? "").trim() === userText);
+      if (!isRetry) await store.chat.append({ role: "user", text: userText, actions: [], error: null });
+      profile = (await store.profile.get()) ?? {};
+      profileCache = profile;
+    } catch (e) {
+      return { text: "", actions, error: anyError(e).code };
+    }
+
+    const blocked = unavailableCode();
+    if (blocked) {
+      await persistReply("", actions, blocked);
+      return { text: "", actions, error: blocked };
+    }
+
+    const mode = profile.onboarded ? "chat" : "onboarding";
+    let partial = "";
+    try {
+      const { t, coachMem, state, data } = await chatContext(mode, profile);
+      if (mode === "onboarding" && (state.onboarding?.status ?? "not_started") === "not_started") {
+        await soft(() => store.state.update({ onboarding: { status: "in_progress" } }));
+      }
+      const lim = await getLimits();
+      try {
+        await maybeSummarize(prior, coachMem, lim, signal, t);
+      } catch (e) {
+        if (SUMMARY_FATAL_CODES.has(e?.code)) throw e;
+        // Otherwise carry on without a fresh summary; the main call is a different request, not a retry.
+      }
+      const maxCount = lim.tools && !toolsBlocked ? Math.min(8, Number(lim.tools.maxCount) || 8) : 0;
+      const ctx = { mode, actions, onTool, today: t };
+      const tools = makeTools(mode, ctx, maxCount);
+      const instructions = instructionsFor(mode, data, tools.map((x) => x.name));
+      const turns = buildChatTurns({ instructions, history: prior, userText });
+      const res = await callSample(turns, {
+        cache: false,
+        modelTier: tierFor(state.settings?.chatTier === "quick" ? "quick" : "default", lim),
+        signal,
+        tools: tools.length ? tools : undefined,
+        onText: typeof onText === "function" ? (u) => { partial = u.text; emit(onText, { text: u.text, delta: u.delta }); } : undefined,
+      });
+      const reply = String(res?.text ?? "");
+      await persistReply(reply, actions, null);
+      return { text: reply, actions, error: null };
+    } catch (e) {
+      const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
+      const kept = err.code === "refused" ? "" : (typeof err.text === "string" ? err.text : partial);
+      await persistReply(kept, actions, err.code);
+      return { text: kept, actions, error: err.code };
+    }
+  }
+
+  async function startOnboarding({ signal, onText, onTool } = {}) {
+    const actions = [];
+    if (!store) return { text: "", actions, error: "no_user" };
+    const blocked = unavailableCode();
+    if (blocked) return { text: "", actions, error: blocked };
+    let partial = "";
+    try {
+      let profile = (await store.profile.get()) ?? {};
+      if (profile.onboarded) {
+        await store.profile.update({ onboarded: false, updatedAt: nowIso() }); // a restart of onboarding
+        profile = { ...profile, onboarded: false };
+      }
+      profileCache = profile;
+      await soft(() => store.state.update({ onboarding: { status: "in_progress" } }));
+      const { t, state, data } = await chatContext("onboarding", profile);
+      const lim = await getLimits();
+      const maxCount = lim.tools && !toolsBlocked ? Math.min(8, Number(lim.tools.maxCount) || 8) : 0;
+      const tools = makeTools("onboarding", { mode: "onboarding", actions, onTool, today: t }, maxCount);
+      const instructions = instructionsFor("onboarding", data, tools.map((x) => x.name));
+      const res = await callSample([{ role: "user", content: instructions }, { role: "user", content: ONBOARDING_START_TURN }], {
+        cache: false,
+        modelTier: tierFor(state.settings?.chatTier === "quick" ? "quick" : "default", lim),
+        signal,
+        tools: tools.length ? tools : undefined,
+        onText: typeof onText === "function" ? (u) => { partial = u.text; emit(onText, { text: u.text, delta: u.delta }); } : undefined,
+      });
+      const reply = String(res?.text ?? "");
+      await persistReply(reply, actions, null);
+      return { text: reply, actions, error: null };
+    } catch (e) {
+      const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
+      const kept = err.code === "refused" ? "" : (typeof err.text === "string" ? err.text : partial);
+      if (actions.length) await persistReply(kept, actions, err.code);
+      return { text: kept, actions, error: err.code };
+    }
+  }
+
+  // ---------- plans ----------
+
+  function normalizePlan(raw, { id, weekStart, profile }) {
+    let p = raw;
+    if (isPlainObject(p?.plan) && Array.isArray(p.plan.workouts)) p = p.plan;
+    if (!isPlainObject(p)) p = {};
+    const defLoc = profile?.equipment?.defaultLocationId || profileLocations(profile)[0].id;
+    const seen = new Set();
+    const fillName = (it) => (isPlainObject(it) ? { ...it, name: it.name || exerciseName(it.exerciseId) || String(it.exerciseId ?? "") } : it);
+    const workouts = (Array.isArray(p.workouts) ? p.workouts : []).filter(isPlainObject).map((w, i) => {
+      let wid = typeof w.id === "string" && w.id.trim() ? w.id.trim() : `W${i + 1}`;
+      if (seen.has(wid)) wid = `W${i + 1}${seen.has(`W${i + 1}`) ? "b" : ""}`;
+      seen.add(wid);
+      const blocks = (Array.isArray(w.blocks) ? w.blocks : []).filter(isPlainObject).map((b) => {
+        if (b.kind === "strength") {
+          return { ...b, items: (Array.isArray(b.items) ? b.items : []).map((it) => (isPlainObject(it)
+            ? { ...fillName(it), alternatives: Array.isArray(it.alternatives) ? it.alternatives : [], supersetGroup: it.supersetGroup ?? null }
+            : it)) };
+        }
+        if (b.kind === "conditioning") return { ...b, items: (Array.isArray(b.items) ? b.items : []).map(fillName) };
+        return b;
+      });
+      return { ...w, id: wid, locationId: w.locationId || defLoc, blocks };
+    });
+    return {
+      id, status: "draft", weekStart, createdAt: nowIso(), approvedAt: null,
+      focus: clip(String(p.focus ?? ""), 140),
+      rationale: clip(String(p.rationale ?? ""), 1200),
+      workouts,
+      weeklyTargets: { runKm: null, conditioningSessions: null, strengthSetsPerMuscle: {} },
+      notes: (Array.isArray(p.notes) ? p.notes : []).map((n) => clip(String(n), 200)).filter(Boolean).slice(0, 8),
+      validation: null,
+    };
+  }
+
+  function weeklyTargetsOf(plan, validation) {
+    const stats = isPlainObject(validation?.stats) ? validation.stats : {};
+    const runBlocks = plan.workouts.flatMap((w) => w.blocks.filter((b) => b.kind === "run"));
+    const summedKm = Math.round(runBlocks.reduce((n, b) => n + (Number(b.totalKm) || 0), 0) * 10) / 10;
+    const condCount = plan.workouts.filter((w) => w.blocks.some((b) => b.kind === "conditioning")).length;
+    const sets = isPlainObject(stats.setsPerMuscle) ? stats.setsPerMuscle : attempt(() => C.plannedSetsPerMuscle(plan), {});
+    return {
+      runKm: Number(stats.runKm ?? summedKm) || null,
+      conditioningSessions: Number(stats.conditioningCount ?? condCount) || null,
+      strengthSetsPerMuscle: isPlainObject(sets) ? sets : {},
+    };
+  }
+
+  async function runPlan({ instruction = "", signal, onProgress, revise = false }) {
+    const progress = (phase, extra = {}) => emit(onProgress, { phase, label: PROGRESS_LABELS[phase], ...extra });
+    const blocked = unavailableCode();
+    if (blocked) throw { code: blocked, message: errorCopy(blocked) };
+    try {
+      progress("preparing");
+      const t = today();
+      const [profile, coachMem, state, agreed, draft, sessionsDesc, plans] = await Promise.all([
+        store.profile.get(), soft(() => store.coach.get(), {}), soft(() => store.state.get(), {}),
+        soft(() => store.plans.getAgreed()), soft(() => store.plans.getDraft()),
+        soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []), soft(() => store.plans.list({ limit: 60 }), []),
+      ]);
+      const sessionsAsc = sortSessionsAsc(sessionsDesc);
+      const base = revise && isPlainObject(draft) ? draft : null;
+      const lim = await getLimits();
+      const tier = tierFor("complex", lim);
+
+      const thisWeek = weekStartOf(t);
+      const weekStart = base?.weekStart && isIsoDate(base.weekStart) ? base.weekStart
+        : (isIsoDate(agreed?.weekStart) && agreed.weekStart >= thisWeek ? addDaysISO(agreed.weekStart, 7) : thisWeek);
+      const ids = new Set((Array.isArray(plans) ? plans : []).map((p) => p?.id).filter(Boolean));
+      if (draft?.id) ids.add(draft.id);
+      if (agreed?.id) ids.add(agreed.id);
+      let id = weekStart;
+      for (let n = 2; ids.has(id); n += 1) id = `${weekStart}-${n}`;
+
+      const workoutCount = clampInt(profile?.schedule?.daysPerWeek, 1, 7, 3);
+      const minutesPerSession = clampInt(profile?.schedule?.minutesPerSession, 10, 240, 60);
+      const allowedLocations = allowedByLocation(profile);
+      const runLoad = runLoadOf(sessionsAsc, t);
+      const mem = memoryForPrompt(coachMem);
+      const memoryText = [
+        mem.summary ? `Summary: ${mem.summary}` : "",
+        ...(Array.isArray(mem.notes) ? mem.notes.slice(-20) : []).map((n) => `- ${n.date ?? ""} [${n.kind}] ${clip(n.text, 300)}`),
+      ].filter(Boolean).join("\n");
+      const from14 = addDaysISO(t, -13);
+      const previousDone = state.rotation?.planId === agreed?.id ? state.rotation?.done : [];
+      const common = { workoutCount, minutesPerSession, runLoad, allowedLocations };
+      const prompt = buildPlanPrompt({
+        ...common,
+        rules: K.PLAN_RULES, today: t, weekStart, profile, memoryText,
+        trainingSummary: attempt(() => C.trainingSummary(sessionsAsc, profile, { weeks: 4, today: t })),
+        recentSessions: sessionsAsc.filter((s) => s.date >= from14 && s.date <= t),
+        targets: targetsFor([...strengthItems(base ?? agreed).values()], sessionsAsc, t, 40),
+        previousPlan: agreed, previousDone, draft: base, instruction,
+      });
+
+      progress("generating");
+      let phaseNow = "generating";
+      const jsonOpts = { modelTier: tier, cache: false, signal, onText: ({ text }) => progress(phaseNow, { chars: text.length }) };
+      const raw = await callJson(prompt, jsonOpts);
+      let plan = normalizePlan(raw, { id, weekStart, profile });
+
+      progress("validating");
+      const validate = (p) => attempt(() => C.validatePlan(p, { profile, sessions: sessionsAsc, today: t }));
+      let validation = validate(plan);
+      const errorCount = (v) => (Array.isArray(v?.errors) ? v.errors.length : 0);
+      if (errorCount(validation) > 0) {
+        phaseNow = "repairing";
+        progress("repairing", { issues: errorCount(validation) });
+        try {
+          const raw2 = await callJson(buildRepairPrompt({
+            ...common, plan, errors: validation.errors, locationIds: profileLocations(profile).map((l) => l.id),
+          }), jsonOpts);
+          const plan2 = normalizePlan(raw2, { id, weekStart, profile });
+          const v2 = validate(plan2);
+          if (plan2.workouts.length && errorCount(v2) <= errorCount(validation)) {
+            plan = plan2;
+            validation = v2;
+          }
+        } catch (e) {
+          if (e?.code === "cancelled") throw e;
+          // Keep the first plan: its validation errors stay visible on the draft and the owner decides.
+        }
+      }
+      if (signal?.aborted) throw { code: "cancelled", message: "Stopped" };
+      plan.validation = isPlainObject(validation) ? validation : null;
+      plan.weeklyTargets = weeklyTargetsOf(plan, validation);
+
+      progress("saving");
+      const res = await store.plans.saveDraft(plan);
+      let saved = plan;
+      if (isPlainObject(res?.plan)) saved = res.plan;
+      else if (isPlainObject(res) && Array.isArray(res.workouts)) { const { undo, ...rest } = res; saved = rest; }
+      else if (typeof res?.id === "string") saved = { ...plan, id: res.id };
+      if (state.pendingPlanRequest) await soft(() => store.state.update({ pendingPlanRequest: null }));
+      progress("done");
+      return { plan: saved, validation: plan.validation, undo: res?.undo };
+    } catch (e) {
+      const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
+      throw { code: err.code, message: String(err.message ?? err.code), ...(typeof err.text === "string" ? { text: err.text } : {}) };
+    }
+  }
+
+  // ---------- comments ----------
+
+  async function commentOnSession(sessionId, { signal } = {}) {
+    const blocked = unavailableCode();
+    if (blocked) throw { code: blocked, message: errorCopy(blocked) };
+    try {
+      const id = String(sessionId ?? "");
+      const session = await store.sessions.get(id);
+      if (!isPlainObject(session)) throw { code: "not_found", message: `No session ${id}` };
+      const t = today();
+      const [profile, agreed, all] = await Promise.all([
+        soft(() => store.profile.get(), {}), soft(() => store.plans.getAgreed()), loadSessionsAsc(),
+      ]);
+      const prior = all.filter((s) => s.id !== id && String(s.date) <= String(session.date));
+      const withThis = [...prior, session];
+      const exIds = [...new Set((session.strength ?? []).map((e) => e?.exerciseId).filter(Boolean))].slice(0, 6);
+      const exerciseStats = exIds.map((exId) => {
+        const st = attempt(() => C.exerciseStats(withThis, exId));
+        return { exerciseId: exId, bestE1rm: st?.bestE1rm ?? null, flag: st?.flag ?? null };
+      });
+      const items = strengthItems(agreed);
+      const planned = session.planId && agreed?.id === session.planId ? (agreed.workouts ?? []).find((w) => w.id === session.workoutId) : null;
+      const lim = await getLimits();
+      const res = await callSample(buildCommentPrompt({
+        rules: K.COMMENT_RULES, session, profile, plannedWorkout: planned, exerciseStats,
+        nextTargets: targetsFor(exIds.map((x) => items.get(x)).filter(Boolean), withThis, t, 6),
+        previousSessions: [...prior].reverse().slice(0, 3),
+      }), { modelTier: tierFor("quick", lim), cache: false, signal });
+      const text = clampWords(String(res?.text ?? "").replace(/\s+/g, " ").trim());
+      if (!text) throw { code: "empty_completion", message: "empty comment" };
+      if (signal?.aborted) throw { code: "cancelled", message: "Stopped" };
+      await store.sessions.update(id, { coachComment: text, updatedAt: nowIso() });
+      return text;
+    } catch (e) {
+      const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
+      throw { code: err.code, message: String(err.message ?? err.code) };
+    }
+  }
+
+  // ---------- public ----------
+
+  function status() {
+    if (!sample) return { available: false, reason: "sample_unavailable", code: "sample_unavailable" };
+    if (noUser) return { available: false, reason: "no_user", code: "no_user" };
+    if (deniedCode) return { available: false, reason: "not_granted", code: deniedCode };
+    return { available: true, reason: null, code: null };
+  }
+
+  return {
+    status,
+    isOnboarding: () => !profileCache?.onboarded,
+    send,
+    startOnboarding,
+    generatePlan: ({ instruction = "", signal, onProgress } = {}) => runPlan({ instruction, signal, onProgress, revise: false }),
+    reviseDraft: (instruction, { signal, onProgress } = {}) => runPlan({ instruction: String(instruction ?? ""), signal, onProgress, revise: true }),
+    commentOnSession,
+    errorCopy,
+  };
+}
+
+// ---------- module-private helpers ----------
+
+function defaultTitle(type) {
+  return ({ strength: "Strength session", run: "Run", conditioning: "Conditioning", hybrid: "Hybrid session", mobility: "Mobility" })[type] ?? "Workout";
+}
+
+function sessionLabel(s) {
+  if (s.status === "missed") return `Missed · ${clip(s.title, 30)}`;
+  const detail = s.strength?.length ? `${s.strength.length} exercise${s.strength.length === 1 ? "" : "s"}`
+    : s.run?.distanceKm ? `${fmtNum(s.run.distanceKm)} km`
+      : s.conditioning?.length ? (s.conditioning[0]?.format ?? "metcon") : "";
+  return `Logged · ${clip(s.title, 30)}${detail ? ` · ${detail}` : ""}`;
+}
+
+function compactStats(stats) {
+  if (!isPlainObject(stats)) return null;
+  const last = isPlainObject(stats.last) ? `${stats.last.date ?? ""} ${fmtSets(stats.last.sets)}`.trim() : stats.last ?? null;
+  return {
+    exposures: Array.isArray(stats.exposures) ? stats.exposures.length : stats.exposures ?? null,
+    last,
+    bestE1rm: stats.bestE1rm ?? null,
+    trend: (Array.isArray(stats.trend) ? stats.trend : []).slice(-6).map((p) => `${p?.date} ${fmtNum(p?.e1rm)}${p?.reliability && p.reliability !== "ok" ? ` (${p.reliability})` : ""}`),
+    flag: stats.flag ?? null,
+  };
+}
+
+/**
+ * Tolerant JSON reading (same order as sample.json): whole text, one code fence, first { or [ to last } or ].
+ * @param {string} text
+ * @returns {unknown} undefined when nothing parses
+ */
+export function parseJsonLoose(text) {
+  const s = String(text ?? "").trim();
+  const tryParse = (x) => { try { return JSON.parse(x); } catch { return undefined; } };
+  let v = tryParse(s);
+  if (v !== undefined) return v;
+  const fence = s.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/);
+  if (fence) { v = tryParse(fence[1]); if (v !== undefined) return v; }
+  const start = s.search(/[[{]/);
+  const end = Math.max(s.lastIndexOf("}"), s.lastIndexOf("]"));
+  return start >= 0 && end > start ? tryParse(s.slice(start, end + 1)) : undefined;
+}

@@ -1,6 +1,14 @@
-// SKELETON (owner: Agent F). See CONTRACT.md §5.5.
-export const CHAT_RULES = '';
-export const ONBOARDING_RULES = '';
-export const PLAN_RULES = '';
-export const COMMENT_RULES = '';
-export const KNOWLEDGE_VERSION = '0';
+// Owner: Agent F. Condensed coaching knowledge as exported strings (CONTRACT §5.5).
+// Sources: .claude/skills/personal-trainer/ (SKILL.md + references/*.md incl. running.md,
+// conditioning.md) and docs/research/01-07.
+
+export { CHAT_RULES } from "./chat.js";
+export { ONBOARDING_RULES } from "./onboarding.js";
+export { PLAN_RULES } from "./plan.js";
+export { COMMENT_RULES } from "./comment.js";
+
+/**
+ * Version stamp of the knowledge strings (ISO date of the last substantive edit).
+ * @type {string}
+ */
+export const KNOWLEDGE_VERSION = "2026-11-07";

@@ -1,0 +1,37 @@
+{
+  "format": "personal-trainer-backup",
+  "version": 1,
+  "exportedAt": "2026-11-01T12:00:00.000Z",
+  "data": {
+    "profile": {
+      "version": 1,
+      "onboarded": true,
+      "name": "Sam",
+      "goals": { "primary": "Run a half marathon", "modalities": { "strength": true, "running": true, "conditioning": false } },
+      "schedule": { "daysPerWeek": 3, "minutesPerSession": 45, "preferredDays": ["tue", "thu", "sun"], "notes": "" },
+      "updatedAt": "2026-10-20T08:00:00.000Z"
+    },
+    "coach": { "summary": "Sam is building toward a half marathon.", "notes": [{ "id": "n_fx1", "date": "2026-10-20", "kind": "goal", "text": "Half marathon in March." }], "updatedAt": "2026-10-20T08:00:00.000Z" },
+    "state": { "schemaVersion": 1, "settings": { "theme": "dark", "chatTier": "quick" }, "rotation": { "planId": "2026-10-25", "done": ["W1"] }, "onboarding": { "status": "done" }, "pendingPlanRequest": null },
+    "body": { "entries": [{ "date": "2026-10-20", "kg": 70.4 }] },
+    "plans": [
+      { "id": "2026-10-25", "status": "agreed", "weekStart": "2026-10-25", "createdAt": "2026-10-24T09:00:00.000Z", "approvedAt": "2026-10-24T09:05:00.000Z",
+        "focus": "Base building", "rationale": "Easy volume first.", "workouts": [], "weeklyTargets": { "runKm": 20, "conditioningSessions": 0, "strengthSetsPerMuscle": {} }, "notes": [], "validation": null }
+    ],
+    "sessions": [
+      { "id": "2026-10-27-abc123", "date": "2026-10-27", "planId": "2026-10-25", "workoutId": "W1", "title": "Easy run", "type": "run", "status": "done",
+        "missedReason": null, "durationMin": 40, "readiness": 4, "sessionRpe": 4, "notes": "", "pain": [], "strength": [], "conditioning": [],
+        "run": { "runType": "easy", "distanceKm": 6.5, "durationSec": 2400, "avgPaceSecPerKm": 369, "avgHr": null, "elevationM": null, "rpe": 4, "splits": [] },
+        "prs": [], "coachComment": "", "createdBy": "manual", "createdAt": "2026-10-27T18:00:00.000Z", "updatedAt": "2026-10-27T18:00:00.000Z" },
+      { "id": "2026-10-29-zz9yx8", "date": "2026-10-29", "planId": "2026-10-25", "workoutId": "W2", "title": "Intervals", "type": "run", "status": "missed",
+        "missedReason": "sick", "durationMin": null, "readiness": null, "sessionRpe": null, "notes": "Cold", "pain": [], "strength": [], "conditioning": [],
+        "run": null, "prs": [], "coachComment": "", "createdBy": "chat", "createdAt": "2026-10-29T18:00:00.000Z", "updatedAt": "2026-10-29T18:00:00.000Z" }
+    ],
+    "chat": [
+      { "date": "2026-10-27", "messages": [
+        { "id": "m_fx1", "ts": "2026-10-27T18:01:00.000Z", "role": "user", "text": "Ran 6.5 easy", "actions": [], "error": null },
+        { "id": "m_fx2", "ts": "2026-10-27T18:01:30.000Z", "role": "assistant", "text": "Logged.", "actions": [{ "type": "logged_session", "label": "Logged · Easy run", "ref": "2026-10-27-abc123" }], "error": null }
+      ] }
+    ]
+  }
+}
