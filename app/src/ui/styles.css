@@ -1207,6 +1207,7 @@ input[type="date"].input { padding-block: 0; line-height: 46px; }
   text-transform: uppercase;
   letter-spacing: 0.005em;
 }
+.plan-focus.is-long { font-size: var(--fs-xl); line-height: 1.05; }
 .plan-meta { color: var(--ink-2); font-size: var(--fs-sm); }
 .rotation { display: flex; gap: 4px; margin-top: 6px; }
 .rot-seg { flex: 1; height: 8px; border-radius: 2px; background: var(--surface-3); }
@@ -1415,6 +1416,7 @@ details > summary::-webkit-details-marker { display: none; }
 @media (min-width: 560px) {
   .view-title { font-size: 3.25rem; }
   .plan-focus { font-size: 2.375rem; }
+  .plan-focus.is-long { font-size: 1.75rem; }
   .set-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .msg-coach { padding-right: 12%; }
 }

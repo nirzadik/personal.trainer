@@ -638,13 +638,14 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
         return;
       }
       await callTool("update_profile", { patch: { onboarded: true } });
+      const queued = tools.has("request_plan") && (await callTool("request_plan", { kind: "generate", instruction: `First plan: ${profile?.goals?.primary || "general fitness"}` })) !== null;
       await write([
         "That's everything, thanks. Here's what I have:",
         `- **Goal**: ${profile?.goals?.primary || "as discussed"}`,
         `- **Schedule**: ${profile?.schedule?.daysPerWeek ?? 3} days × ${profile?.schedule?.minutesPerSession ?? 60} min`,
         `- **Equipment**: ${(profile?.equipment?.locations?.[0]?.name) || "saved"}`,
         "",
-        "When you're ready, ask me for your first plan, or open **Plan** and tap **Generate next week**.",
+        queued ? "I've queued your first plan: tap **Generate plan** below (it takes 1-3 minutes)." : "When you're ready, ask me for your first plan, or open **Plan** and tap **Generate next week**.",
       ].join("\n"));
       return;
     }

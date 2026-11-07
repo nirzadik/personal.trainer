@@ -283,12 +283,13 @@ function openDetail(ctx, id, initial = null) {
     const canComment = Boolean(coach) && status.available !== false;
     const row = h("div", { class: "sheet-actions" });
     append(row, [
-      button({ id: "detail-edit", label: "Edit", icon: "edit", kind: "secondary", onClick: () => { sheet.close(); openForm(ctx, s); } }),
+      button({ id: "detail-edit", label: "Edit", icon: "edit", kind: "secondary", small: true, onClick: () => { sheet.close(); openForm(ctx, s); } }),
       canComment ? button({
         id: "detail-comment",
         label: s.coachComment || localComment ? "New comment" : "Ask coach",
         icon: "coach",
         kind: "secondary",
+        small: true,
         disabled: Boolean(commentJob && !commentJob.error),
         onClick: () => askComment(api, s),
       }) : null,
@@ -297,6 +298,7 @@ function openDetail(ctx, id, initial = null) {
         label: "Delete",
         icon: "trash",
         kind: "danger-ghost",
+        small: true,
         onClick: () => inlineConfirm(row, {
           text: "Delete this workout? If it counted toward your plan, it's taken back out of the rotation.",
           confirmLabel: "Delete",

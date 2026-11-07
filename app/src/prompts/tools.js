@@ -126,7 +126,7 @@ export const TOOL_SPECS = {
     startLabel: "Updating profile…",
     description:
       "Save changes to the owner's profile: screening, goals, schedule, equipment, experience, injuries, preferences, basics. Deep-merges `patch`; arrays replace, except " +
-      "equipment.locations (merged by id) and injuries (merged by area). Equipment items must be EQUIPMENT ids from the context. Returns a short summary of what changed.",
+      "equipment.locations (merged by id) and injuries (merged by area). Equipment items must be EQUIPMENT ids from the context. Paces and race times may be \"mm:ss\" strings. Returns a short summary of what changed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -234,4 +234,4 @@ export const CHAT_TOOL_ORDER = [
 ];
 
 /** Onboarding-mode tools: centred on update_profile. */
-export const ONBOARDING_TOOL_ORDER = ["update_profile", "get_exercise_info"];
+export const ONBOARDING_TOOL_ORDER = ["update_profile", "get_exercise_info", "request_plan"];

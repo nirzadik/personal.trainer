@@ -543,7 +543,7 @@ export function mountChat(el, ctx) {
     }
     inflight = null;
     renderStream();
-    render();
+    render({ stick: !el.hidden });
   }
 
   async function undoLogged(sessionId, btn) {

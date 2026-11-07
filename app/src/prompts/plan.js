@@ -2,8 +2,8 @@
 
 import { formatPlanOverview, formatWorkout } from "./context.js";
 import {
-  clip, compactJson, compactValue, fmtNum, formatSessionCompact, isPlainObject, joinSections,
-  truncateBytes, utf8Bytes, weekdayName,
+  clip, compactJson, compactValue, fmtDuration as fmtDurationLocal, fmtNum, fmtPace as fmtPaceLocal, formatSessionCompact,
+  isPlainObject, joinSections, truncateBytes, utf8Bytes, weekdayName,
 } from "./util.js";
 
 /** First line of every plan prompt (also lets sample-mock.js recognise it). */
@@ -63,7 +63,8 @@ StrengthItem = { "exerciseId": allowed id, "name": string, "sets": number, "reps
 CondItem = { "exerciseId": allowed id, "name": string, "reps": number|null, "calories": number|null, "distanceM": number|null,
              "durationSec": number|null, "loadKg": number|null, "notes": string }   // unused fields null
 Rules for the JSON:
-- Every exerciseId and every alternatives entry MUST come from the allowed list for that workout's locationId. Never invent ids.
+- Every exerciseId and every alternatives entry MUST come from the provided exercise list for that workout's locationId. Never invent ids.
+- Paces are seconds per km (paceSecPerKm [lo, hi]); take them from the app-computed paces above, never convert yourself.
 - loadKg: copy the app-computed target when one is listed for that exercise; otherwise null (the app computes it from history). Never estimate.
 - Give each strength item 1-2 alternatives from the allowed list.
 - estMinutes must fit the session length; the app re-checks durations, equipment, run ramp and weekly volume.
@@ -181,6 +182,7 @@ function planJsonForPrompt(plan, maxBytes) {
  * @param {string[]} [d.previousDone] workout ids done in the previous plan
  * @param {object} [d.draft] the draft to revise (revise mode)
  * @param {string} [d.instruction]
+ * @param {string} [d.pacesText] formatted easy pace / race / pace zones (see formatPaces)
  * @param {object[]} d.allowedLocations see formatAllowedExercises
  * @returns {string}
  */
@@ -217,8 +219,9 @@ export function buildPlanPrompt(d) {
     { title: "Previous plan", body: prev, maxBytes: B.previousPlan },
     { title: "Current draft to revise (JSON)", body: revise ? planJsonForPrompt(d.draft, B.draft) : "", maxBytes: B.draft },
     { title: "Owner's instruction", body: clip(d.instruction ?? "", 1500) || (revise ? "(none: fix anything that looks off)" : "(none)"), maxBytes: B.instruction },
-    { title: `${ALLOWED_HEADING} (the only exerciseIds you may use, by location and pattern)`, body: formatAllowedExercises(d.allowedLocations) },
-    { title: "Output: Plan JSON", body: `${PLAN_JSON_SPEC}\n\nExample of the shape (not the content):\n${PLAN_EXAMPLE}` },
+    { title: "Running paces (computed by the app)", body: d.pacesText ?? "", maxBytes: 2000 },
+    { title: `${ALLOWED_HEADING}: the provided exercise list (the only exerciseIds you may use, by location and movement pattern)`, body: formatAllowedExercises(d.allowedLocations) },
+    { title: "Plan JSON spec (output format)", body: `${PLAN_JSON_SPEC}\n\nExample of the shape (not the content):\n${PLAN_EXAMPLE}` },
   ];
   const room = B.total - utf8Bytes(header) - 4;
   return `${header}\n\n${joinSections(sections, room, "# ")}`;
@@ -255,9 +258,47 @@ export function buildRepairPrompt(d) {
       `- running: ${runCaps(d.runLoad).text}`,
       "- exerciseIds and alternatives only from the allowed list for that workout's location; to fix an id, swap in an allowed exercise of the same pattern",
     ].filter(Boolean).join("\n") },
-    { title: `${ALLOWED_HEADING} (by location and pattern)`, body: formatAllowedExercises(d.allowedLocations) },
-    { title: "Plan JSON shape", body: PLAN_JSON_SPEC },
+    { title: `${ALLOWED_HEADING}: the provided exercise list (by location and movement pattern)`, body: formatAllowedExercises(d.allowedLocations) },
+    { title: "Plan JSON spec (output format)", body: PLAN_JSON_SPEC },
     { title: "Plan to fix (JSON)", body: planJsonForPrompt(d.plan, 60000) },
   ];
   return `${header}\n\n${joinSections(sections, PLAN_BUDGETS.total, "# ")}`;
+}
+
+/**
+ * Running paces as text, every pace given both formatted and in sec/km so the coach never converts:
+ * "easy pace 6:10/km (370 s/km); recent race 10 km in 52:00 (5:12/km, 312 s/km); zones {…}".
+ * @param {object} profile
+ * @param {unknown} [zones] result of core.paceZones(recentRace) when available
+ * @param {(sec: number) => string} [formatPace] core.formatPace, falls back to the local formatter
+ * @returns {string}
+ */
+export function formatPaces(profile, zones, formatPace) {
+  const fp = (s) => {
+    try { const v = typeof formatPace === "function" ? formatPace(s) : null; if (typeof v === "string" && v) return v; } catch { /* fall back */ }
+    return fmtPaceLocal(s);
+  };
+  const run = isPlainObject(profile?.experience?.running) ? profile.experience.running : {};
+  const parts = [];
+  const easy = Number(run.easyPaceSecPerKm);
+  if (easy > 0) parts.push(`easy pace ${fp(easy)} (${Math.round(easy)} s/km)`);
+  const race = isPlainObject(run.recentRace) ? run.recentRace : null;
+  if (race && Number(race.distanceKm) > 0 && Number(race.timeSec) > 0) {
+    const p = Number(race.timeSec) / Number(race.distanceKm);
+    parts.push(`recent race ${fmtNum(race.distanceKm)} km in ${fmtDurationLocal(race.timeSec)}${race.date ? ` on ${race.date}` : ""} (${fp(p)}, ${Math.round(p)} s/km)`);
+  }
+  if (zones !== null && zones !== undefined) parts.push(`pace zones: ${annotatePaces(zones, fp)}`);
+  return parts.join("\n");
+}
+
+/** JSON text of a value where every number in a key ending in SecPerKm / pace (or a [lo, hi] pair under one) gets its formatted pace beside it. */
+function annotatePaces(value, fp) {
+  const walk = (v, key) => {
+    const paceKey = /pace|secperkm/i.test(String(key ?? ""));
+    if (typeof v === "number" && paceKey) return `${fp(v)} (${Math.round(v)} s/km)`;
+    if (Array.isArray(v)) return v.map((x) => walk(x, key));
+    if (isPlainObject(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, paceKey ? key : k)]));
+    return v;
+  };
+  return truncateBytes(JSON.stringify(compactValue(walk(value, null)) ?? {}), 1500);
 }

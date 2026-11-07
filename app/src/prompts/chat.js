@@ -36,7 +36,7 @@ export const FALLBACK_ONBOARDING_RULES = [
   "3) Schedule: days per week, minutes per session, preferred days.",
   "4) Equipment per location using EQUIPMENT ids (offer bundles: commercial gym, home gym, dumbbells only, bodyweight + running).",
   "5) Experience: training age, known lifts, weekly km and a recent race, conditioning experience; injuries; likes and dislikes.",
-  "When all rounds are saved, summarise the profile in a few bullets and call update_profile with {\"onboarded\": true}.",
+  "When all rounds are saved, summarise the profile in a few bullets, call update_profile with {\"onboarded\": true}, then request_plan {kind: \"generate\"} and tell them to tap Generate plan.",
 ].join("\n");
 
 /**
@@ -57,7 +57,7 @@ export function buildAppPreamble({ mode, toolNames = [] }) {
   if (toolNames.length) {
     lines.push(`Tools you can call: ${toolNames.join(", ")}. Call them when they help; results are compact. Writes are saved immediately and the owner can undo them from the chat.`);
     if (mode === "onboarding") {
-      lines.push("Save each answered round with update_profile before asking the next round. When the intake is complete, call update_profile with {\"onboarded\": true} and tell the owner they can ask for their first plan.");
+      lines.push("Save each answered round with update_profile before asking the next round. When the intake is complete, call update_profile with {\"onboarded\": true}, then request_plan for the first plan if that tool is listed, and tell the owner to tap Generate plan.");
     } else {
       lines.push("When the owner reports a workout, call log_session (one call per session) and then reply with a short comment using the returned PRs and next targets. Do not log the same session twice: earlier assistant turns note what was already saved.");
       lines.push("Plans are written by a separate, more capable step: use request_plan, then tell the owner to tap Generate plan. Never write a whole week's plan in chat.");

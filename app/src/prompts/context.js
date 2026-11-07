@@ -79,7 +79,7 @@ export function formatBlock(block) {
       if (!isPlainObject(s)) return "";
       const what = s.distanceM ? `${s.distanceM} m` : s.durationSec ? fmtDuration(s.durationSec) : "";
       const pace = Array.isArray(s.target?.paceSecPerKm) && s.target.paceSecPerKm.length === 2
-        ? ` @ ${fmtDuration(s.target.paceSecPerKm[0])}-${fmtPace(s.target.paceSecPerKm[1])}` : "";
+        ? ` @ ${fmtDuration(s.target.paceSecPerKm[0])}-${fmtPace(s.target.paceSecPerKm[1])} (${Math.round(s.target.paceSecPerKm[0])}-${Math.round(s.target.paceSecPerKm[1])} s/km)` : "";
       const effort = [s.target?.hrZone ? `Z${s.target.hrZone}` : null, s.target?.rpe ? `RPE ${s.target.rpe}` : null].filter(Boolean).join(" ");
       const rec = s.recoverySec ? `, ${s.recoverySec}s ${s.recoveryType || "rec"}` : "";
       return `${s.reps && s.reps > 1 ? `${s.reps}× ` : ""}${what}${pace}${effort ? ` ${effort}` : ""}${rec}`;
@@ -192,6 +192,7 @@ function profileForPrompt(profile, mode) {
  * @param {object} [data.nextWorkout] Workout whose strength items carry `target`
  * @param {object} [data.trainingSummary] core.trainingSummary result
  * @param {object[]} [data.recentSessions] newest first
+ * @param {string} [data.pacesText] prompts/plan.js formatPaces() output
  * @param {{ maxBytes?: number }} [opts]
  * @returns {string}
  */
@@ -225,6 +226,7 @@ export function buildContextSnapshot(data, { maxBytes = 26000 } = {}) {
       body: isPlainObject(d.nextWorkout) ? formatWorkout(d.nextWorkout) : (isPlainObject(d.agreedPlan) ? "All workouts in the rotation are done." : ""),
       maxBytes: B.nextWorkout,
     });
+    sections.push({ title: "Running paces (computed by the app)", body: d.pacesText ?? "", maxBytes: 2000 });
     sections.push({
       title: "Training summary (computed by the app; use these numbers)",
       body: d.trainingSummary ? compactJson(d.trainingSummary) : "",

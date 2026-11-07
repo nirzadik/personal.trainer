@@ -11,7 +11,7 @@ import {
 import { CHAT_TOOL_ORDER, NOTE_KINDS, ONBOARDING_TOOL_ORDER, TOOL_SPECS } from "./prompts/tools.js";
 import { buildContextSnapshot, formatPlanOverview, formatWorkout } from "./prompts/context.js";
 import { CHAT_BUDGETS, ONBOARDING_START_TURN, buildChatTurns, buildInstructionsTurn } from "./prompts/chat.js";
-import { buildPlanPrompt, buildRepairPrompt } from "./prompts/plan.js";
+import { buildPlanPrompt, buildRepairPrompt, formatPaces } from "./prompts/plan.js";
 import { SUMMARY_STALE_AFTER, buildSummaryPrompt, composeSummary, parseSummary } from "./prompts/summary.js";
 import { buildCommentPrompt, clampWords } from "./prompts/comment.js";
 
@@ -28,7 +28,10 @@ const PERMANENT_CODES = new Set(["not_granted", "sampling_disabled", "not_declar
 /** A failed pre-send summary with one of these ends the send (the main call would fail the same way). */
 const SUMMARY_FATAL_CODES = new Set(["cancelled", "rate_limited", "session_expired", "queue_overflow", ...PERMANENT_CODES]);
 const KNOWN_SAMPLE_CODES = new Set(SAMPLE_ERROR_CODES);
-const APP_CODES = new Set(["no_user", "sample_unavailable", "not_found", "store_error", "no_draft"]);
+/** Store (store.js) and db (db.d.ts) codes that pass through unchanged. */
+const STORE_CODES = new Set(["no_user", "db_unavailable", "not_found", "invalid_argument", "internal",
+  "resource_exhausted", "quota_exceeded", "unavailable", "revoked"]);
+const APP_CODES = new Set([...STORE_CODES, "sample_unavailable", "store_error", "no_draft"]);
 
 const ERROR_COPY = Object.freeze({
   cancelled: "Stopped.",
@@ -54,6 +57,13 @@ const ERROR_COPY = Object.freeze({
   sample_unavailable: "The coach needs the Claude app. Open this page in Claude to chat.",
   not_found: "That workout no longer exists.",
   store_error: "Couldn't save your data. Check your connection and try again.",
+  db_unavailable: "Your training data can't be reached right now, so nothing can be saved. Reload to try again.",
+  invalid_argument: "The app tried to save something invalid. Try again; if it keeps happening, it's a bug in the app.",
+  internal: "Something went wrong saving your data. Try again.",
+  resource_exhausted: "Too many saves at once. Wait a moment, then try again.",
+  quota_exceeded: "Your data storage is full. Delete some old workouts or chat, then try again.",
+  unavailable: "Saving is briefly unavailable. Try again in a moment.",
+  revoked: "Access to your data was withdrawn for this view. Reload the page.",
   no_draft: "There's no draft plan to change. Generate one first.",
 });
 
@@ -329,6 +339,11 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
   async function loadSessionsAsc() {
     return sortSessionsAsc(await soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []));
   }
+  function pacesFor(profile) {
+    const race = profile?.experience?.running?.recentRace;
+    const zones = typeof C.paceZones === "function" && isPlainObject(race) ? attempt(() => C.paceZones(race)) : null;
+    return formatPaces(profile, zones, typeof C.formatPace === "function" ? (sec) => C.formatPace(sec) : undefined);
+  }
   function memoryForPrompt(coach) {
     if (!isPlainObject(coach)) return {};
     return { ...coach, summary: parseSummary(coach.summary).text };
@@ -443,6 +458,32 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         ![null, "novice", "late_novice", "intermediate", "advanced"].includes(patch.experience.level)) {
       notes.push("experience.level must be novice, late_novice, intermediate or advanced");
       delete patch.experience.level;
+    }
+    // Paces and race times may arrive as "mm:ss" strings; known lifts may arrive as names.
+    const toSec = (v) => {
+      if (typeof v === "number" || v === null) return v;
+      const str = String(v).replace(/\s*(\/\s*km|min\/km|per km)\s*$/i, "").trim();
+      const viaCore = attempt(() => C.parseDuration(str));
+      if (Number.isFinite(viaCore)) return viaCore;
+      const parts = str.split(":").map(Number);
+      if (!parts.length || parts.some((n) => !Number.isFinite(n))) { notes.push(`could not read duration "${v}"`); return null; }
+      return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 60;
+    };
+    const run = patch.experience?.running;
+    if (isPlainObject(run)) {
+      if ("easyPaceSecPerKm" in run) run.easyPaceSecPerKm = toSec(run.easyPaceSecPerKm);
+      if (isPlainObject(run.recentRace) && "timeSec" in run.recentRace) run.recentRace.timeSec = toSec(run.recentRace.timeSec);
+    }
+    if (isPlainObject(patch.goals?.event) && "goalTimeSec" in patch.goals.event) patch.goals.event.goalTimeSec = toSec(patch.goals.event.goalTimeSec);
+    if (Array.isArray(patch.experience?.knownLifts)) {
+      patch.experience.knownLifts = patch.experience.knownLifts.filter(isPlainObject).map((l) => {
+        const known = l.exerciseId && attempt(() => cat.getExercise?.(l.exerciseId));
+        if (known) return l;
+        const ex = attempt(() => cat.findExercise?.(String(l.exerciseId || l.name || "")));
+        if (isPlainObject(ex)) return { ...l, exerciseId: ex.id };
+        notes.push(`unknown lift "${l.exerciseId || l.name}" kept as given`);
+        return l;
+      });
     }
     if ("onboarded" in patch && typeof patch.onboarded !== "boolean") delete patch.onboarded;
     const changed = Object.keys(patch);
@@ -701,6 +742,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         nextWorkout: next ? withTargets(next, sessionsAsc, t) : null,
         trainingSummary: attempt(() => C.trainingSummary(sessionsAsc, profile, { weeks: 4, today: t })),
         recentSessions: [...sessionsAsc].reverse().slice(0, 3),
+        pacesText: pacesFor(profile),
       });
     }
     return { t, coachMem: coachMem ?? {}, state: state ?? {}, data };
@@ -777,6 +819,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         if (SUMMARY_FATAL_CODES.has(e?.code)) throw e;
         // Otherwise carry on without a fresh summary; the main call is a different request, not a retry.
       }
+      data.coach = memoryForPrompt(coachMem); // include a summary written just now
       const maxCount = lim.tools && !toolsBlocked ? Math.min(8, Number(lim.tools.maxCount) || 8) : 0;
       const ctx = { mode, actions, onTool, today: t };
       const tools = makeTools(mode, ctx, maxCount);
@@ -892,10 +935,10 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     try {
       progress("preparing");
       const t = today();
-      const [profile, coachMem, state, agreed, draft, sessionsDesc, plans] = await Promise.all([
+      const [profile, coachMem, state, agreed, draft, sessionsDesc] = await Promise.all([
         store.profile.get(), soft(() => store.coach.get(), {}), soft(() => store.state.get(), {}),
         soft(() => store.plans.getAgreed()), soft(() => store.plans.getDraft()),
-        soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []), soft(() => store.plans.list({ limit: 60 }), []),
+        soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []),
       ]);
       const sessionsAsc = sortSessionsAsc(sessionsDesc);
       const base = revise && isPlainObject(draft) ? draft : null;
@@ -905,11 +948,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       const thisWeek = weekStartOf(t);
       const weekStart = base?.weekStart && isIsoDate(base.weekStart) ? base.weekStart
         : (isIsoDate(agreed?.weekStart) && agreed.weekStart >= thisWeek ? addDaysISO(agreed.weekStart, 7) : thisWeek);
-      const ids = new Set((Array.isArray(plans) ? plans : []).map((p) => p?.id).filter(Boolean));
-      if (draft?.id) ids.add(draft.id);
-      if (agreed?.id) ids.add(agreed.id);
-      let id = weekStart;
-      for (let n = 2; ids.has(id); n += 1) id = `${weekStart}-${n}`;
+      const id = weekStart; // provisional: store.plans.saveDraft assigns the final id (weekStart, -2, -3…)
 
       const workoutCount = clampInt(profile?.schedule?.daysPerWeek, 1, 7, 3);
       const minutesPerSession = clampInt(profile?.schedule?.minutesPerSession, 10, 240, 60);
@@ -929,7 +968,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         trainingSummary: attempt(() => C.trainingSummary(sessionsAsc, profile, { weeks: 4, today: t })),
         recentSessions: sessionsAsc.filter((s) => s.date >= from14 && s.date <= t),
         targets: targetsFor([...strengthItems(base ?? agreed).values()], sessionsAsc, t, 40),
-        previousPlan: agreed, previousDone, draft: base, instruction,
+        previousPlan: agreed, previousDone, draft: base, instruction, pacesText: pacesFor(profile),
       });
 
       progress("generating");
