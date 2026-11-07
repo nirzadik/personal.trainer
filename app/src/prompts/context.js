@@ -39,9 +39,9 @@ export function formatStrengthItem(item) {
   let line = `- ${item.exerciseId ?? "?"}${name}: ${dose}${extras ? `, ${extras}` : ""}`;
   const t = item.target;
   if (isPlainObject(t) && (t.loadKg !== undefined || t.reps !== undefined || t.note)) {
-    const tl = [t.loadKg !== null && t.loadKg !== undefined ? `${fmtNum(t.loadKg)} kg` : null, t.reps ? `× ${t.reps}` : null]
-      .filter(Boolean).join(" ");
-    line += ` → target ${tl || "(no load yet)"}${t.note ? ` (${clip(t.note, 90)})` : ""}`;
+    const hasLoad = t.loadKg !== null && t.loadKg !== undefined;
+    const tl = hasLoad ? `${fmtNum(t.loadKg)} kg${t.reps ? ` × ${t.reps}` : ""}` : `${t.reps ? `${t.reps} reps, ` : ""}no load yet`;
+    line += ` → target ${tl}${t.note ? ` (${clip(t.note, 90)})` : ""}`;
   }
   if (item.notes) line += ` — ${clip(item.notes, 80)}`;
   if (Array.isArray(item.alternatives) && item.alternatives.length) line += ` | alt ${item.alternatives.slice(0, 3).join(", ")}`;

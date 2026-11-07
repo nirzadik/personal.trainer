@@ -731,3 +731,43 @@ test("mock: parseWorkoutReport reads sets, runs and pain", () => {
   const c = parseWorkoutReport("3x8 @60 bench").session;
   assert.deepEqual(c.strength[0].sets.map((s) => [s.loadKg, s.reps]), [[60, 8], [60, 8], [60, 8]]);
 });
+
+// ---------- integration with the real modules (skipped while any is still a skeleton) ----------
+
+async function realModules() {
+  try {
+    const [core, catalog, knowledge, storeMod, storeMock] = await Promise.all([
+      import("../src/core.js"), import("../src/catalog.js"), import("../src/knowledge/index.js"), import("../src/store.js"), import("../src/store-mock.js"),
+    ]);
+    core.todayISO();
+    if (!catalog.EXERCISES.length || !knowledge.CHAT_RULES) return null;
+    storeMock.createMockDb();
+    return { core, catalog, knowledge, createStore: storeMod.createStore, createMockDb: storeMock.createMockDb };
+  } catch {
+    return null;
+  }
+}
+const REAL = await realModules();
+
+test("integration: onboarding → plan → today → log with real core, catalog, store and knowledge", { skip: REAL ? false : "other modules not implemented yet" }, async () => {
+  const { core, catalog, knowledge, createStore, createMockDb } = REAL;
+  const store = createStore(createMockDb(), "u1");
+  const sample = createMockSample({ delayMs: 0, chunkMs: 0 });
+  const coach = createCoach({ runtime: { sample, uid: "u1" }, store, core, catalog, knowledge });
+  assert.equal((await coach.startOnboarding({})).error, null);
+  for (const a of ["no to all", "get stronger and run a 10k", "4 days, 60 min", "commercial gym, also run outside", "intermediate, 3 years, 15 km a week"]) {
+    assert.equal((await coach.send(a)).error, null, a);
+  }
+  assert.equal(coach.isOnboarding(), false);
+  assert.equal((await store.state.get()).onboarding.status, "done");
+  const { plan, validation } = await coach.generatePlan();
+  assert.deepEqual(validation.errors, [], JSON.stringify(validation.errors));
+  assert.equal(plan.workouts.length, 4);
+  await store.plans.approve(plan.id);
+  const today = await coach.send("what's my workout today?");
+  assert.match(today.text, /back_squat|bench_press|deadlift/);
+  const logged = await coach.send("did today's workout: 100x5,5,4 squats, knee 3/10");
+  assert.equal(logged.actions[0]?.type, "logged_session");
+  assert.deepEqual((await store.state.get()).rotation.done, [plan.workouts[0].id]);
+  for (const c of sample.calls) if (Array.isArray(c.input)) assert.ok(utf8Bytes(c.input[0].content) <= CHAT_BUDGETS.instructionsBytes);
+});
