@@ -127,7 +127,7 @@ export function mountPlan(el, ctx) {
       replaceChildren(agreedEl, emptyState({ title: "Your plan needs an account", text: "Sign in to Claude to build and follow a weekly plan.", icon: "plan" }));
       return;
     }
-    if (!ctx.data.loaded.plans || !ctx.data.loaded.profile) {
+    if (!ctx.data.loaded.plans || !ctx.data.loaded.profile || !ctx.data.loaded.state) {
       sub.textContent = "Loading…";
       replaceChildren(agreedEl, h("div", { class: "skeleton-list", "aria-hidden": "true" }, [0, 1, 2].map(() => h("div", { class: "skeleton-card" }))));
       return;
