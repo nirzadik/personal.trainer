@@ -989,7 +989,6 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
           if (!usable) warn("MISSING_ALTERNATIVES", w.id, `${ip}.alternatives`, `${ex?.name || it.name || "Item"} has no usable alternatives.`);
         });
       } else if (b.kind === "conditioning") {
-        stats.conditioningCount += 0; // counted per workout below
         h.quality = true;
         if (!COND_FORMATS.includes(b.format)) err("SCHEMA", w.id, `${bp}.format`, `Invalid conditioning format "${b.format}".`);
         if (!Array.isArray(b.items) || !b.items.length) { err("SCHEMA", w.id, `${bp}.items`, "Conditioning block needs items."); return; }

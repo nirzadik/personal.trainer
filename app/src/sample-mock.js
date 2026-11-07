@@ -31,16 +31,16 @@ const PREFERRED = {
   squat: ["back_squat", "goblet_squat", "front_squat", "leg_press", "hack_squat", "air_squat"],
   hinge: ["deadlift", "romanian_deadlift", "trap_bar_deadlift", "hip_thrust", "dumbbell_romanian_deadlift", "kettlebell_deadlift", "glute_bridge"],
   lunge: ["bulgarian_split_squat", "walking_lunge", "reverse_lunge", "step_up", "lunge"],
-  h_push: ["bench_press", "dumbbell_bench_press", "incline_dumbbell_press", "push_up", "chest_press_machine"],
-  v_push: ["overhead_press", "dumbbell_shoulder_press", "seated_dumbbell_press", "pike_push_up", "landmine_press"],
+  h_push: ["bench_press", "dumbbell_bench_press", "incline_dumbbell_press", "push_up", "machine_chest_press"],
+  v_push: ["overhead_press", "dumbbell_shoulder_press", "pike_push_up", "landmine_press"],
   h_pull: ["barbell_row", "dumbbell_row", "seated_cable_row", "chest_supported_row", "inverted_row"],
   v_pull: ["pull_up", "lat_pulldown", "chin_up", "assisted_pull_up", "band_pulldown"],
   core: ["plank", "hanging_knee_raise", "dead_bug", "ab_wheel_rollout", "pallof_press", "side_plank"],
-  isolation: ["dumbbell_curl", "triceps_pushdown", "lateral_raise", "leg_curl", "calf_raise", "face_pull"],
+  isolation: ["dumbbell_curl", "triceps_pushdown", "lateral_raise", "seated_leg_curl", "standing_calf_raise", "face_pull"],
 };
 const CONDITIONING_PREFERRED = [
   "kettlebell_swing", "burpee", "rower", "wall_ball", "box_jump", "assault_bike", "air_squat", "push_up",
-  "thruster", "double_under", "jump_rope", "mountain_climber", "ski_erg", "dumbbell_snatch", "jumping_jack",
+  "thruster", "double_under", "single_under", "mountain_climber", "ski_erg", "dumbbell_snatch", "jumping_jack",
 ];
 const EQUIPMENT_BUNDLES = {
   commercial: ["barbell", "plates", "squat_rack", "bench", "adjustable_bench", "dumbbells", "kettlebell", "cable_machine", "lat_pulldown", "seated_row", "leg_press", "leg_curl", "leg_extension", "pullup_bar", "dip_bars", "plyo_box", "jump_rope", "wall_ball", "medicine_ball", "bands", "ab_wheel", "rower", "assault_bike", "treadmill"],

@@ -1,0 +1,57 @@
+{
+  "about": "Agent A cross-check fixture: the same lift history is fed to scripts/trainer.py (CSV via `log`) and to core.js (Sessions). Dates are relative: daysAgo before 'today'. Tokens use trainer.py syntax LOADxREPS[@RIR].",
+  "reportWeeks": 8,
+  "exercises": [
+    { "name": "Bench Press", "exerciseId": "bench_press", "range": "8-12", "rir": 2, "inc": 2.5, "model": "double",
+      "exposures": [
+        { "daysAgo": 26, "warmup": ["40x10", "60x5"], "sets": ["80x8@2", "80x8@2", "80x7@1"] },
+        { "daysAgo": 22, "sets": ["80x10@2", "80x9@2", "80x9@1"] },
+        { "daysAgo": 19, "sets": ["80x11@2", "80x10@1", "80x10@1"] },
+        { "daysAgo": 15, "sets": ["80x12@2", "80x12@2", "80x12@1"] } ] },
+    { "name": "Back Squat", "exerciseId": "back_squat", "range": "5-5", "rir": 2, "inc": 5, "model": "linear",
+      "exposures": [
+        { "daysAgo": 24, "warmup": ["60x5"], "sets": ["95x5@2", "95x5@2", "95x5@2"] },
+        { "daysAgo": 20, "sets": ["100x5@1", "100x5@1", "100x4@0"] },
+        { "daysAgo": 13, "sets": ["100x5@1", "100x4@0", "100x4@0"] } ] },
+    { "name": "Barbell Row", "exerciseId": "barbell_row", "range": "8-12", "rir": 2, "inc": 2.5, "model": "double",
+      "exposures": [
+        { "daysAgo": 25, "sets": ["70x8", "70x8", "70x7"] },
+        { "daysAgo": 18, "sets": ["70x7", "70x6", "70x6"] },
+        { "daysAgo": 11, "sets": ["70x7", "70x7", "70x6"] } ] },
+    { "name": "Overhead Press", "exerciseId": "overhead_press", "range": "6-10", "rir": 2, "inc": 2.5, "model": "double",
+      "exposures": [
+        { "daysAgo": 17, "sets": ["50x8@2", "50x7@1"] },
+        { "daysAgo": 10, "sets": ["50x8@0", "50x7@0"], "notes": "shoulder pain", "pain": [{ "area": "shoulder", "score": 2, "when": "during" }] } ] },
+    { "name": "Romanian Deadlift", "exerciseId": "romanian_deadlift", "range": "8-10", "rir": 2, "inc": 2.5, "model": "double",
+      "exposures": [ { "daysAgo": 30, "sets": ["102.5x8@2", "102.5x8@2", "102.5x8@2"] } ] },
+    { "name": "Leg Press", "exerciseId": "leg_press", "range": "10-15", "rir": 2, "inc": 10, "model": "double",
+      "exposures": [ { "daysAgo": 50, "sets": ["200x12@2", "200x12@2", "200x12@2"] } ] },
+    { "name": "Pull Up", "exerciseId": "pull_up", "range": "8-12", "rir": 2, "inc": 2.5, "model": "double",
+      "exposures": [
+        { "daysAgo": 16, "sets": ["bwx9@2", "bwx8@2"] },
+        { "daysAgo": 9, "sets": ["bwx10@2", "bwx10@2", "bwx9@1"] } ] },
+    { "name": "Incline Dumbbell Press", "exerciseId": "incline_dumbbell_press", "range": "8-12", "rir": 2, "inc": 2, "model": "double",
+      "exposures": [
+        { "daysAgo": 27, "sets": ["34x8@2", "34x8@2"] },
+        { "daysAgo": 20, "sets": ["34x9@2", "34x8@2"] },
+        { "daysAgo": 14, "sets": ["34x8@2", "34x8@2"] },
+        { "daysAgo": 7, "sets": ["34x8@2", "34x7@2"] },
+        { "daysAgo": 2, "sets": ["34x7@2", "34x7@2"] } ] },
+    { "name": "Lat Pulldown", "exerciseId": "lat_pulldown", "range": "10-12", "rir": 2, "inc": 2.5, "model": "double",
+      "exposures": [
+        { "daysAgo": 23, "sets": ["60x10@2", "60x10@2"] },
+        { "daysAgo": 16, "sets": ["62x10@2", "62x10@2"] },
+        { "daysAgo": 9, "sets": ["63x10@2", "63x10@3"] },
+        { "daysAgo": 3, "sets": ["58x10@2", "58x10@2"] } ] },
+    { "name": "Leg Extension", "exerciseId": "leg_extension", "range": "12-15", "rir": 2, "inc": 2.5, "model": "double",
+      "exposures": [
+        { "daysAgo": 8, "sets": ["50x15@2", "50x15@2"] },
+        { "daysAgo": 1, "sets": ["52.5x15@2", "52.5x15@3"] } ] },
+    { "name": "Dumbbell Curl", "exerciseId": "dumbbell_curl", "range": "8-12", "rir": 2, "inc": 1, "model": "double",
+      "exposures": [
+        { "daysAgo": 21, "sets": ["14x10@2", "14x10@2"] },
+        { "daysAgo": 14, "sets": ["15x10@2", "15x9@1"] },
+        { "daysAgo": 6, "sets": ["16x10", "16x9"] },
+        { "daysAgo": 0, "sets": ["16x11@5", "16x10@5"] } ] }
+  ]
+}

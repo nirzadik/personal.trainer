@@ -1,0 +1,391 @@
+{
+  "generatedBy": "node tests/fixtures/a-gen-trainer-expected.mjs  (python3 .claude/skills/personal-trainer/scripts/trainer.py --home <tmp> init / log / next / report --weeks 8)",
+  "generatedOn": "2026-11-07",
+  "note": "Results depend only on days-ago offsets, so tests replay them against any fixed 'today'.",
+  "log": [
+    {
+      "name": "Leg Press",
+      "daysAgo": 50,
+      "best": 293.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Romanian Deadlift",
+      "daysAgo": 30,
+      "best": 136.7,
+      "prPrevious": null
+    },
+    {
+      "name": "Incline Dumbbell Press",
+      "daysAgo": 27,
+      "best": 45.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Bench Press",
+      "daysAgo": 26,
+      "best": 106.7,
+      "prPrevious": null
+    },
+    {
+      "name": "Barbell Row",
+      "daysAgo": 25,
+      "best": 88.7,
+      "prPrevious": null
+    },
+    {
+      "name": "Back Squat",
+      "daysAgo": 24,
+      "best": 117.2,
+      "prPrevious": null
+    },
+    {
+      "name": "Lat Pulldown",
+      "daysAgo": 23,
+      "best": 84,
+      "prPrevious": null
+    },
+    {
+      "name": "Bench Press",
+      "daysAgo": 22,
+      "best": 112,
+      "prPrevious": 106.7
+    },
+    {
+      "name": "Dumbbell Curl",
+      "daysAgo": 21,
+      "best": 19.6,
+      "prPrevious": null
+    },
+    {
+      "name": "Back Squat",
+      "daysAgo": 20,
+      "best": 120,
+      "prPrevious": 117.2
+    },
+    {
+      "name": "Incline Dumbbell Press",
+      "daysAgo": 20,
+      "best": 46.5,
+      "prPrevious": 45.3
+    },
+    {
+      "name": "Bench Press",
+      "daysAgo": 19,
+      "best": 109.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Barbell Row",
+      "daysAgo": 18,
+      "best": 86.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Overhead Press",
+      "daysAgo": 17,
+      "best": 66.7,
+      "prPrevious": null
+    },
+    {
+      "name": "Pull Up",
+      "daysAgo": 16,
+      "best": null,
+      "prPrevious": null
+    },
+    {
+      "name": "Lat Pulldown",
+      "daysAgo": 16,
+      "best": 86.8,
+      "prPrevious": 84
+    },
+    {
+      "name": "Bench Press",
+      "daysAgo": 15,
+      "best": 117.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Incline Dumbbell Press",
+      "daysAgo": 14,
+      "best": 45.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Dumbbell Curl",
+      "daysAgo": 14,
+      "best": 21,
+      "prPrevious": 19.6
+    },
+    {
+      "name": "Back Squat",
+      "daysAgo": 13,
+      "best": 120,
+      "prPrevious": null
+    },
+    {
+      "name": "Barbell Row",
+      "daysAgo": 11,
+      "best": 86.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Overhead Press",
+      "daysAgo": 10,
+      "best": 63.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Pull Up",
+      "daysAgo": 9,
+      "best": null,
+      "prPrevious": null
+    },
+    {
+      "name": "Lat Pulldown",
+      "daysAgo": 9,
+      "best": 88.2,
+      "prPrevious": 86.8
+    },
+    {
+      "name": "Leg Extension",
+      "daysAgo": 8,
+      "best": 78.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Incline Dumbbell Press",
+      "daysAgo": 7,
+      "best": 45.3,
+      "prPrevious": null
+    },
+    {
+      "name": "Dumbbell Curl",
+      "daysAgo": 6,
+      "best": 21.3,
+      "prPrevious": 21
+    },
+    {
+      "name": "Lat Pulldown",
+      "daysAgo": 3,
+      "best": 81.2,
+      "prPrevious": null
+    },
+    {
+      "name": "Incline Dumbbell Press",
+      "daysAgo": 2,
+      "best": 44.2,
+      "prPrevious": null
+    },
+    {
+      "name": "Leg Extension",
+      "daysAgo": 1,
+      "best": 84,
+      "prPrevious": null
+    },
+    {
+      "name": "Dumbbell Curl",
+      "daysAgo": 0,
+      "best": 24.5,
+      "prPrevious": null
+    }
+  ],
+  "next": {
+    "Bench Press": {
+      "reason": "add_load",
+      "loadKg": 82.5,
+      "reps": "8",
+      "flags": []
+    },
+    "Back Squat": {
+      "reason": "reset",
+      "loadKg": 90,
+      "reps": null,
+      "flags": [
+        "effort_overshoot"
+      ]
+    },
+    "Barbell Row": {
+      "reason": "reduce",
+      "loadKg": 65,
+      "reps": "8",
+      "flags": []
+    },
+    "Overhead Press": {
+      "reason": "add_reps",
+      "loadKg": 50,
+      "reps": "9/8",
+      "flags": [
+        "effort_overshoot",
+        "pain"
+      ]
+    },
+    "Romanian Deadlift": {
+      "reason": "layoff",
+      "loadKg": 87.5,
+      "reps": null,
+      "flags": [
+        "layoff"
+      ]
+    },
+    "Leg Press": {
+      "reason": "layoff",
+      "loadKg": 150,
+      "reps": null,
+      "flags": [
+        "layoff"
+      ]
+    },
+    "Pull Up": {
+      "reason": "add_reps",
+      "loadKg": null,
+      "reps": null,
+      "flags": []
+    },
+    "Incline Dumbbell Press": {
+      "reason": "reduce",
+      "loadKg": 32,
+      "reps": "8",
+      "flags": []
+    },
+    "Lat Pulldown": {
+      "reason": "add_reps",
+      "loadKg": 58,
+      "reps": "11/11",
+      "flags": []
+    },
+    "Leg Extension": {
+      "reason": "add_load",
+      "loadKg": 55,
+      "reps": "12",
+      "flags": []
+    },
+    "Dumbbell Curl": {
+      "reason": "add_reps",
+      "loadKg": 16,
+      "reps": "12/11",
+      "flags": []
+    }
+  },
+  "report": {
+    "lifts": {
+      "Back Squat": {
+        "n": 3,
+        "best": 120,
+        "flags": []
+      },
+      "Barbell Row": {
+        "n": 3,
+        "best": 88.7,
+        "flags": []
+      },
+      "Bench Press": {
+        "n": 4,
+        "best": 112,
+        "flags": []
+      },
+      "Dumbbell Curl": {
+        "n": 4,
+        "best": 21.3,
+        "flags": []
+      },
+      "Incline Dumbbell Press": {
+        "n": 5,
+        "best": 46.5,
+        "flags": [
+          "stall"
+        ]
+      },
+      "Lat Pulldown": {
+        "n": 4,
+        "best": 88.2,
+        "flags": [
+          "fatigue"
+        ]
+      },
+      "Leg Extension": {
+        "n": 2,
+        "best": null,
+        "flags": []
+      },
+      "Leg Press": {
+        "n": 1,
+        "best": null,
+        "flags": []
+      },
+      "Overhead Press": {
+        "n": 2,
+        "best": 66.7,
+        "flags": []
+      },
+      "Pull Up": {
+        "n": 2,
+        "best": null,
+        "flags": []
+      },
+      "Romanian Deadlift": {
+        "n": 1,
+        "best": 136.7,
+        "flags": []
+      }
+    },
+    "muscles": {
+      "adductors": {
+        "last7": 0,
+        "avg": 0.6
+      },
+      "biceps": {
+        "last7": 3,
+        "avg": 2.1
+      },
+      "chest": {
+        "last7": 2,
+        "avg": 2.8
+      },
+      "forearms": {
+        "last7": 1,
+        "avg": 0.4
+      },
+      "front_delts": {
+        "last7": 2,
+        "avg": 2.5
+      },
+      "glutes": {
+        "last7": 0,
+        "avg": 1.7
+      },
+      "hamstrings": {
+        "last7": 0,
+        "avg": 0.4
+      },
+      "lats": {
+        "last7": 2,
+        "avg": 2.8
+      },
+      "lower_back": {
+        "last7": 0,
+        "avg": 1.3
+      },
+      "quads": {
+        "last7": 2,
+        "avg": 2
+      },
+      "rear_delts": {
+        "last7": 0,
+        "avg": 0.6
+      },
+      "side_delts": {
+        "last7": 0,
+        "avg": 0.2
+      },
+      "triceps": {
+        "last7": 1,
+        "avg": 1.6
+      },
+      "upper_back": {
+        "last7": 1,
+        "avg": 1.9
+      }
+    }
+  }
+}
