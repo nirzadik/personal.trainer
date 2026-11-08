@@ -23,9 +23,9 @@ Defaults for lifters who also run (1-3 runs/week beside gym and HIIT) and recrea
 1. **No single run >10% longer than the longest run of the last 30 days** (Frandsen 2025 [V]): the best-supported load rule.
 2. **Mostly easy.** About 80% of running time conversational; easy days easy so hard days can be hard.
 3. **Volume before intensity.** Speed raises bone load faster than distance (Warden 2021 [V]). Add quality only after 3-4 stable weeks; hold volume that week.
-4. **One change at a time:** longer long run, *or* more km, *or* more/faster quality; never all three in one week.
+4. **One change per week:** a longer long run, *or* more km, *or* more/faster quality [P].
 5. **Injury in the last 12 months is the strongest risk factor** (van Poppel 2021 [V]): progress at the low end of every range.
-6. **Count HIIT and heavy legs as hard days.** For hybrid athletes the hard-day budget is shared (§11).
+6. **HIIT and heavy legs are hard days too:** one shared budget (§11).
 
 ## 2. Intensity
 
@@ -86,19 +86,17 @@ Use a **recent (≤8-12 weeks), all-out, flat** race or time trial; take the row
 
 | Rule | Default |
 |---|---|
-| **Single-run cap** (any run, not just the long one) | ≤ longest run of the last 30 days × 1.10. Spikes of >10-30% raised overuse-injury rate 64%, >30-100% 52%, >100% 128% (HRR 1.64 / 1.52 / 2.28) in 5,205 Garmin runners (Frandsen 2025 [V]) |
-| Spacing | At most **one** "new longest run" per week; ≥5-7 days before the next step. Three +10% runs in one week is still too much, per the authors |
-| Weekly km | Plan from the 3-4-week average, not the best week. Ceiling ≈ +10% (or +3-5 km at low volume) [P]. Hold volume in a week that adds intensity |
+| **Single-run cap** (any run) | ≤ longest run of the last 30 days × 1.10. Spikes of >10-30%, >30-100% and >100% raised overuse-injury rate 64%, 52% and 128% in 5,205 runners (Frandsen 2025 [V]) |
+| Spacing | At most **one** new longest run per week; chaining +10% runs within a week is still too much (Frandsen's authors) |
+| Weekly km | Plan from the 3-4-week average, not the best week; ceiling ≈ +10% (or +3-5 km at low volume) [P] |
 | Cutback | Every 3rd-4th week: -20-30% km, long run back to ~80%, keep one short quality touch [P] |
-| Long-run share | ≤30% of weekly km below ~60 km/week (≤40% is acceptable at 1-2 runs or <20 km/week); ≤25% and ≤150 min above that (Daniels [P]). Marathon builds cap at ~3 h |
-| Runs per week | Frequency rises before single-run length does once the long run passes ~40% of weekly km |
+| Long-run share | ≤30% of weekly km below ~60 km/week (≤40% at 1-2 runs or <20 km/week); ≤25% and ≤150 min above (Daniels [P]); marathon builds ~3 h max. Past 40%, add a run before lengthening the long one |
 
 **Weekly ramps:** a graded 10%/week plan didn't cut injuries in 532 novices (20.8% vs 20.3%; Buist 2008 [V]); >30% over 2 weeks gave borderline more distance-related injuries in 874 novices (HR 1.59, p=0.07; Nielsen 2014 [V]); week-to-week ratio showed no link and ACWR an inverse one (Frandsen 2025 [V]). Weekly 10% is a ceiling, not a magic number; police single-run spikes hardest.
 
 **Long-run progression** (worked rule): step = +10% of the 30-day longest, every 1-2 weeks, with a cutback every 3rd-4th week.
-- Example from 10 km: 11 → 12 → cut back 10 → 13 → 14 → cut back 11 → 15.5 km. That is ~+5 km in 7 weeks; plan race builds backwards from it.
-- Short runs: round down (5 km → 5.5 km, or 30 → 33 min). Beginners progress through §7 instead.
-- Use time instead of km on trails or hills (same 10% rule on minutes).
+- From 10 km: 11 → 12 → 10 (cutback) → 13 → 14 → 11 → 15 km: ~+5 km in 7 weeks. Plan race builds backwards from this.
+- Round down on short runs (5 → 5.5 km; 30 → 33 min); use minutes on trails. Beginners follow §7.
 
 ## 5. Session library and dosing
 
@@ -106,24 +104,24 @@ Per-session caps (Daniels [P]): T ≤10% of weekly km, I ≤8% (≤10 km), R ≤
 
 | Session | Prescription | Notes |
 |---|---|---|
-| **Easy** | 20-60 min at Easy pace, RPE 2-4 | Default run. Fine after upper-body lifting. |
-| **Long** | Longest run of the week, at Easy pace; §4 caps | Fuel runs >75-90 min (30-60 g carbs/h) [K]. Late in a half/marathon build, finish with 10-20 min at M/HM effort. |
-| **Strides** | 4-8 × 15-20 s (~80-100 m) at R effort, smooth, full walk/jog recovery | 1-3×/week after easy runs. Not a hard session [P]. |
-| **Hill sprints** | 6-10 × 8-12 s steep uphill, walk-back recovery | Power work; easy-day add-on for experienced runners [P]. |
+| **Easy** | 20-60 min at Easy pace, RPE 2-4 | Default run |
+| **Long** | Week's longest run at Easy pace; §4 caps | Fuel >75-90 min (30-60 g carbs/h) [K]; late in a half/marathon build finish with 10-20 min at M/HM effort |
+| **Strides** | 4-8 × 15-20 s (~80-100 m) at R effort, smooth, full walk/jog recovery | 1-3×/week after easy runs; not a hard session [P] |
+| **Hill sprints** | 6-10 × 8-12 s steep uphill, walk back | Easy-day add-on for experienced runners [P] |
 | **Hill repeats** | 6-10 × 30-90 s at ~5K effort, jog down | Counts as quality. |
-| **Fartlek** | 30-45 min easy with 6-10 surges of 30 s-3 min at RPE 6-8 | Best first quality session; no pace needed. |
+| **Fartlek** | 30-45 min easy with 6-10 surges of 30 s-3 min at RPE 6-8 | Best first quality; no paces needed |
 | **Tempo** | 15-25 min continuous at T (start 2 × 8-10 min) | |
-| **Cruise intervals** | 3-6 × 5-10 min at T, 60-90 s jog | 20-40 min total at T. Most forgiving quality for hybrids. |
-| **VO2max intervals** | Progress 6-8 × 1 min / 1 min → 5 × 2 min → 5 × 3 min → 4-5 × 4 min (or 5 × 1 km) at I, jog ≈ rep time | 10-20 min total at I. |
-| **Repetitions** | 6-10 × 200-400 m at R, jog 2-3× rep time | ≤2 min per rep; speed and form. |
-| **Race-pace** | HM: 2-3 × 10-15 min at HM effort. M: 8-16 km at M inside long runs | Race-specific phase only. |
-| **Time trial** | 3K/5K all-out after 15 min warm-up + strides | Counts as the week's quality. |
+| **Cruise intervals** | 3-6 × 5-10 min at T, 60-90 s jog | 20-40 min at T; most forgiving quality for hybrids |
+| **VO2max intervals** | 6-8 × 1 min/1 min → 5 × 2 → 5 × 3 → 4-5 × 4 min (or 5 × 1 km) at I, jog ≈ rep time | 10-20 min total at I |
+| **Repetitions** | 6-10 × 200-400 m at R, jog 2-3× rep time | ≤2 min reps; speed and form |
+| **Race-pace** | HM: 2-3 × 10-15 min at HM effort. M: 8-16 km at M inside long runs | Race-specific phase |
+| **Time trial** | 3K/5K all-out after warm-up + strides | The week's quality |
 
 **Quality sessions per week:** 0 in the first 4-8 weeks (strides from week 3-4); 1 for most recreational and hybrid runners; 2 only with ≥4 runs/week, a stable base and ≤1 HIIT. Never on consecutive days; the long run counts as a hard day [P].
 
 ## 6. Weekly templates
 
-Place runs with the hard/easy rules in §11 and `conditioning.md` §10. Q = quality session, L = long run, E = easy run. Progress in this order: frequency → long run → quality.
+Q = quality, L = long, E = easy. Place them with §11 and `conditioning.md` §10. Progress frequency → long run → quality.
 
 | Runs/week | General fitness / hybrid | 5K-10K goal | Half-marathon goal | Marathon goal |
 |---|---|---|---|---|
@@ -134,12 +132,12 @@ Place runs with the hard/easy rules in §11 and `conditioning.md` §10. Q = qual
 
 Hybrid rules of thumb:
 - With **≥2 HIIT/week**, keep running at 0-1 quality session; with 1 run/week, that run stays easy or fartlek.
-- A HIIT session done mostly on the rower/bike/ski spares the legs; HIIT with lots of running/jumping counts toward impact load.
+- HIIT on rower/bike/ski spares the legs; running- or jump-heavy HIIT adds impact load.
 - Put the long run where the next day can be easy or upper-body.
 
 ## 7. Beginners: run/walk
 
-For anyone who can't yet run 20-30 min continuously. 3 sessions/week on non-consecutive days, each after a 5-min brisk walk, all running conversational. Structure follows NHS Couch to 5K [K]; repeating a week is normal.
+For anyone who can't yet run 20-30 min nonstop: 3 sessions/week on non-consecutive days, each after a 5-min brisk walk, running conversational. Follows NHS Couch to 5K [K]; repeating weeks is normal.
 
 | Week | Each session |
 |---|---|
@@ -152,7 +150,7 @@ For anyone who can't yet run 20-30 min continuously. 3 sessions/week on non-cons
 | 7-9 | 25 → 28 → 30 min continuous |
 
 - **Repeat the week** after an RPE ≥8 session, amber pain, or a missed session. Week 5's 20-min run is a big jump: offer week 5-S2 twice if needed.
-- Heavier or older beginners, or after a lower-limb injury: 2 weeks per stage, or 4-6 weeks of brisk walking (30-45 min) first.
+- Heavier or older beginners, or after leg injury: 2 weeks per stage, or 4-6 weeks of 30-45 min brisk walks first.
 - **Graduation:** 30 min continuous at RPE ≤5, 3×/week, pain-free. Then grow the long run and volume (§4) and add strides before any quality.
 
 ## 8. Returning after a break
@@ -167,7 +165,7 @@ Aerobic fitness returns faster than tendon and bone tolerance, so rebuild volume
 | 4-8 weeks | ~40-50%, easy only for 2 weeks | 4-6 weeks | 2 rows slower; re-test after 4 weeks |
 | >8 weeks, injury or illness | ~30-50%; run/walk (§7, from week 3-5) after injury | 6-12 weeks | re-test first |
 
-All tiers [P]. After injury also require 30 min pain-free brisk walking, 10-20 pain-free single-leg hops each side, and a clinician's okay where one was involved. After fever or chest illness, wait until symptom-free and start at the low end.
+All tiers [P]. After injury also require 30 min pain-free walking, 10-20 pain-free single-leg hops each side, and a clinician's okay where one was involved. After fever or chest illness: symptom-free first, then the low end.
 
 ## 9. Race builds and taper
 
@@ -178,7 +176,7 @@ All tiers [P]. After injury also require 30 min pain-free brisk walking, 10-20 p
 | Half | 10-14 weeks | 25-60 | 16-21 km (≤2.5 h) | T, then HM-pace; long run |
 | Marathon | 16-20 weeks | 40-80 | 28-32 km or ~3 h, whichever first | Long run with M segments; T |
 
-[K/P, Daniels/Pfitzinger ranges.] First-marathon entry: ≥30 km/week for 8+ weeks and a comfortable 13-16 km long run. If the timeline is too short given the §4 long-run steps, say so and offer a shorter race, run/walk, or a finish-only goal.
+[K/P: Daniels, Pfitzinger.] First marathon: ≥30 km/week for 8+ weeks and a comfortable 13-16 km long run first. If §4 long-run steps can't reach the peak in time, say so; offer a shorter race, run/walk, or a finish goal.
 
 **Phases:** base (easy volume + strides) → build (1 quality, threshold first) → race-specific (race pace; long-run peak) → taper.
 
@@ -195,8 +193,8 @@ Use the pain traffic light from `safety-and-scope.md` (green ≤3/10 and settled
 
 | Area | Typical pattern | Coach action | Stop running and refer |
 |---|---|---|---|
-| **Shin** | Diffuse inner-shin soreness over a long band that eases once warm (MTSS-like) | Cut km 30-50%, flatter/softer routes, no new speed or hills, calf and tibialis work, cross-train | **Focal** bony tenderness, pain on single-leg hop, rest or night pain, pain that builds during runs: possible bone stress injury. Higher suspicion with low energy availability or a previous stress fracture |
-| **Achilles / calf** | Morning stiffness; pain at the start of runs that warms up; worse after hills or speed | Hold or cut volume; remove hills and fast running; heavy slow calf raises 3×/week (bent and straight knee); no deep heel drops if pain is at the insertion. Pain ≤5/10 during that settles by next morning is acceptable while loading (Silbernagel 2007 [K]) | Sudden "kicked in the calf" pop with weakness: **emergency** (possible rupture). Swelling or no improvement in 2-3 weeks: physio |
+| **Shin** | Diffuse inner-shin soreness that eases once warm (MTSS-like) | Cut km 30-50%, flat/soft routes, no new speed or hills, calf work, cross-train | **Focal** bony tenderness, pain on single-leg hop, rest/night pain, or pain building during runs: possible bone stress injury (more likely with low energy availability or a past stress fracture) |
+| **Achilles / calf** | Morning stiffness; pain at the start of runs that warms up; worse after hills or speed | Hold or cut volume; drop hills and speed; heavy slow calf raises 3×/week (bent and straight knee), no deep heel drops for insertional pain. Running with pain ≤5/10 that settles by next morning is acceptable (Silbernagel 2007 [K]) | Sudden "kicked" pop with weakness: **emergency** (rupture?). Swelling or no improvement in 2-3 weeks: physio |
 | **Front of knee** | Pain on downhills, stairs, squats, long sitting | Cut volume and downhills; hip + knee strengthening is first-line (2016 PFP consensus [V]); raise step rate 5-10% (less knee energy absorption: Heiderscheit 2011 [V]) | Swelling, locking, giving way |
 | **Outer knee** (ITB-type) | Lateral knee pain at a predictable distance | Keep runs below onset distance; avoid camber and long downhills; hip abductor work | No improvement in 2-3 weeks |
 | **Heel / arch** | First-step morning heel pain | Reduce volume; calf raises with toes elevated; check recent shoe changes | Rest pain, swelling, or no improvement in 4-6 weeks |
@@ -211,11 +209,9 @@ Load rules:
 ## 11. Running with lifting and HIIT
 
 **Evidence:**
-- Concurrent training does not blunt hypertrophy or max strength overall; explosive strength is blunted mainly when both are done in the same session (vs ≥3 h apart). No difference between running and cycling as the aerobic mode (Schumann 2022, 43 studies [V]).
-- In **trained lifters**, lower-body 1RM gains were blunted when endurance and strength shared a session (ES -0.66) but not when on separate sessions (-0.10) (Petré 2021 [V]).
-- Strength first in a combined session gives better lower-body strength; order doesn't change aerobic gains (Eddens 2018 [V]).
-- Strength training improves running economy 2-8% and time trials (Blagrove 2018 [V]). Heavy loads (≥80% 1RM) and combined heavy + plyometric work improve performance; plyometrics help economy mostly at slower speeds (≤12 km/h), heavy lifting more at faster speeds (Llanos-Lagos 2024, two meta-analyses [V]). Light "endurance" circuits and isometrics did little.
-- **Injury:** strength training cut sports injuries overall (Lauersen 2014, RR 0.32 [V]), but in runners exercise-based prevention programmes showed no significant effect except when supervised (Wu 2024, 9 RCTs [V]); an unsupervised 12-week programme didn't reduce marathon injuries (Toresdahl 2019 [V]). Sell strength as performance and robustness, not a guarantee.
+- Concurrent training doesn't blunt hypertrophy or max strength; explosive strength is blunted mainly in same-session designs (vs ≥3 h apart); running vs cycling made no difference (Schumann 2022, 43 studies [V]). In **trained** lifters, same-session concurrent work blunted lower-body 1RM (ES -0.66; separate sessions -0.10) (Petré 2021 [V]). Strength first gives better lower-body strength (Eddens 2018 [V]).
+- Strength training improves running economy 2-8% and time trials (Blagrove 2018 [V]). Heavy (≥80% 1RM) and heavy + plyometric work help most; plyometrics aid economy mainly at ≤12 km/h, heavy lifting at faster speeds; light circuits and isometrics did little (Llanos-Lagos 2024 [V]).
+- **Injury:** strength work cut sports injuries overall (Lauersen 2014, RR 0.32 [V]), but in runners prevention programmes worked only when supervised (Wu 2024, 9 RCTs [V]); an unsupervised plan didn't cut marathon injuries (Toresdahl 2019 [V]). Sell strength for performance, not as injury insurance.
 
 **Scheduling rules:**
 1. Hard days (quality run, long run, heavy lower body, HIIT ≥RPE 8) are a shared budget: ~2/week for novices, 3 intermediate, 4 advanced (`conditioning.md` §10).
@@ -231,5 +227,5 @@ Load rules:
 - **Log per run:** type, km, duration, average pace, RPE; optional HR, elevation, pain 0-10 (during and next morning).
 - **Before prescribing a run**, find the longest run of the last 30 days and the 3-4-week average km.
 - **Progress:** faster pace at the same HR on easy runs; less HR drift on long runs; the same T/I session ≥1 RPE easier; time-trial PRs.
-- **Warning signs:** easy HR up ≥5-10 bpm at the same pace for a week, heavy legs for 3+ runs, pain trending up, unusual resting HR. Respond with a cutback week (-30%, easy only), then check sleep, food and stress.
+- **Warning signs:** easy HR up ≥5-10 bpm at the same pace for a week, heavy legs 3+ runs, pain trending up, high resting HR. Cut back a week (-30%, easy only); check sleep, food, stress.
 - Session load = sRPE × minutes (Foster 2001 [K]); watch single-session spikes, not just weekly totals.

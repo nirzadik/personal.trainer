@@ -2,6 +2,8 @@
 
 Research date: 2026-11-07. Purpose: source material for `references/running.md` and the app's `knowledge/plan.js` / `chat.js`.
 
+> **Update 2026-11-08:** many claims below were re-checked against primary papers in `13-running-sources.md`, which takes precedence. Corrections are marked inline with **[corrected]**.
+
 **Method and network note.** WebSearch worked. WebFetch was blocked for www.nhs.uk (DNS refused by the session's network policy), so no further direct fetches were attempted. The claims below come from search-result abstracts and summaries of primary sources, plus well-established coaching texts (Daniels' Running Formula, NHS Couch to 5K) that I know but could not re-read here.
 
 Confidence tags:
@@ -16,7 +18,7 @@ Confidence tags:
 
 - **Seiler's three-zone model** [K/V]: zone 1 is below the first lactate or ventilatory threshold (LT1/VT1); zone 2 is between the thresholds; zone 3 is above LT2/VT2. Endurance athletes accumulate about 75-80% of sessions or time in zone 1. Secondary summaries of Seiler put LT1 around 70-75% HRmax and LT2 around 85-87% HRmax [V, forum and podcast summaries; individual variation is large].
 - **Polarized vs pyramidal:**
-  - The 2024 Sports Medicine meta-analysis (17 studies, n=437, mostly trained athletes) found polarized training gave slightly larger VO2peak gains, but similar time-trial performance. A secondary summary reports the best-performing average distribution at about 81% low / 3% threshold / 15% high [V via secondary summary; the figures were not checked against the paper].
+  - The 2024 Sports Medicine meta-analysis (Silva Oliveira 2024; 17 studies, n=437) found polarized training gave slightly larger VO2peak gains (SMD 0.24), only in <12-week studies and highly trained athletes, with similar TT, TTE and threshold speed [V, PMC11329428]. **[corrected]** The "81/3/15 best distribution" figure came from a secondary summary and was not found in the paper; it has been dropped.
   - In recreational runners (Muñoz et al. 2014, n=30, 10 weeks), polarized vs between-thresholds training both improved 10K time, with no significant difference between groups. In the subgroup that adhered most closely to the distribution, polarized came out ahead [V].
   - Registered trial NCT07565168 (polarized vs threshold vs pyramidal in recreational runners) has no results yet [V].
 - **Interpretation:** evidence that polarized beats pyramidal for recreational runners is thin. Both share the dominant feature: **~75-80%+ easy**. Pyramidal (some threshold work) is more practical for hybrid athletes, because threshold sessions are less fatiguing than VO2max sessions.
@@ -59,7 +61,7 @@ Confidence tags:
 - **Riegel 1981** [K]: T2 = T1 × (D2/D1)^1.06, fitted on world-record performances.
 - **Accuracy in recreational runners:**
   - Vickers & Vertosick 2016 (BMC Sports Sci Med Rehabil, n=2,303 survey) [V]: Riegel was well-calibrated up to the half marathon, but "dramatically underestimated" marathon time, with predictions ≥10 min too fast for half of runners. Mean squared error was 381 for Riegel vs 228 for a model using one prior race plus training volume.
-  - Allen Downey's analysis of the same kind of data fitted an exponent of about 1.16 [V, secondary].
+  - **[corrected]** Vickers used k = 1.07 (Riegel cited 1.05-1.06 for recreational men aged 40-70 and 1.08 for elites). The "~1.16 exponent" is from a blog (Downey), not a peer-reviewed source; don't cite it.
   - Predictions improve with higher weekly mileage, and when the distances are close [V/K].
 - **VDOT for a 20:00 5K:** sources disagree (≈47 vs 49.8) [V]. The equations give 49.8 [C].
 
@@ -99,7 +101,7 @@ Confidence tags:
 
 **Skill rules:**
 - Build weekly km ≤10% over the recent 3-4-week average (≤ +3-5 km at low volume). This is a sensible ceiling, not a magic number.
-- **The hardest rule:** no single run >10% longer than the longest run of the past 30 days. Allow a +1 km step below 8 km [P].
+- **The hardest rule:** no single run >10% longer than the longest run of the past 30 days. ~~Allow a +1 km step below 8 km [P].~~ **[corrected]** Dropped: at 5 km, +1 km is a 20% spike (Frandsen's HRR 1.64 band). Round down instead.
 - Cutback −20-30% every 3rd-4th week [P].
 - Long run ≤30% of weekly km (≤40% at <20 km/week), ≤150 min outside marathon builds.
 - The app's validator errors are looser on purpose: RUN_RAMP > max(avg × 1.15, avg + 5 km); LONG_RUN_SPIKE > longest × 1.3 and > +3 km.
@@ -152,10 +154,10 @@ Confidence tags:
 ## 10. Running + strength training
 
 - **Schumann 2022 meta-analysis (43 studies)** [V]: no meaningful interference with hypertrophy or max strength. Explosive strength is mildly attenuated, more so in same-session designs.
-- **Wilson 2012** [V]: running (not cycling) interferes with hypertrophy and strength, scaling with frequency and duration.
+- **Wilson 2012** [V]: running (not cycling) interfered with hypertrophy and strength, scaling with frequency and duration. **[corrected]** The larger Schumann 2022 found no difference between running and cycling, so this claim is no longer used.
 - **Eddens, van Someren & Howatson 2018 (Sports Med)**, 10 studies [V]: strength-before-endurance in the same session gave better lower-body dynamic strength (+6.91%, 95% CI 1.96-11.87). No effect on hypertrophy, static strength, VO2max or body fat. A companion 2018 J Sports Sci meta-analysis: lower-body 1RM +3.96 kg with strength first; no effect on aerobic capacity [V].
 - **Blagrove, Howatson & Hayes 2018 (Sports Med) systematic review**, 24 studies [V]: running economy improved by 2-8% vs controls in 20 studies that measured it. Time-trial and sprint performance also improved, and body composition was unharmed. Recommended 2-3 strength sessions/week mixing modalities. Llanos-Lagos et al. (meta-analysis): heavy strength, plyometrics and combined methods all improve economy [V].
-- **Lauersen 2014 (BJSM)**, 25 RCTs [V]: strength training RR 0.315 (0.207-0.480), i.e. injuries cut to less than 1/3 and overuse injuries almost halved. Stretching RR 0.963, no effect. The strength subgroup rests on only 4 studies.
+- **Lauersen 2014 (BJSM)**, 25 RCTs [V]: strength training RR 0.315 (0.207-0.480), i.e. injuries cut to less than 1/3 and overuse injuries almost halved. Stretching RR 0.963, no effect. The strength subgroup rests on only 4 studies, across all sports. **[corrected]** In runners specifically, Wu 2024 (9 RCTs) found no significant effect except for supervised programmes, and Toresdahl 2019 was null.
 - **Scheduling** [V coaching summaries; P]: interference is greatest at 0 h separation and close to zero at about 24 h. Practical options are ≥6 h between same-day sessions, or separate days. Sources disagree on stacking heavy legs with hard runs on the same day. The skill allows it for intermediate+ (≥6 h apart) and otherwise separates them by ≥24-48 h.
 
 **Skill rules:** the scheduling and dosing rules are in `references/running.md` §10 and `references/conditioning.md` §10.
@@ -163,7 +165,7 @@ Confidence tags:
 ## Sources
 
 - Frandsen JSB et al. 2025, BJSM: https://pure.au.dk/portal/en/publications/how-much-running-is-too-much-identifying-high-risk-running-sessio/ ; BJSM blog: https://blogs.bmj.com/bjsm/?p=11751 ; summary: https://www.physiotutors.com/research/running-injury-prevention/
-- Nielsen RO et al. 2014, JOSPT: https://vbn.aau.dk/da/publications/excessive-progression-in-weekly-running-distance-and-risk-of-runn ; https://pmc.ncbi.nlm.nih.gov/articles/PMC4842282
+- Nielsen RO et al. 2014, JOSPT: https://vbn.aau.dk/da/publications/excessive-progression-in-weekly-running-distance-and-risk-of-runn (**[corrected]** PMC4842282 is the Run Clever trial protocol, not Nielsen 2014)
 - Buist I et al. 2008, AJSM (GRONORUN): https://research.rug.nl/en/publications/no-effect-of-a-graded-training-program-on-the-number-of-running-r/ ; https://search.pedro.org.au/search-results/record-detail/20220
 - Muñoz I et al. 2014, polarized training in recreational runners: https://abacus.universidadeuropea.com/entities/publication/e453045b-50fb-4586-89a8-a3d550db3ce1
 - Polarized vs other TID meta-analysis (2024) summary: https://getfitcraft.com/science/polarized-training-research ; Stöggl & Sperlich 2015 review: https://www.frontiersin.org/journals/physiology/articles/10.3389/fphys.2015.00295/pdf ; trial registry: https://clinicaltrials.gov/study/NCT07565168
