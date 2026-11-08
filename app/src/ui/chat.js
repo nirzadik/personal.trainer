@@ -28,6 +28,8 @@ const TOOL_COPY = {
   add_coach_note: "Saving a note",
   get_exercise_info: "Looking up the exercise",
   request_plan: "Preparing a plan request",
+  update_plan_workout: "Adjusting your plan",
+  log_wellness: "Saving your readiness",
 };
 
 /**
@@ -272,6 +274,7 @@ export function mountChat(el, ctx) {
     return acts.map((a) => {
       if (a.type === "logged_session" || a.type === "updated_session") return sessionExists(a.ref) ? "1" : "0";
       if (a.type === "plan_request") return `${Boolean(ctx.data.state?.pendingPlanRequest)}${Boolean(ctx.plan?.isBusy?.())}`;
+      if (a.type === "plan_change") return planChangeLive(a.ref) ? "1" : "0";
       return "";
     }).join(",");
   }
@@ -310,6 +313,20 @@ export function mountChat(el, ctx) {
           button({ id: `${id}-view`, label: "View", kind: "quiet", small: true, onClick: () => viewSession(a.ref) })) : null,
       );
     }
+    if (a.type === "plan_change") {
+      const live = planChangeLive(a.ref);
+      return h("div", { class: ["action-card", "action-planchange", !live && "is-undone"] },
+        h("span", { class: "action-icon" }, icon(live ? "plan" : "undo", { size: 18 })),
+        h("span", { class: "action-label" },
+          h("strong", {}, live ? "Plan changed" : "Plan change undone"),
+          h("span", { class: "action-sub" }, a.label || "Workout adjusted"),
+        ),
+        h("span", { class: "action-btns" },
+          live ? button({ id: `${id}-undo`, label: "Undo", kind: "quiet", small: true, onClick: (e) => undoPlanChange(a.ref, e.currentTarget) }) : null,
+          button({ id: `${id}-open`, label: "Plan", kind: "quiet", small: true, onClick: () => ctx.nav("plan") }),
+        ),
+      );
+    }
     if (a.type === "plan_request") {
       const pending = ctx.data.state?.pendingPlanRequest;
       const busy = Boolean(ctx.plan?.isBusy?.());
@@ -327,7 +344,7 @@ export function mountChat(el, ctx) {
         ),
       );
     }
-    const ic = a.type === "updated_profile" ? "settings" : a.type === "coach_note" ? "edit" : "check";
+    const ic = a.type === "updated_profile" ? "settings" : a.type === "coach_note" ? "edit" : a.type === "logged_wellness" ? "bolt" : "check";
     return h("div", { class: "action-card action-quiet" },
       h("span", { class: "action-icon" }, icon(ic, { size: 18 })),
       h("span", { class: "action-label" }, a.label || defaultActionLabel(a.type)),
@@ -339,7 +356,7 @@ export function mountChat(el, ctx) {
   }
 
   function defaultActionLabel(type) {
-    return { updated_profile: "Profile updated", coach_note: "Noted" }[type] || "Done";
+    return { updated_profile: "Profile updated", coach_note: "Noted", logged_wellness: "Wellness saved" }[type] || "Done";
   }
 
   function errorLineFor(code, onRetry, detail) {
@@ -666,6 +683,26 @@ export function mountChat(el, ctx) {
       });
     } catch (err) {
       toast({ text: errorText(coach, err), kind: "error" });
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  /** Is a plan_change action still applied (its entry is in the plan's change log)? */
+  function planChangeLive(ref) {
+    if (!ref) return false;
+    if (!ctx.data.loaded.plans) return true;
+    if (typeof coach?.planChangeActive === "function") return coach.planChangeActive(ref, ctx.data.plans);
+    return false;
+  }
+
+  async function undoPlanChange(ref, btn) {
+    if (!coach?.undoPlanChange) return;
+    if (btn) btn.disabled = true;
+    try {
+      const res = await coach.undoPlanChange(ref);
+      toast({ text: res?.undone > 1 ? `Plan change undone (with ${res.undone - 1} later change${res.undone > 2 ? "s" : ""} to that workout)` : "Plan change undone" });
+    } catch (err) {
+      toast({ text: err?.message && err.code === "invalid_argument" ? err.message : errorText(coach, err), kind: "error" });
       if (btn) btn.disabled = false;
     }
   }

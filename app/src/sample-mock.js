@@ -373,6 +373,18 @@ export function parseWorkoutReport(text) {
     const sets = m[3] ? Array.from({ length: Math.min(10, a) }, () => ({ type: "work", loadKg: Number(m[3]), reps: reps[0], rir: null })) : reps.map((rp) => ({ type: "work", loadKg: a, reps: rp, rir: null }));
     strength.push({ exerciseId: exerciseIdFor(name), name, sets });
   }
+  // how each exercise felt ("squats felt hard, bench was easy"), else one global word ("all felt fine")
+  const FB = { "too easy": "easy", easy: "easy", fine: "fine", ok: "fine", okay: "fine", good: "fine", hard: "hard", tough: "hard", brutal: "hard", heavy: "hard" };
+  const fbWord = "(too easy|easy|fine|okay|ok|good|hard|tough|brutal|heavy)";
+  for (const ex of strength) {
+    const stem = String(ex.name || ex.exerciseId || "").toLowerCase().split(/[\s_]+/).find((w) => w.length >= 3)?.replace(/s$/, "");
+    if (!stem) continue;
+    const m = [...lower.matchAll(new RegExp(`${stem}\\w*[^.;]{0,30}?\\b(?:felt|was|were|is|are|went)\\s+(?:really\\s+|very\\s+|pretty\\s+)?${fbWord}\\b`, "g"))].pop()
+      ?? new RegExp(`${stem}\\w*\\s+(?:as\\s+)?${fbWord}\\b`).exec(lower);
+    if (m) ex.feedback = FB[m[1]];
+  }
+  const globalFb = lower.match(new RegExp(`\\b(?:all|everything|it|session|workout)\\s+(?:felt|was)\\s+(?:really\\s+|very\\s+|pretty\\s+)?${fbWord}\\b`));
+  if (globalFb) for (const ex of strength) if (!ex.feedback) ex.feedback = FB[globalFb[1]];
   const rir = lower.match(/\brir\s*(\d)/);
   const rpe = lower.match(/\brpe\s*(\d{1,2})/);
   for (const ex of strength) for (const st of ex.sets) st.rir = rir ? Number(rir[1]) : null;
@@ -429,6 +441,61 @@ function describeSession(session) {
   if (session.run) lines.push(`- **Run** ${session.run.distanceKm} km${session.run.durationSec ? ` in ${fmtTime(session.run.durationSec)}` : ""}`);
   for (const cd of session.conditioning ?? []) lines.push(`- **${cd.format}**${cd.result?.rounds ? ` ${cd.result.rounds} rounds` : ""}`);
   return lines.join("\n");
+}
+
+/** log_wellness input from a typed message ("readiness 62, sleep 78, hrv 48 ms"): the fields Claude would send. */
+function parseWellnessInput(text) {
+  const t = String(text ?? "").toLowerCase();
+  const n = (re) => { const m = re.exec(t); return m ? Number(m[1]) : undefined; };
+  const out = {
+    trainingReadiness: n(/readiness[^0-9]{0,15}(\d{1,3})/),
+    sleepScore: n(/sleep(?:\s*score)?[^0-9]{0,10}(\d{2,3})(?!\s*h)/),
+    sleepHours: n(/(\d{1,2}(?:\.\d)?)\s*h(?:ours|rs)?\b/),
+    hrvMs: n(/hrv[^0-9]{0,10}(\d{2,3})/),
+    bodyBattery: n(/body battery[^0-9]{0,10}(\d{1,3})/),
+    restingHr: n(/(?:resting hr|rhr)[^0-9]{0,10}(\d{2,3})/),
+    stress: n(/stress[^0-9]{0,10}(\d{1,3})/),
+  };
+  const status = t.match(/hrv[^a-z]{0,10}(balanced|unbalanced|low|poor)/);
+  if (status) out.hrvStatus = status[1];
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
+}
+
+/** Scripted post-workout review: reads the review snapshot, calls update_plan_workout once, writes a short review. */
+async function reviewAnswer(instructions, { write, callTool, tools }) {
+  const section = (title) => {
+    const i = instructions.indexOf(`## ${title}`);
+    if (i < 0) return "";
+    const start = instructions.indexOf("\n", i) + 1;
+    const end = instructions.indexOf("\n## ", start);
+    return instructions.slice(start, end < 0 ? undefined : end).replace(INSTRUCTIONS_END, "").trim();
+  };
+  const logged = section("Workout just logged").split("\n")[0] ?? "";
+  const title = logged.split(" · ")[1]?.replace(/\s*\[.*$/, "") || "that session";
+  const feedback = section("Owner feedback").split("\n").map((l) => l.match(/^- ([^:]+): (easy|fine|hard)$/)).filter(Boolean).map((m) => ({ id: m[1], fb: m[2] }));
+  const targets = new Map(section("Next targets").split("\n").map((l) => l.match(/^- ([a-z0-9_]+): next (.+?)(?: \[| —|$)/)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const remaining = section("Remaining workouts");
+  const lines = [`**Win:** ${title} is done and logged${feedback.length ? ", and the feedback helps me steer the week" : ""}.`];
+  for (const f of feedback.slice(0, 4)) {
+    const tg = targets.get(f.id);
+    lines.push(`- **${titleCase(f.id)}** felt ${f.fb}: ${f.fb === "hard" ? "we hold the load" : f.fb === "easy" ? "we keep progressing" : "right on track"}${tg ? ` (next ${tg})` : ""}.`);
+  }
+  const blocks = remaining.split(/\n{2,}/).map((b) => ({ wid: b.match(/^(\S+) · /)?.[1], items: [...b.matchAll(/^- ([a-z0-9_]+)(?: \([^)]*\))?: (\d+)×/gm)].map((m) => ({ id: m[1], sets: Number(m[2]) })) }))
+    .filter((b) => b.wid && b.items.some((x) => x.sets > 1));
+  const hard = feedback.filter((f) => f.fb === "hard").map((f) => f.id);
+  const pick = blocks.map((b) => ({ ...b, item: b.items.find((x) => hard.includes(x.id) && x.sets > 1) })).find((b) => b.item)
+    ?? (blocks[0] ? { ...blocks[0], item: blocks[0].items.find((x) => x.sets > 1) } : null);
+  if (pick && tools.has("update_plan_workout")) {
+    const reason = hard.length ? `${titleCase(hard[0])} felt hard: one set less to recover` : "Keep fatigue in check after today's session";
+    const r = asObj(await callTool("update_plan_workout", { workoutId: pick.wid, reason, changes: [{ exerciseId: pick.item.id, sets: pick.item.sets - 1 }] }));
+    lines.push("", r.ok
+      ? `**Rest of the week:** I trimmed **${pick.wid}** (${(r.changed ?? []).join(", ")}) so you recover for the next heavy day. Undo it from the card if you'd rather keep it.`
+      : `**Rest of the week:** stays as planned (${(r.issues ?? [r.text ?? "no change"]).join("; ")}).`);
+  } else {
+    lines.push("", "**Rest of the week:** stays as planned.");
+  }
+  if (!feedback.length) lines.push("", "How did the main lift feel: easy, fine or hard?");
+  await write(lines.join("\n"));
 }
 
 function painAdvice(pain) {
@@ -646,6 +713,11 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
     const user = parts.lastUser;
     const lower = user.toLowerCase();
 
+    if (parts.instructions.includes(MODE_LINE.review)) {
+      await reviewAnswer(parts.instructions, { write, callTool, tools });
+      return;
+    }
+
     if (mode === "onboarding") {
       const profile = parseProfileFromPrompt(parts.instructions);
       const step = onboardingStep(profile) ?? "screening";
@@ -684,6 +756,44 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
     }
 
     const can = (name) => tools.has(name);
+    if (/\b(readiness|sleep score|sleep|hrv|body battery|resting hr|rhr)\b[^0-9]{0,20}\d/.test(lower) && !/\b(did|done|logged|finished|completed|ran)\b/.test(lower) && can("log_wellness")) {
+      const r = asObj(await callTool("log_wellness", parseWellnessInput(user)));
+      if (r.text?.startsWith?.("Error")) { await write(`I couldn't save those numbers: ${r.text.replace(/^Error:\s*/, "")}.`); return; }
+      const light = r.readiness?.light;
+      await write([
+        `Saved: ${String(r.saved ?? "").replace(/^\d{4}-\d{2}-\d{2}: /, "")}.`,
+        light === "red" ? "That's a red day: let's swap today for easy aerobic work or mobility." :
+          light === "amber" ? "That's amber: keep the intensity but trim about a quarter of the volume and leave 1 more rep in reserve. If you feel good after the warm-up, train as planned." :
+            light === "green" ? "Green light: train as planned." : "Thanks, I'll factor that in.",
+        "Does that match how you feel?",
+      ].join("\n\n"));
+      return;
+    }
+    const fbOnly = /\b(mark|tag|felt|feel|were|was)\b/.test(lower) && /\b(easy|fine|hard|tough)\b/.test(lower) && !/\b(did|done|logged|finished|completed|ran|\d+\s*x\s*\d+)\b/.test(lower);
+    if (fbOnly && can("update_session") && can("get_history")) {
+      const h = asObj(await callTool("get_history", { limit: 1 }));
+      const line = String((h.sessions ?? [])[0] ?? "");
+      const id = line.match(/\bid (\S+)/)?.[1];
+      if (!id) { await write("I can't find a logged workout to tag yet. Tell me what you did and how it felt."); return; }
+      const fb = /\b(hard|tough)\b/.test(lower) ? "hard" : /\beasy\b/.test(lower) ? "easy" : "fine";
+      const name = exerciseIdFor(lower) ?? lower.replace(/\b(mark|tag|my|the|as|felt|feel|were|was|really|very|today'?s?|hard|tough|easy|fine)\b/g, " ").trim().split(/\s+/)[0];
+      const u = asObj(await callTool("update_session", { sessionId: id, patch: { feedback: [{ exerciseId: name, feedback: fb }] } }));
+      if (u.text?.startsWith?.("Error")) { await write(`I couldn't tag it: ${u.text.replace(/^Error:\s*/, "")}`); return; }
+      const lines = [`Tagged **${titleCase(name)}** as ${fb}.`];
+      const nt = (u.nextTargets ?? [])[0];
+      if (nt) lines.push(`Next time: ${nt.loadKg ?? "same"} kg × ${nt.reps ?? "target reps"}${nt.note ? ` (${nt.note})` : ""}.`);
+      if (fb === "hard" && can("get_plan") && can("update_plan_workout")) {
+        const next = asObj(await callTool("get_plan", { which: "next" }));
+        const item = String(next.workout ?? "").split("\n").map((l) => l.match(/^- ([a-z0-9_]+)(?: \([^)]*\))?: (\d+)×/)).find((m) => m && Number(m[2]) > 1);
+        const wid = String(next.workout ?? "").match(/^(\S+) · /)?.[1];
+        if (item && wid) {
+          const c = asObj(await callTool("update_plan_workout", { workoutId: wid, reason: `${titleCase(name)} felt hard: one set less while you recover`, changes: [{ exerciseId: item[1], sets: Number(item[2]) - 1 }] }));
+          lines.push(c.ok ? `I trimmed **${wid}**: ${(c.changed ?? []).join(", ")}. Undo it from the card if you'd rather keep it.` : `I left the plan as is (${(c.issues ?? [c.text]).join("; ")}).`);
+        }
+      }
+      await write(lines.join("\n\n"));
+      return;
+    }
     if (/\b(did|done|logged|finished|completed|ran|just ran|smashed)\b/.test(lower)) {
       const { session } = parseWorkoutReport(user);
       if (!can("log_session")) { await write("I can't save workouts from this view. Use **History → Add workout** and I'll comment on it there."); return; }

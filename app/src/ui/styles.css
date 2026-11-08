@@ -1545,3 +1545,55 @@ details > summary::-webkit-details-marker { display: none; }
 .sw-option:hover .sw-opt-go { color: var(--accent-text); }
 .sw-option:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 /* end v2: swap */
+
+/* v2: feedback ------------------------------------------------------------------------------
+   Owner: Agent F. Easy / Fine / Hard control in the log form, feedback chips in History,
+   plan-change action cards, and the "Coach is reviewing" status strip. */
+.fb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.fb-label { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.fb-seg { flex: 1 1 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 300px; }
+.fb-seg .seg { padding: 0 8px; }
+.fb-seg .seg[aria-pressed="true"] { color: var(--bg); }
+.fb-seg .fb-easy[aria-pressed="true"] { background: var(--ok); }
+.fb-seg .fb-fine[aria-pressed="true"] { background: var(--ink); }
+.fb-seg .fb-hard[aria-pressed="true"] { background: var(--warn); }
+.fb-seg .seg:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+
+.fb-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.fb-chip {
+  display: inline-flex; align-items: center; max-width: 100%;
+  padding: 1px 8px; border-radius: var(--r-sm);
+  font-size: var(--fs-xs); font-weight: 600; line-height: 1.6;
+  background: var(--surface-2); color: var(--ink-2);
+  white-space: nowrap;
+}
+.fb-chip-name { overflow: hidden; text-overflow: ellipsis; max-width: 12ch; }
+.fb-chip-easy { background: var(--ok-bg); color: var(--ok); }
+.fb-chip-hard { background: var(--warn-bg); color: var(--warn); }
+.ex-head .fb-chip { margin-right: auto; }
+
+.action-planchange .action-icon { background: var(--accent-soft); color: var(--accent-text); }
+.action-planchange:not(.is-undone) { border-color: var(--accent); }
+
+.rv-host {
+  position: fixed; z-index: 59; left: 0; right: 0;
+  top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + 8px);
+  display: flex; justify-content: center;
+  padding-left: var(--gutter-l); padding-right: var(--gutter-r);
+  pointer-events: none;
+}
+.rv-host:empty { display: none; }
+.rv-strip {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; max-width: 480px; min-height: 48px;
+  padding: 4px 4px 4px 14px;
+  border: 1px solid var(--accent); border-radius: var(--r-md);
+  background: var(--accent-soft); color: var(--accent-text);
+  box-shadow: var(--shadow);
+  font-size: var(--fs-sm); font-weight: 600;
+}
+.rv-text { flex: 1; min-width: 0; }
+.rv-time { color: var(--ink-2); font-weight: 500; }
+.rv-on .toast-host { top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + 72px); }
+/* end v2: feedback */

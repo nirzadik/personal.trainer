@@ -14,7 +14,7 @@ import { buildPlanPrompt, PLAN_PROMPT_MARKER, REPAIR_PROMPT_MARKER } from "../sr
 import { SUMMARY_PROMPT_MARKER, parseSummary } from "../src/prompts/summary.js";
 import { COMMENT_PROMPT_MARKER, clampWords } from "../src/prompts/comment.js";
 import {
-  TOOL_SPECS, CHAT_TOOL_ORDER, ONBOARDING_TOOL_ORDER, checkToolSchema, checkToolSpec, SCHEMA_KEYWORDS, SCHEMA_TYPES, RESERVED_PROPERTY_NAMES,
+  TOOL_SPECS, CHAT_TOOL_ORDER, ONBOARDING_TOOL_ORDER, REVIEW_TOOL_ORDER, checkToolSchema, checkToolSpec, SCHEMA_KEYWORDS, SCHEMA_TYPES, RESERVED_PROPERTY_NAMES,
 } from "../src/prompts/tools.js";
 import { truncateBytes, utf8Bytes } from "../src/prompts/util.js";
 
@@ -273,10 +273,11 @@ test("truncateBytes never splits a code point", () => {
   assert.ok(!s.includes("�"));
 });
 
-test("tool specs: 8 chat tools, unique names, descriptions ≤ 1 KB, schemas ≤ 4 KB", () => {
-  assert.equal(CHAT_TOOL_ORDER.length, 8);
-  assert.equal(new Set(CHAT_TOOL_ORDER).size, 8);
-  for (const name of [...CHAT_TOOL_ORDER, ...ONBOARDING_TOOL_ORDER]) {
+test("tool specs: 10 chat tools, unique names, descriptions ≤ 1 KB, schemas ≤ 4 KB", () => {
+  assert.equal(CHAT_TOOL_ORDER.length, 10);
+  assert.equal(new Set(CHAT_TOOL_ORDER).size, 10);
+  assert.equal(CHAT_TOOL_ORDER[0], "log_session", "log_session is never dropped first");
+  for (const name of [...CHAT_TOOL_ORDER, ...ONBOARDING_TOOL_ORDER, ...REVIEW_TOOL_ORDER]) {
     const spec = TOOL_SPECS[name];
     assert.ok(spec, name);
     assert.ok(utf8Bytes(spec.description) <= 1024, `${name} description`);
@@ -315,7 +316,7 @@ test("send: log_session via the mock advances the rotation, streams, reports too
   assertValidTurns(call.input);
   assert.equal(call.cache, undefined, "cache is omitted when tools are passed");
   assert.equal(call.modelTier, "default");
-  assert.equal(call.toolNames.length, 8);
+  assert.equal(call.toolNames.length, 10);
   assert.ok(call.input[0].content.includes("CHAT_RULES_MARKER"));
   // persisted messages: user then assistant with a plain action (no functions)
   const [u, a] = store._data.chat;
@@ -896,7 +897,7 @@ test("regression: after onboarding + plan approved + failed empty replies, the n
   assert.equal(res.error, null, res.errorDetail);
   const call = calls[0];
   assertPlatformValid(call);
-  assert.equal(call.options.tools.length, 8);
+  assert.equal(call.options.tools.length, 10);
   const contents = call.input.map((t) => t.content);
   assert.ok(contents.some((c) => c.includes("[App event] Plan approved: Week 1 calibration")));
   assert.ok(!contents.some((c) => /^\/clear$/m.test(c)), "/clear never reaches Claude");
@@ -995,4 +996,305 @@ test("after store.chat.clear() the next send starts fresh and works (real store)
   assert.ok(coachMem.note || coachMem.id || coachMem.undo);
   await undo();
   assert.ok((await store.chat.recent(50)).length >= liveTimeline().length);
+});
+
+// ---------- v2 (Agent F): exercise feedback, update_plan_workout, log_wellness, post-workout review ----------
+
+/** makeStore plus the v2 store surface: plans.get / plans.update and wellness. */
+function makeStoreV2(opts = {}) {
+  const store = makeStore(opts);
+  const d = store._data;
+  d.wellness = clone(opts.wellness ?? []);
+  store.plans.get = async (id) => clone(d.plans.find((p) => p.id === id) ?? null);
+  store.plans.update = async (id, patch) => {
+    const i = d.plans.findIndex((p) => p.id === id);
+    if (i < 0) throw { code: "not_found", message: "no plan" };
+    const prev = clone(d.plans[i]);
+    d.plans[i] = { ...d.plans[i], ...clone(patch), updatedAt: "now" };
+    store._writes.push("plans.update");
+    return { plan: clone(d.plans[i]), undo: async () => { d.plans[i] = prev; store._writes.push("undo:plans"); } };
+  };
+  store.wellness = {
+    add: async (e) => {
+      const prev = clone(d.wellness);
+      const i = d.wellness.findIndex((x) => x.date === e.date);
+      const merged = { ...(i >= 0 ? d.wellness[i] : {}), ...clone(e) };
+      if (i >= 0) d.wellness[i] = merged; else d.wellness.push(merged);
+      store._writes.push("wellness.add");
+      return { entry: clone(merged), undo: async () => { d.wellness = prev; } };
+    },
+    list: async ({ from, to } = {}) => clone(d.wellness.filter((x) => (!from || x.date >= from) && (!to || x.date <= to))),
+  };
+  return store;
+}
+
+/** A chat send whose Claude calls one tool with `input` and replies "ok"; resolves { res, out, store, coach }. */
+async function sendWithTool(name, input, { store = makeStoreV2(), core = makeCore() } = {}) {
+  let out;
+  const sample = scriptedSample(async (inp, options, n, { runTool }) => {
+    out = await runTool(name, input);
+    return { text: "ok", truncated: false };
+  });
+  const { coach } = coachWith({ sample, store, core });
+  const res = await coach.send("please do it");
+  return { res, out, store, coach, sample };
+}
+
+test("log_session schema takes per-exercise and metcon feedback; feedback reaches the stored session", async () => {
+  const strengthItems = TOOL_SPECS.log_session.inputSchema.properties.strength.items.properties;
+  assert.deepEqual(strengthItems.feedback.enum, ["easy", "fine", "hard"]);
+  assert.deepEqual(TOOL_SPECS.log_session.inputSchema.properties.conditioning.items.properties.feedback.enum, ["easy", "fine", "hard"]);
+  for (const name of ["log_session", "update_plan_workout", "log_wellness", "update_session"]) assert.deepEqual(checkToolSpec(TOOL_SPECS[name]), [], name);
+  const { res, store } = await sendWithTool("log_session", {
+    sessionType: "strength", workoutId: "next",
+    strength: [{ exerciseId: "back_squat", sets: [{ loadKg: 100, reps: 5 }], feedback: "hard" }],
+  });
+  assert.equal(res.error, null);
+  assert.equal(store._data.sessions[0].strength[0].feedback, "hard");
+});
+
+test("mock: 'squats felt hard' logs feedback; 'mark bench as hard' tags it later and trims the next workout", async () => {
+  const mock = createMockSample({ delayMs: 0, chunkMs: 0 });
+  const store = makeStoreV2();
+  const { coach } = coachWith({ sample: mock, store });
+  const r1 = await coach.send("did today's workout: 100x5,5,4 squats, felt hard");
+  assert.equal(r1.error, null, r1.errorDetail);
+  assert.equal(store._data.sessions[0].strength[0].feedback, "hard");
+  const logCall = mock.toolCalls.find((c) => c.name === "log_session");
+  assert.equal(logCall.input.strength[0].feedback, "hard");
+  // later: tag via update_session, then the coach adjusts the up-next workout (W2: bench 3 sets → 2)
+  store._data.sessions[0].strength.push({ exerciseId: "bench_press", name: "Bench press", sets: [{ type: "work", loadKg: 80, reps: 8, rir: 1 }] });
+  const r2 = await coach.send("mark bench as hard");
+  assert.equal(r2.error, null, r2.errorDetail);
+  assert.equal(store._data.sessions[0].strength[1].feedback, "hard");
+  assert.deepEqual(r2.actions.map((a) => a.type), ["updated_session", "plan_change"]);
+  assert.equal(store._data.plans[0].workouts[1].blocks[0].items[0].sets, 2);
+});
+
+test("update_session: feedback patch tags exercises without resending sets", async () => {
+  const store = makeStoreV2({ sessions: [{ id: "s1", date: TODAY, title: "Lower A", type: "strength", strength: [{ exerciseId: "back_squat", name: "Back squat", sets: [{ type: "work", loadKg: 100, reps: 5 }] }], conditioning: [{ format: "AMRAP", description: "x", result: {} }] }] });
+  const { out } = await sendWithTool("update_session", { sessionId: "s1", patch: { feedback: [{ exerciseId: "Back squat", feedback: "tough" }, { exerciseId: "metcon", feedback: "easy" }] } }, { store });
+  assert.equal(store._data.sessions[0].strength[0].feedback, "hard");
+  assert.equal(store._data.sessions[0].strength[0].sets[0].loadKg, 100, "sets kept");
+  assert.equal(store._data.sessions[0].conditioning[0].feedback, "easy");
+  assert.ok(out.feedback.tagged.length === 2);
+  const bad = await sendWithTool("update_session", { sessionId: "s1", patch: { feedback: [{ exerciseId: "deadlift", feedback: "hard" }] } }, { store });
+  assert.match(String(bad.out), /^Error: No exercise matched/);
+});
+
+test("update_plan_workout: changes a remaining workout, records a change log, and undo restores it", async () => {
+  const { res, out, store, coach } = await sendWithTool("update_plan_workout", {
+    workoutId: "W2", reason: "bench felt hard", changes: [{ exerciseId: "bench_press", sets: 2, targetRir: 3 }],
+  });
+  assert.equal(res.error, null);
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.changed, ["Bench press 3→2 sets", "Bench press RIR 2→3"]);
+  const plan = store._data.plans[0];
+  assert.equal(plan.workouts[1].blocks[0].items[0].sets, 2);
+  assert.equal(plan.changeLog.length, 1);
+  assert.equal(plan.changeLog[0].before.blocks[0].items[0].sets, 3);
+  const act = res.actions.find((a) => a.type === "plan_change");
+  assert.match(act.label, /^W2 Upper A: Bench press 3→2 sets/);
+  assert.equal(act.ref, `${AGREED.id}#${plan.changeLog[0].id}`);
+  const persisted = store._data.chat.at(-1).actions[0];
+  assert.deepEqual(Object.keys(persisted).sort(), ["label", "ref", "type"]);
+  assert.equal(coach.planChangeActive(act.ref, store._data.plans), true);
+  // undo through the coach (what the chat card calls)
+  const u = await coach.undoPlanChange(act.ref);
+  assert.equal(u.undone, 1);
+  assert.equal(store._data.plans[0].workouts[1].blocks[0].items[0].sets, 3);
+  assert.equal(store._data.plans[0].workouts[1].blocks[0].items[0].targetRir, 2);
+  assert.deepEqual(store._data.plans[0].changeLog, []);
+  assert.equal(coach.planChangeActive(act.ref, store._data.plans), false);
+  await assert.rejects(coach.undoPlanChange(act.ref), (e) => e.code === "not_found");
+});
+
+test("update_plan_workout: swaps (equipment-checked), moves, and refuses done workouts", async () => {
+  const swap = await sendWithTool("update_plan_workout", { workoutId: "W2", reason: "shoulder", changes: [{ exerciseId: "bench_press", swapTo: "pull_up" }], moveTo: 1 });
+  assert.equal(swap.out.ok, true, JSON.stringify(swap.out));
+  const plan = swap.store._data.plans[0];
+  assert.deepEqual(plan.workouts.map((w) => w.id), ["W2", "W1"]);
+  const item = plan.workouts[0].blocks[0].items[0];
+  assert.deepEqual([item.exerciseId, item.name, item.loadKg, item.alternatives[0]], ["pull_up", "Pull-up", null, "bench_press"]);
+  // undo puts it back at its old position
+  await swap.coach.undoPlanChange(swap.res.actions[0].ref);
+  assert.deepEqual(swap.store._data.plans[0].workouts.map((w) => w.id), ["W1", "W2"]);
+
+  const noEq = await sendWithTool("update_plan_workout", { workoutId: "W2", reason: "x", changes: [{ exerciseId: "bench_press", swapTo: "leg_press" }] });
+  assert.match(String(noEq.out), /isn't possible with the equipment/);
+  assert.ok(!noEq.store._writes.includes("plans.update"));
+
+  const doneStore = makeStoreV2({ state: { rotation: { planId: AGREED.id, done: ["W1"] } } });
+  const done = await sendWithTool("update_plan_workout", { workoutId: "W1", reason: "x", changes: [{ exerciseId: "back_squat", sets: 2 }] }, { store: doneStore });
+  assert.match(String(done.out), /W1 is already done or skipped/);
+  assert.ok(!doneStore._writes.includes("plans.update"));
+  // a session logged against W2 locks it too, and undo of an earlier change to it is refused
+  const s2 = makeStoreV2();
+  const first = await sendWithTool("update_plan_workout", { workoutId: "W2", reason: "x", changes: [{ exerciseId: "bench_press", sets: 2 }] }, { store: s2 });
+  s2._data.sessions.push({ id: "x1", date: TODAY, planId: AGREED.id, workoutId: "W2", status: "done", strength: [] });
+  await assert.rejects(first.coach.undoPlanChange(first.res.actions[0].ref), (e) => e.code === "invalid_argument" && /already done/.test(e.message));
+});
+
+test("update_plan_workout: changes that add validation errors are rejected and returned to Claude", async () => {
+  const core = makeCore({
+    validatePlan: (plan) => {
+      const sets = plan.workouts.find((w) => w.id === "W2")?.blocks[0]?.items[0]?.sets ?? 0;
+      const errors = sets > 4 ? [{ code: "TOO_LONG", workoutId: "W2", path: "", message: "W2 is ~95 min (limit 75)" }] : [];
+      return { ok: !errors.length, errors, warnings: [], stats: {} };
+    },
+  });
+  const { out, store, res } = await sendWithTool("update_plan_workout", { workoutId: "W2", reason: "more volume", changes: [{ exerciseId: "bench_press", sets: 6 }] }, { core });
+  assert.equal(out.ok, false);
+  assert.deepEqual(out.issues, ["TOO_LONG: W2 is ~95 min (limit 75)"]);
+  assert.ok(!store._writes.includes("plans.update"));
+  assert.ok(!res.actions.some((a) => a.type === "plan_change"));
+  // missing store.plans.update → a clear tool error
+  const old = makeStore();
+  const r = await sendWithTool("update_plan_workout", { workoutId: "W2", reason: "x", changes: [{ exerciseId: "bench_press", sets: 2 }] }, { store: old });
+  assert.match(String(r.out), /Plan editing isn't available/);
+});
+
+test("log_wellness: saves typed or pasted metrics with a baseline-aware readiness light; guards a missing store.wellness", async () => {
+  const prior = [3, 4, 5, 6].map((d) => ({ date: `2026-11-0${d}`, trainingReadiness: 80, sleepScore: 85 }));
+  const store = makeStoreV2({ wellness: prior });
+  const { res, out } = await sendWithTool("log_wellness", { trainingReadiness: 62, sleepScore: 78, hrvStatus: "balanced" }, { store });
+  assert.equal(res.error, null);
+  assert.equal(out.ok, true);
+  assert.equal(out.readiness.light, "amber", "62 is 18 below this owner's usual 80");
+  assert.equal(out.readiness.readinessBaseline, 80);
+  assert.match(out.readiness.guidance, /warm-up/);
+  const saved = store._data.wellness.find((e) => e.date === TODAY);
+  assert.deepEqual([saved.trainingReadiness, saved.sleepScore, saved.hrvStatus, saved.source], [62, 78, "balanced", "manual"]);
+  assert.equal(res.actions[0].type, "logged_wellness");
+  assert.match(res.actions[0].label, /^Wellness · today · readiness 62 · sleep 78/);
+  // pasted block; explicit fields win
+  const p = await sendWithTool("log_wellness", { pasted: "Training Readiness 20\nSleep score 55\nBody Battery 30\nResting HR 58", restingHr: 57 });
+  const e = p.store._data.wellness[0];
+  assert.deepEqual([e.trainingReadiness, e.sleepScore, e.bodyBattery, e.restingHr], [20, 55, 30, 57]);
+  assert.equal(p.out.readiness.light, "red");
+  // no wellness store
+  const none = await sendWithTool("log_wellness", { trainingReadiness: 50 }, { store: makeStore() });
+  assert.match(String(none.out), /Wellness logging isn't available/);
+  // the next chat context shows the latest entry
+  const sample = scriptedSample(async () => ({ text: "hi" }));
+  const { coach } = coachWith({ sample, store });
+  await coach.send("hello");
+  assert.match(sample.calls[0].input[0].content, /## Wellness[^\n]*\nLatest \(today\): 2026-11-07: readiness 62, sleep 78, HRV balanced/);
+});
+
+test("mock: 'readiness 62, sleep 78' is saved through log_wellness", async () => {
+  const mock = createMockSample({ delayMs: 0, chunkMs: 0 });
+  const store = makeStoreV2();
+  const { coach } = coachWith({ sample: mock, store });
+  const res = await coach.send("readiness 62, sleep 78");
+  assert.equal(res.error, null, res.errorDetail);
+  assert.deepEqual(mock.toolCalls.map((c) => c.name), ["log_wellness"]);
+  assert.deepEqual(mock.toolCalls[0].input, { trainingReadiness: 62, sleepScore: 78 });
+  assert.deepEqual([store._data.wellness[0].trainingReadiness, store._data.wellness[0].sleepScore], [62, 78]);
+  assert.match(res.text, /Saved: readiness 62, sleep 78/);
+});
+
+function reviewStore() {
+  const session = {
+    id: "2026-11-07-aaa", date: TODAY, planId: AGREED.id, workoutId: "W1", title: "Lower A", type: "strength", status: "done",
+    strength: [{ exerciseId: "back_squat", name: "Back squat", sets: [5, 5, 4].map((reps) => ({ type: "work", loadKg: 100, reps, rir: 1 })), feedback: "hard" }],
+    conditioning: [], pain: [], prs: [], notes: "",
+  };
+  return makeStoreV2({ sessions: [session], state: { rotation: { planId: AGREED.id, done: ["W1"] } } });
+}
+
+test("reviewWorkout: one default-tier call with review tools, plan change with undo, event + reply persisted, reviewedAt set", async () => {
+  const store = reviewStore();
+  let refused;
+  const sample = scriptedSample(async (input, options, n, { runTool }) => {
+    refused = await runTool("update_plan_workout", { workoutId: "W1", reason: "x", changes: [{ exerciseId: "back_squat", sets: 2 }] });
+    await runTool("update_plan_workout", { workoutId: "W2", reason: "squat felt hard", changes: [{ exerciseId: "bench_press", sets: 2 }] });
+    return { text: "**Win:** done. Squat felt hard: hold 100 kg. I trimmed W2." };
+  });
+  const { coach } = coachWith({ sample, store });
+  const tools = [];
+  const res = await coach.reviewWorkout("2026-11-07-aaa", { onTool: (t) => tools.push(`${t.name}:${t.phase}`) });
+  assert.equal(res.error, null, res.errorDetail);
+  assert.equal(sample.calls.length, 1, "exactly one call");
+  const call = sample.calls[0];
+  assert.equal(call.options.modelTier, "default");
+  assert.equal(call.options.cache, undefined, "cache omitted with tools (cache:false is requested)");
+  assert.deepEqual(call.options.tools.map((t) => t.name), REVIEW_TOOL_ORDER);
+  assertValidTurns(call.input);
+  const instr = call.input[0].content;
+  assert.match(instr, /Mode: post-workout review/);
+  assert.match(instr, /- back_squat: hard/);
+  assert.match(instr, /Remaining workouts of plan 2026-11-01[^\n]*\nW2 · Upper A/);
+  assert.match(instr, /Done or skipped workouts \(locked, never change\)\n- W1 Lower A/);
+  assert.match(instr, /back_squat: next 102.5 kg × 5/);
+  assert.match(String(refused), /W1 is already done/);
+  assert.deepEqual(tools, ["update_plan_workout:start", "update_plan_workout:error", "update_plan_workout:start", "update_plan_workout:done"]);
+  // stored: event line, then the reply with the plan_change action
+  const [ev, msg] = store._data.chat.slice(-2);
+  assert.equal(ev.role, "event");
+  assert.match(ev.text, /Logged Lower A from the Plan tab \(felt: Back squat hard\)/);
+  assert.equal(msg.role, "assistant");
+  assert.equal(msg.actions[0].type, "plan_change");
+  assert.ok(store._data.sessions[0].reviewedAt);
+  assert.equal(store._data.plans[0].workouts[1].blocks[0].items[0].sets, 2);
+  await res.actions[0].undo();
+  assert.equal(store._data.plans[0].workouts[1].blocks[0].items[0].sets, 3);
+});
+
+test("reviewWorkout: errors and Stop resolve with a code; nothing persisted without changes; unknown session", async () => {
+  const store = reviewStore();
+  const ctl = new AbortController();
+  const sample = scriptedSample(async () => { throw { code: "cancelled", message: "stopped" }; });
+  const { coach } = coachWith({ sample, store });
+  const before = store._data.chat.length;
+  const res = await coach.reviewWorkout("2026-11-07-aaa", { signal: ctl.signal });
+  assert.equal(res.error, "cancelled");
+  assert.equal(store._data.chat.filter((m) => m.role === "assistant").length, 0);
+  assert.equal(store._data.chat.length, before + 1, "only the event line");
+  assert.equal(store._data.sessions[0].reviewedAt, undefined);
+  assert.equal((await coach.reviewWorkout("nope")).error, "not_found");
+  const off = coachWith({ sample: null, store }).coach;
+  assert.equal((await off.reviewWorkout("2026-11-07-aaa")).error, "sample_unavailable");
+});
+
+test("reviewWorkout with the mock sample calls update_plan_workout once and writes a review", async () => {
+  const mock = createMockSample({ delayMs: 0, chunkMs: 0 });
+  const store = reviewStore();
+  const { coach } = coachWith({ sample: mock, store });
+  const res = await coach.reviewWorkout("2026-11-07-aaa");
+  assert.equal(res.error, null, res.errorDetail);
+  assert.deepEqual(mock.toolCalls.map((c) => c.name), ["update_plan_workout"]);
+  assert.equal(mock.toolCalls[0].input.workoutId, "W2");
+  assert.match(res.text, /\*\*Back squat\*\* felt hard: we hold the load \(next 102.5 kg × 5\)/);
+  assert.match(res.text, /I trimmed \*\*W2\*\*/);
+  assert.equal(res.actions[0].type, "plan_change");
+});
+
+test("reviewWorkout end-to-end with real core, store and knowledge", { skip: REAL ? false : "other modules not implemented yet" }, async () => {
+  const { core, catalog, knowledge, createStore, createMockDb } = REAL;
+  assert.ok(Buffer.byteLength(knowledge.CHAT_RULES) <= 14 * 1024, `CHAT_RULES ${Buffer.byteLength(knowledge.CHAT_RULES)} B`);
+  assert.ok(Buffer.byteLength(knowledge.REVIEW_RULES) <= 3 * 1024);
+  const store = createStore(createMockDb(), "u1");
+  if (typeof store.plans.update !== "function") return;
+  await store.profile.update(profileOf({ schedule: { daysPerWeek: 3 } }));
+  const sample = createMockSample({ delayMs: 0, chunkMs: 0 });
+  const coach = createCoach({ runtime: { sample, uid: "u1" }, store, core, catalog, knowledge });
+  const { plan } = await coach.generatePlan();
+  await store.plans.approve(plan.id);
+  const agreed = await store.plans.getAgreed();
+  const w = agreed.workouts[0];
+  const draft = core.sessionFromWorkout(w, { sessions: [], planId: agreed.id, profile: await store.profile.get() });
+  draft.strength.forEach((e, i) => { e.feedback = i === 0 ? "hard" : "fine"; e.sets.forEach((s) => { if (s.loadKg == null && !s.bodyweight) s.loadKg = 40; }); });
+  const added = await store.sessions.add(core.normalizeSession(draft));
+  await store.state.update({ rotation: core.markWorkoutDone(await store.state.get(), agreed, w.id) });
+  const res = await coach.reviewWorkout(added.id ?? added.session.id);
+  assert.equal(res.error, null, res.errorDetail);
+  assert.ok((await store.sessions.get(added.id ?? added.session.id)).reviewedAt);
+  const after = await store.plans.getAgreed();
+  assert.equal(res.actions.length, 1, res.text);
+  assert.equal(res.actions[0].type, "plan_change");
+  assert.equal(after.changeLog.length, 1);
+  assert.notDeepEqual(after.workouts, agreed.workouts);
+  await coach.undoPlanChange(res.actions[0].ref);
+  assert.deepEqual((await store.plans.getAgreed()).workouts, agreed.workouts);
 });

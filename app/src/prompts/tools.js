@@ -328,7 +328,8 @@ export const TOOL_SPECS = {
     startLabel: "Saving wellness…",
     description:
       "Save daily readiness metrics the owner reports (e.g. from Garmin): training readiness, sleep score and hours, HRV status and ms, body battery, resting HR, stress. " +
-      "One entry per date; a second call for the same date merges. Send only the numbers given. Returns the entry plus app-computed bands to guide today's training.",
+      "One entry per date; a second call for the same date merges. Send only the numbers given, or the owner's pasted text in pasted. " +
+      "Returns the saved entry plus an app-computed readiness light (green/amber/red vs their own baseline) to guide today's training.",
     inputSchema: {
       type: "object",
       properties: {
@@ -342,6 +343,7 @@ export const TOOL_SPECS = {
         restingHr: NUM,
         stress: { type: "number", description: "0-100" },
         notes: STR,
+        pasted: { type: "string", description: "a pasted block of metrics as the owner sent it; the app reads the numbers (fields you set win)" },
       },
     },
   },

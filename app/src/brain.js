@@ -774,27 +774,43 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     }
   }
 
-  function wellnessBands(e) {
-    const band = (v, cuts) => (v === null || v === undefined ? null : cuts.find(([lim]) => v < lim)?.[1] ?? cuts[cuts.length - 1][1]);
+  /**
+   * Readiness traffic light (docs/research/09-garmin.md): Training Readiness is the headline (sleep, HRV and Body
+   * Battery only explain it), judged against the owner's own baseline (the prior 7-28 entries) when there is one.
+   * Without a readiness number, sleep and HRV can make it amber at most.
+   */
+  function wellnessBands(e, prior = []) {
+    const vals = (k) => prior.map((p) => Number(p?.[k])).filter(Number.isFinite);
+    const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
+    const baseR = vals("trainingReadiness").length >= 3 ? avg(vals("trainingReadiness")) : null;
+    const baseS = vals("sleepScore").length >= 3 ? avg(vals("sleepScore")) : null;
     const out = {};
-    const r = band(e.trainingReadiness, [[25, "poor"], [50, "low"], [75, "moderate"], [95, "high"], [101, "prime"]]);
-    if (r) out.readiness = r;
-    const sl = band(e.sleepScore, [[60, "poor"], [80, "fair"], [90, "good"], [101, "excellent"]]);
-    if (sl) out.sleep = sl;
-    const bb = band(e.bodyBattery, [[25, "low"], [50, "moderate"], [101, "good"]]);
-    if (bb) out.bodyBattery = bb;
-    const flags = [];
-    if (e.trainingReadiness !== null && e.trainingReadiness !== undefined && e.trainingReadiness < 25) flags.push("readiness poor");
-    else if (e.trainingReadiness !== null && e.trainingReadiness !== undefined && e.trainingReadiness < 50) flags.push("readiness low");
-    if (e.sleepScore !== null && e.sleepScore !== undefined && e.sleepScore < 60) flags.push("sleep score poor");
-    if (e.sleepHours !== null && e.sleepHours !== undefined && e.sleepHours < 6) flags.push("under 6 h sleep");
-    if (["low", "poor"].includes(e.hrvStatus)) flags.push(`HRV ${e.hrvStatus}`);
-    if (e.bodyBattery !== null && e.bodyBattery !== undefined && e.bodyBattery < 25) flags.push("body battery low");
-    out.guidance = flags.includes("readiness poor") || flags.length >= 3
-      ? `Recovery day: easy aerobic or mobility only, or a much-reduced session (${flags.join(", ")}).`
-      : flags.length
-        ? `Trim today: about −1 set per exercise, 1 RIR easier, easy runs only, metcons RPE ≤7 (${flags.join(", ")}).`
-        : "No red flags: train as planned.";
+    const explain = [];
+    if (e.sleepScore != null) explain.push(`sleep ${e.sleepScore}${baseS != null ? ` (usual ${baseS})` : ""}`);
+    if (e.sleepHours != null && e.sleepHours < 6) explain.push(`${e.sleepHours} h sleep`);
+    if (e.hrvStatus) explain.push(`HRV ${e.hrvStatus}`);
+    let light = null;
+    if (e.trainingReadiness != null) {
+      const r = e.trainingReadiness;
+      out.readinessBaseline = baseR;
+      light = r < 25 ? "red" : r < 50 ? "amber" : "green";
+      if (baseR != null && light !== "red" && r <= baseR - 30) light = "red";
+      else if (baseR != null && light === "green" && r <= baseR - 15) light = "amber";
+      if (baseR != null && light === "amber" && r >= 40 && r >= baseR - 5) light = "green"; // normal for this owner
+    } else {
+      const poorSleep = (e.sleepScore != null && (e.sleepScore < 60 || (baseS != null && e.sleepScore <= baseS - 15))) || (e.sleepHours != null && e.sleepHours < 6);
+      const lowHrv = ["low", "poor"].includes(e.hrvStatus);
+      light = poorSleep || lowHrv ? "amber" : (e.sleepScore != null || e.hrvStatus ? "green" : null);
+    }
+    if (light) out.light = light;
+    if (baseR == null && e.trainingReadiness != null) out.note = "Fewer than 3 earlier readings: no personal baseline yet, so this uses general bands.";
+    const why = explain.length ? ` (${explain.join(", ")})` : "";
+    out.guidance = light === "red"
+      ? `Red${why}: switch to recovery, easy aerobic work or mobility today.`
+      : light === "amber"
+        ? `Amber${why}: keep intensity, trim volume ~20-30% and add 1 RIR; if they feel good after the warm-up they may train as planned.`
+        : light === "green" ? "Green: train as planned." : "Not enough to judge readiness.";
+    out.check = "If this contradicts how the owner feels, ask before changing anything.";
     return out;
   }
 
@@ -804,7 +820,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     const viaCore = attempt(() => C.normalizeFeedback?.(v));
     if (viaCore !== null && viaCore !== undefined) return viaCore;
     const s = typeof v === "string" ? v.trim().toLowerCase() : "";
-    return TOOL_ENUMS.FEEDBACK.includes(s) ? s : null;
+    const syn = { tough: "hard", heavy: "hard", "too hard": "hard", ok: "fine", okay: "fine", good: "fine", light: "easy", "too easy": "easy" };
+    return TOOL_ENUMS.FEEDBACK.includes(s) ? s : syn[s] ?? null;
   };
   /**
    * Apply feedback tags to a session's exercises: `fb` is [{ exerciseId | name, feedback }] or { exerciseIdOrName: feedback }.
@@ -1075,19 +1092,22 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       if (date > ctx.today) throw new Error(`date ${date} is in the future (today is ${ctx.today})`);
       const entry = { date, source: "manual" };
       const notes = [];
+      const parsed = typeof input.pasted === "string" && input.pasted.trim() ? parseWellnessText(input.pasted) : {};
+      const src = { ...parsed, ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== null && v !== "")) };
       for (const [k, [lo, hi]] of Object.entries(WELLNESS_NUMBERS)) {
-        const v = numOr(input[k]);
+        const v = numOr(src[k]);
         if (v === undefined) continue;
         if (v < lo || v > hi) { notes.push(`${k} ${v} ignored (expected ${lo}-${hi})`); continue; }
         entry[k] = k === "sleepHours" ? Math.round(v * 10) / 10 : Math.round(v);
       }
-      if (input.hrvStatus !== undefined && input.hrvStatus !== null) {
-        const hs = String(input.hrvStatus).toLowerCase().trim();
+      if (src.hrvStatus !== undefined && src.hrvStatus !== null) {
+        const hs = String(src.hrvStatus).toLowerCase().trim();
         if (TOOL_ENUMS.HRV_STATUSES.includes(hs)) entry.hrvStatus = hs;
-        else notes.push(`hrvStatus "${input.hrvStatus}" ignored (use ${TOOL_ENUMS.HRV_STATUSES.join("|")})`);
+        else notes.push(`hrvStatus "${src.hrvStatus}" ignored (use ${TOOL_ENUMS.HRV_STATUSES.join("|")})`);
       }
       if (typeof input.notes === "string" && input.notes.trim()) entry.notes = clip(input.notes.trim(), 300);
       if (Object.keys(entry).length <= 2) throw new Error(`No usable wellness values${notes.length ? `: ${notes.join("; ")}` : ""}`);
+      const prior = (await soft(() => store.wellness.list?.({ from: addDaysISO(date, -28), to: addDaysISO(date, -1) }), [])) ?? [];
       guard(signal);
       const res = await store.wellness.add(entry);
       const saved = isPlainObject(res?.entry) ? res.entry : entry;
@@ -1099,7 +1119,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       ].filter(Boolean).slice(0, 3).join(" · ");
       const label = `Wellness · ${date === ctx.today ? "today" : date}${short ? ` · ${short}` : ""}`;
       ctx.actions.push({ type: "logged_wellness", label, ref: date, undo: res?.undo });
-      return { label, result: { ok: true, saved: formatWellnessEntry(saved), bands: wellnessBands(saved), ...(notes.length ? { notes } : {}) } };
+      return { label, result: { ok: true, saved: formatWellnessEntry(saved), readiness: wellnessBands(saved, Array.isArray(prior) ? prior.slice(-28) : []), ...(notes.length ? { notes } : {}) } };
     },
 
     async get_exercise_info(input) {
@@ -1142,9 +1162,10 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
 
   async function chatContext(mode, profile) {
     const t = today();
-    const [coachMem, state, agreed, draft, sessionsDesc] = await Promise.all([
+    const [coachMem, state, agreed, draft, sessionsDesc, wellness] = await Promise.all([
       soft(() => store.coach.get(), {}), soft(() => store.state.get(), {}), soft(() => store.plans.getAgreed()),
       soft(() => store.plans.getDraft()), soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []),
+      mode === "chat" ? soft(() => store.wellness?.list?.({ from: addDaysISO(t, -13), to: t }), []) : [],
     ]);
     const sessionsAsc = sortSessionsAsc(sessionsDesc);
     const data = {
@@ -1159,6 +1180,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         trainingSummary: attempt(() => C.trainingSummary(sessionsAsc, profile, { weeks: 4, today: t })),
         recentSessions: [...sessionsAsc].reverse().slice(0, 3),
         pacesText: pacesFor(profile),
+        wellness: Array.isArray(wellness) ? wellness : [],
       });
     }
     return { t, coachMem: coachMem ?? {}, state: state ?? {}, data };
@@ -1493,6 +1515,92 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     }
   }
 
+  // ---------- post-workout review ----------
+
+  /**
+   * Post-workout review (CONTRACT-v2): started by the owner's save tap on a Plan quick-log. One sample call
+   * (default tier, cache false) with the review tools: Claude reviews the session and its feedback and may change
+   * remaining workouts with update_plan_workout. The reply is stored as an assistant chat message (with plan_change
+   * actions) after an event line, and session.reviewedAt is set. Always resolves { text, actions, error }.
+   * @param {string} sessionId
+   * @param {{ signal?: AbortSignal, onText?: Function, onTool?: Function }} [opts]
+   * @returns {Promise<SendResult>}
+   */
+  async function reviewWorkout(sessionId, { signal, onText, onTool } = {}) {
+    const actions = [];
+    if (!store) return { text: "", actions, error: "no_user" };
+    const blocked = unavailableCode();
+    if (blocked) return { text: "", actions, error: blocked };
+    let partial = "";
+    try {
+      const id = String(sessionId ?? "");
+      const session = await store.sessions.get(id);
+      if (!isPlainObject(session)) return { text: "", actions, error: "not_found" };
+      const t = today();
+      const [profile, coachMem, state, agreed, sessionsDesc, wellness, planList] = await Promise.all([
+        soft(() => store.profile.get(), {}), soft(() => store.coach.get(), {}), soft(() => store.state.get(), {}),
+        soft(() => store.plans.getAgreed()), soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []),
+        soft(() => store.wellness?.list?.({ from: addDaysISO(t, -27), to: t }), []), soft(() => store.plans.list?.({ limit: 12 }), []),
+      ]);
+      const sessionsAsc = sortSessionsAsc([...(sessionsDesc ?? []).filter((s) => s?.id !== id), session]);
+      const plan = isPlainObject(agreed) ? agreed : null;
+      const locked = plan ? lockedWorkoutIds(plan, state, sessionsAsc) : new Set();
+      if (plan && session.workoutId && (session.planId === plan.id || !session.planId)) locked.add(session.workoutId);
+      const workouts = plan ? (plan.workouts ?? []).filter(isPlainObject) : [];
+      const planned = workouts.find((w) => w.id === session.workoutId && (!session.planId || session.planId === plan?.id)) ?? null;
+      const items = strengthItems(plan);
+      const exercises = (session.strength ?? []).filter(isPlainObject).slice(0, 10).map((e) => {
+        const item = items.get(e.exerciseId) ?? (e.exerciseId ? { exerciseId: e.exerciseId, reps: String(e.sets?.find((x) => x?.type !== "warmup")?.reps ?? ""), progression: "double" } : null);
+        const target = item ? attempt(() => C.nextTarget(sessionsAsc, item, { today: t })) : null;
+        return { exerciseId: e.exerciseId ?? null, name: e.name, feedback: e.feedback ?? null, target: isPlainObject(target) ? target : null };
+      });
+      const wl = Array.isArray(wellness) ? wellness : [];
+      const digest = attempt(() => progressionDigest({
+        sessions: sessionsAsc, plans: [...(Array.isArray(planList) ? planList : []), plan].filter(isPlainObject), wellness: wl, profile, today: t, weeks: 2,
+      }));
+      const lim = await getLimits();
+      const ctx = { mode: "review", actions, onTool, today: t };
+      const tools = plan ? makeTools("review", ctx, toolCount(lim)) : [];
+      const toolNames = tools.map((x) => x.name);
+      const head = buildInstructionsTurn({ mode: "review", rules: K.REVIEW_RULES, snapshot: "", toolNames });
+      const snapshot = buildReviewSnapshot({
+        today: t, weekday: weekdayName(t), profile, coach: memoryForPrompt(coachMem),
+        equipmentNames: isPlainObject(cat.EQUIPMENT) ? cat.EQUIPMENT : {},
+        session, plannedWorkout: planned, exercises, plan,
+        remaining: workouts.filter((w) => !locked.has(w.id)).map((w) => withTargets(w, sessionsAsc, t)),
+        doneWorkouts: workouts.filter((w) => locked.has(w.id)),
+        digest, wellness: wl,
+        trainingSummary: attempt(() => C.trainingSummary(sessionsAsc, profile, { weeks: 4, today: t })),
+        pacesText: pacesFor(profile),
+      }, { maxBytes: Math.max(2000, Math.min(26000, CHAT_BUDGETS.instructionsBytes - utf8Bytes(head))) });
+      const instructions = buildInstructionsTurn({ mode: "review", rules: K.REVIEW_RULES, snapshot, toolNames });
+      const tagged = exercises.filter((e) => e.feedback).map((e) => `${clip(e.name || e.exerciseId, 24)} ${e.feedback}`);
+      await soft(() => store.chat.append({
+        role: "event",
+        text: clip(`Logged ${session.title || "a workout"} from the Plan tab${tagged.length ? ` (felt: ${tagged.join(", ")})` : ""}; the coach reviews it.`, 280),
+        actions: [], error: null,
+      }));
+      const res = await callSample([{ role: "user", content: instructions }, { role: "user", content: REVIEW_START_TURN }], {
+        cache: false,
+        modelTier: tierFor("default", lim),
+        signal,
+        tools: tools.length ? tools : undefined,
+        onText: typeof onText === "function" ? (u) => { partial = u.text; emit(onText, { text: u.text, delta: u.delta }); } : undefined,
+      });
+      const reply = String(res?.text ?? "");
+      await persistReply(reply, actions, null);
+      await soft(() => store.sessions.update(id, { reviewedAt: nowIso() }));
+      return { text: reply, actions, error: null };
+    } catch (e) {
+      const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
+      const kept = err.code === "refused" ? "" : (typeof err.text === "string" ? err.text : partial);
+      const errorDetail = errorDetailOf(err.code, err.message);
+      // keep what the tools already changed visible (with Undo); a plain failure is reported by the UI only
+      if (actions.length) await persistReply(kept, actions, err.code, err.message);
+      return { text: kept, actions, error: err.code, ...(errorDetail ? { errorDetail } : {}) };
+    }
+  }
+
   // ---------- public ----------
 
   function status() {
@@ -1510,6 +1618,9 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     generatePlan: ({ instruction = "", signal, onProgress } = {}) => runPlan({ instruction, signal, onProgress, revise: false }),
     reviseDraft: (instruction, { signal, onProgress } = {}) => runPlan({ instruction: String(instruction ?? ""), signal, onProgress, revise: true }),
     commentOnSession,
+    reviewWorkout,
+    undoPlanChange,
+    planChangeActive,
     errorCopy,
   };
 }
@@ -1557,6 +1668,31 @@ export function sessionFromToolInput(input) {
     });
   }
   return s;
+}
+
+/**
+ * Read a pasted block of readiness metrics (e.g. copied from Garmin Connect): "Training Readiness 62",
+ * "Sleep score: 78", "Sleep 7h 20m", "HRV status Balanced", "HRV 48 ms", "Body Battery 70", "Resting HR 52", "Stress 31".
+ * @param {string} text
+ * @returns {object} log_wellness fields found (numbers, hrvStatus)
+ */
+export function parseWellnessText(text) {
+  const t = String(text ?? "").replace(/\r/g, "");
+  const out = {};
+  const grab = (re) => { const m = re.exec(t); return m ? Number(m[1].replace(",", ".")) : undefined; };
+  const set = (k, v) => { if (v !== undefined && Number.isFinite(v)) out[k] = v; };
+  set("trainingReadiness", grab(/training\s*readiness[^0-9\n]{0,20}(\d{1,3})/i) ?? grab(/\breadiness[^0-9\n]{0,12}(\d{1,3})/i));
+  set("sleepScore", grab(/sleep\s*score[^0-9\n]{0,12}(\d{1,3})/i) ?? grab(/\bsleep\b[^0-9\n]{0,6}(\d{2,3})(?!\s*(?:h|hr|hrs|hours|:|\.\d))/i));
+  const hm = /(\d{1,2})\s*h(?:rs?|ours?)?\s*(\d{1,2})\s*m/i.exec(t);
+  if (hm) set("sleepHours", Math.round((Number(hm[1]) + Number(hm[2]) / 60) * 10) / 10);
+  else set("sleepHours", grab(/(\d{1,2}(?:[.,]\d)?)\s*(?:h|hrs?|hours?)\b(?:\s*(?:of\s*)?sleep|\s*slept)?/i));
+  const st = /hrv(?:\s*status)?[^a-z0-9\n]{0,6}(balanced|unbalanced|low|poor)/i.exec(t);
+  if (st) out.hrvStatus = st[1].toLowerCase();
+  set("hrvMs", grab(/hrv[^0-9\n]{0,30}?(\d{2,3})\s*ms/i) ?? grab(/(\d{2,3})\s*ms\b/i));
+  set("bodyBattery", grab(/body\s*battery[^0-9\n]{0,12}(\d{1,3})/i));
+  set("restingHr", grab(/(?:resting\s*(?:hr|heart\s*rate)|rhr)[^0-9\n]{0,12}(\d{2,3})/i));
+  set("stress", grab(/\bstress[^0-9\n]{0,12}(\d{1,3})/i));
+  return out;
 }
 
 function defaultTitle(type) {

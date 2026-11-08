@@ -30,3 +30,9 @@ This adds to CONTRACT.md, which still applies. Four agents work in parallel. Sti
 - `src/ui/styles.css` is shared: append your own delimited section only (`/* v2: <agent> */`). `src/ui/app.js`, `settings.js` and `components.js` are owned by F, if needed.
 
 Don't commit. Run `cd app && npm test` and `npm run build`; both must pass at the end.
+
+## Integration notes (as built)
+- The chat offers **10 tools**: the 8 from v1, plus `update_plan_workout` and `log_wellness`. The count is still capped by `limits().tools.maxCount`, and `log_session` is never dropped.
+- `Session.conditioning[].feedback` exists as well (same enum).
+- `Plan.changeLog[]` records coach changes to the agreed plan, so Undo still works after a reload. `Plan.items[].swappedFrom` marks owner swaps.
+- `knowledge.REVIEW_RULES` drives `coach.reviewWorkout(sessionId)`. It runs after a Plan quick-log save (that tap is the user action) and can be turned off under Settings → "Review after each workout".

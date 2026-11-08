@@ -1,8 +1,46 @@
-// Owner: Agent D. Logging planned workouts from the Plan tab: "Mark as done" / "Done as planned" / "Skip".
-// Shared by plan.js (card actions) and history.js (the prefilled quick-log form). Keeps the session log and
-// the rotation consistent, and every write comes with an Undo that reverts both.
+// Owner: Agent D (v2 feedback + review: Agent F). Logging planned workouts from the Plan tab: "Mark as done" /
+// "Done as planned" / "Skip". Shared by plan.js (card actions) and history.js (the prefilled quick-log form). Keeps
+// the session log and the rotation consistent, and every write comes with an Undo that reverts both.
+// v2: the Easy / Fine / Hard feedback control, and the post-workout review the save tap starts (coach.reviewWorkout).
 
-import { h, safe, toast, plural, errorText } from "./components.js";
+import { h, safe, toast, plural, errorText, button, createTicker, fmtElapsed, replaceChildren } from "./components.js";
+
+/** Exercise feedback values and labels (Session.strength[].feedback, CONTRACT-v2). */
+export const FEEDBACK_OPTIONS = [
+  ["easy", "Easy"],
+  ["fine", "Fine"],
+  ["hard", "Hard"],
+];
+
+/**
+ * Optional 3-way Easy / Fine / Hard control (none selected by default; tapping the selected one clears it).
+ * @param {{ id: string, label: string, value?: string|null, onChange: (v: string|null) => void }} opts
+ * @returns {HTMLElement}
+ */
+export function feedbackControl({ id, label, value = null, onChange }) {
+  let current = FEEDBACK_OPTIONS.some(([v]) => v === value) ? value : null;
+  const wrap = h("div", { class: "fb-row" });
+  const group = h("div", { class: "segmented fb-seg", role: "group", "aria-label": `${label}: how did it feel?`, id });
+  const btns = FEEDBACK_OPTIONS.map(([v, text]) => h("button", {
+    type: "button",
+    class: `seg fb-${v}`,
+    id: `${id}-${v}`,
+    "aria-pressed": String(current === v),
+    onClick: () => {
+      current = current === v ? null : v;
+      btns.forEach((b, i) => b.setAttribute("aria-pressed", String(FEEDBACK_OPTIONS[i][0] === current)));
+      onChange?.(current);
+    },
+  }, text));
+  group.append(...btns);
+  wrap.append(h("span", { class: "fb-label", "aria-hidden": "true" }, "Felt"), group);
+  return wrap;
+}
+
+/** Short chip label for a feedback value ("Hard"), or "". */
+export function feedbackLabel(v) {
+  return FEEDBACK_OPTIONS.find(([x]) => x === v)?.[1] || "";
+}
 
 export const MISSED_REASONS = [
   ["time", "No time"],
@@ -128,10 +166,12 @@ function newId(date) {
  * `view`, "View in History".
  * @param {any} ctx
  * @param {any} input loosely shaped Session (normalizeSession input)
- * @param {{ view?: boolean, toastText?: string }} [opts]
+ * With `review` (a Plan quick-log save) and the "Review after each workout" setting on, the save tap also starts
+ * the coach's post-workout review (startWorkoutReview).
+ * @param {{ view?: boolean, toastText?: string, review?: boolean }} [opts]
  * @returns {Promise<any>} the stored session
  */
-export async function saveLoggedSession(ctx, input, { view = false, toastText } = {}) {
+export async function saveLoggedSession(ctx, input, { view = false, toastText, review = false } = {}) {
   const { store, core } = ctx;
   const now = new Date().toISOString();
   let session = safe(() => core.normalizeSession(input, { today: ctx.today() }), null) || { ...input };
@@ -177,6 +217,7 @@ export async function saveLoggedSession(ctx, input, { view = false, toastText } 
     });
   }
   actionToast({ text, actions });
+  if (review && session.status !== "missed" && session.workoutId && reviewEnabled(ctx)) startWorkoutReview(ctx, session);
   return session;
 }
 
@@ -191,7 +232,7 @@ export async function saveLoggedSession(ctx, input, { view = false, toastText } 
 export async function logAsPlanned(ctx, plan, workout) {
   const draft = workoutDraft(ctx, plan, workout);
   if (missingForDirectSave(draft).length) return null;
-  return saveLoggedSession(ctx, draft, { view: true });
+  return saveLoggedSession(ctx, draft, { view: true, review: true });
 }
 
 /**
@@ -215,4 +256,89 @@ export async function skipWorkout(ctx, plan, workout, { reason = "other", notes 
     notes: String(notes || "").trim(),
     createdBy: "manual",
   }, { view: true });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Post-workout review (v2). Started only from a save tap; one call at a time; never retried by code.
+
+/** @type {null | { ctl: AbortController, t0: number, title: string, ticker: any }} */
+let reviewJob = null;
+
+/**
+ * Is "Review after each workout" on (state.settings.reviewAfterWorkout, default true)?
+ * @param {any} ctx
+ * @returns {boolean}
+ */
+export function reviewEnabled(ctx) {
+  return ctx.data.state?.settings?.reviewAfterWorkout !== false;
+}
+
+/** @returns {boolean} true while a post-workout review is running */
+export function reviewBusy() {
+  return Boolean(reviewJob);
+}
+
+/**
+ * Run coach.reviewWorkout for a just-saved session, with a status strip (elapsed time + Stop) shown on every tab.
+ * The review lands in the Coach chat; a toast says so (with "Open Coach" when elsewhere). Errors show a toast with a
+ * manual Retry. Does nothing when the coach is unavailable or a review is already running.
+ * @param {any} ctx
+ * @param {{ id: string, title?: string }} session
+ * @returns {boolean} started
+ */
+export function startWorkoutReview(ctx, session) {
+  const { coach } = ctx;
+  if (!coach || typeof coach.reviewWorkout !== "function" || !session?.id || reviewJob) return false;
+  if (ctx.coachStatus().available === false) return false;
+  const title = session.title || "your workout";
+  const ctl = new AbortController();
+  const ticker = createTicker(() => renderReviewStrip());
+  reviewJob = { ctl, t0: Date.now(), title, ticker };
+  ticker.start();
+  Promise.resolve()
+    .then(() => coach.reviewWorkout(session.id, { signal: ctl.signal }))
+    .then((res) => finish(res?.error || null, res))
+    .catch((err) => finish(err?.code || "upstream_error", null));
+
+  function finish(code, res) {
+    ticker.stop();
+    reviewJob = null;
+    renderReviewStrip();
+    const changes = (res?.actions || []).filter((a) => a.type === "plan_change").length;
+    if (code === "cancelled") {
+      toast({ text: changes ? `Review stopped · ${plural(changes, "plan change")} kept` : "Review stopped" });
+    } else if (code) {
+      toast({ text: `Review failed: ${errorText(coach, code)}`, kind: "error", timeout: 10000, action: { label: "Retry", fn: () => startWorkoutReview(ctx, session) } });
+    } else {
+      const text = changes ? `Coach reviewed ${title} · ${plural(changes, "plan change")}` : `Coach reviewed ${title}`;
+      toast({ text, timeout: 9000, action: ctx.route !== "coach" ? { label: "Open Coach", fn: () => ctx.nav("coach") } : null });
+    }
+  }
+  return true;
+}
+
+function renderReviewStrip() {
+  let host = document.getElementById("review-host");
+  if (!host) {
+    host = h("div", { id: "review-host", class: "rv-host", "aria-live": "polite" });
+    document.body.appendChild(host);
+  }
+  document.documentElement.classList.toggle("rv-on", Boolean(reviewJob));
+  if (!reviewJob) {
+    replaceChildren(host);
+    return;
+  }
+  const job = reviewJob;
+  const elapsed = fmtElapsed(Date.now() - job.t0);
+  const existing = host.querySelector(".rv-strip");
+  if (existing) {
+    existing.querySelector(".rv-time").textContent = elapsed;
+    return;
+  }
+  replaceChildren(host, h("div", { class: "rv-strip", role: "status", id: "review-status" },
+    h("span", { class: "pulse", "aria-hidden": "true" }),
+    h("span", { class: "rv-text" }, "Coach is reviewing your workout…"),
+    h("span", { class: "rv-time num", "aria-label": "elapsed" }, elapsed),
+    button({ id: "review-stop", label: "Stop", icon: "stop", kind: "stop", small: true, onClick: () => job.ctl.abort() }),
+  ));
 }

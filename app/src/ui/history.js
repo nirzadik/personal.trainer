@@ -1,4 +1,5 @@
-// Owner: Agent D. History tab: week-grouped log, filters, session detail sheet, manual add/edit form.
+// Owner: Agent D (v2 exercise feedback: Agent F). History tab: week-grouped log, filters, session detail sheet,
+// manual add/edit form with optional Easy / Fine / Hard feedback per exercise and metcon.
 
 import {
   h, icon, button, append, replaceChildren, segmented, typePill, pill, emptyState, errorLine, inlineConfirm,
@@ -7,7 +8,7 @@ import {
 } from "./components.js";
 import { renderMarkdown, plainText } from "./markdown.js";
 import { removeSession, markDone, exerciseName, equipmentSet, prettifyId } from "./ops.js";
-import { saveLoggedSession, workoutDraft } from "./quicklog.js";
+import { saveLoggedSession, workoutDraft, feedbackControl, feedbackLabel } from "./quicklog.js";
 
 const FILTER_KEY = "pt.historyFilter";
 const FILTERS = [
@@ -238,9 +239,25 @@ function sessionCard(ctx, s) {
         s.prs?.length ? h("span", { class: "pill pill-pr" }, icon("pr", { size: 14 }), s.prs.length > 1 ? `${s.prs.length} PRs` : "PR") : null,
         pain && pain.score > 0 ? h("span", { class: `pill pill-${painKind(pain.score)}` }, `${prettifyId(pain.area)} ${pain.score}/10`) : null,
       ),
+      feedbackChips(ctx, s),
       metrics.map((m) => h("span", { class: "session-metric num" }, m)),
       snippet ? h("span", { class: "session-comment" }, snippet) : null,
     ),
+  );
+}
+
+/** Feedback chips for a session card: one per tagged exercise or metcon ("Squat · Hard"), at most 4. */
+function feedbackChips(ctx, s) {
+  if (s.status === "missed") return null;
+  const tagged = [
+    ...(s.strength || []).filter((ex) => feedbackLabel(ex.feedback)).map((ex) => [shortName(exerciseName(ctx.catalog, ex.exerciseId, ex.name)), ex.feedback]),
+    ...(s.conditioning || []).filter((c) => feedbackLabel(c.feedback)).map((c) => [formatLabel(c.format), c.feedback]),
+  ];
+  if (!tagged.length) return null;
+  const shown = tagged.slice(0, 4);
+  return h("span", { class: "fb-chips", "aria-label": `How it felt: ${tagged.map(([n, f]) => `${n} ${f}`).join(", ")}` },
+    shown.map(([name, fb]) => h("span", { class: `fb-chip fb-chip-${fb}`, "aria-hidden": "true" }, h("span", { class: "fb-chip-name" }, name), ` · ${feedbackLabel(fb)}`)),
+    tagged.length > shown.length ? h("span", { class: "fb-chip fb-chip-more", "aria-hidden": "true" }, `+${tagged.length - shown.length}`) : null,
   );
 }
 
@@ -375,6 +392,7 @@ function detailBody(ctx, s, localComment, commentJob) {
         return h("div", { class: "ex-block" },
           h("div", { class: "ex-head" },
             h("h4", { class: "ex-name" }, exerciseName(ctx.catalog, ex.exerciseId, ex.name)),
+            feedbackLabel(ex.feedback) ? h("span", { class: `fb-chip fb-chip-${ex.feedback}` }, `Felt ${feedbackLabel(ex.feedback).toLowerCase()}`) : null,
             e1?.value ? h("span", { class: "ex-e1rm num" }, `e1RM ${fmtKg(Math.round(e1.value * 2) / 2)} kg`) : null,
           ),
           h("div", { class: "table-scroll" },
@@ -434,6 +452,7 @@ function detailBody(ctx, s, localComment, commentJob) {
       r.completed != null ? ["Finished", r.completed ? "Yes" : "Capped"] : null,
       ["Scaling", c.scaled ? "Scaled" : "As written"],
       c.rpe ? ["RPE", `${c.rpe}/10`] : null,
+      feedbackLabel(c.feedback) ? ["Felt", feedbackLabel(c.feedback)] : null,
     ].filter(Boolean);
     parts.push(h("section", { class: "detail-sec" },
       h("h3", { class: "sec-title" }, "Conditioning"),
@@ -516,6 +535,7 @@ function draftFrom(ctx, s) {
       name: exerciseName(ctx.catalog, ex.exerciseId, ex.name),
       sets: (ex.sets || []).map((st) => ({ type: st.type || "work", loadKg: st.loadKg ?? "", reps: st.reps ?? "", rir: st.rir ?? "", bodyweight: Boolean(st.bodyweight) })),
       target: ex.target || null,
+      feedback: ex.feedback || null,
     })),
     run: {
       runType: run.runType || "easy",
@@ -537,6 +557,7 @@ function draftFrom(ctx, s) {
       completed: c.result?.completed ?? true,
       scaled: Boolean(c.scaled),
       rpe: c.rpe ?? "",
+      feedback: c.feedback || null,
     },
   };
 }
@@ -742,6 +763,7 @@ function openForm(ctx, existing, opts = {}) {
           render(`wf-ex-${ei}-set-${ex.sets.length - 1}-reps`);
         },
       }),
+      feedbackControl({ id: `wf-ex-${ei}-fb`, label: ex.name || prettifyId(ex.exerciseId), value: ex.feedback, onChange: (v) => { ex.feedback = v; } }),
     ));
 
     return h("fieldset", { class: "fs" },
@@ -875,6 +897,7 @@ function openForm(ctx, existing, opts = {}) {
         h("label", { class: "check", for: "wf-c-done" }, h("input", { id: "wf-c-done", type: "checkbox", checked: c.completed, onChange: (e) => { c.completed = e.target.checked; } }), h("span", {}, "Finished within the cap")),
         h("label", { class: "check", for: "wf-c-scaled" }, h("input", { id: "wf-c-scaled", type: "checkbox", checked: c.scaled, onChange: (e) => { c.scaled = e.target.checked; } }), h("span", {}, "Scaled")),
       ),
+      feedbackControl({ id: "wf-c-fb", label: "This metcon", value: c.feedback, onChange: (v) => { c.feedback = v; } }),
     );
   }
 
@@ -921,6 +944,7 @@ function openForm(ctx, existing, opts = {}) {
         sets: ex.sets
           .filter((st) => num(st.reps) != null)
           .map((st) => ({ type: st.type, loadKg: num(st.loadKg), bodyweight: num(st.loadKg) == null || Boolean(st.bodyweight), reps: num(st.reps), rir: num(st.rir) })),
+        feedback: ex.feedback || null,
       })).filter((ex) => ex.sets.length);
     }
     if (secs.includes("run")) {
@@ -948,6 +972,7 @@ function openForm(ctx, existing, opts = {}) {
         scaled: Boolean(c.scaled),
         rpe: num(c.rpe),
         notes: existing?.conditioning?.[0]?.notes || "",
+        feedback: c.feedback || null,
       }, ...(draft.condExtra || [])];
     }
     return base;
@@ -1000,7 +1025,7 @@ function openForm(ctx, existing, opts = {}) {
         sheet.close();
         toast({ text: "Changes saved" });
       } else {
-        await saveLoggedSession(ctx, input, fromPlan ? { view: true } : { toastText: session.prs?.length ? `Saved · ${plural(session.prs.length, "PR")}` : "Workout saved" });
+        await saveLoggedSession(ctx, input, fromPlan ? { view: true, review: true } : { toastText: session.prs?.length ? `Saved · ${plural(session.prs.length, "PR")}` : "Workout saved" });
         sheet.close();
       }
     } catch (err) {

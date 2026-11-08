@@ -58,9 +58,22 @@ export function openSettings(ctx) {
       },
     });
 
+    const reviewSeg = segmented({
+      id: "settings-review",
+      label: "Review after each workout",
+      options: [{ value: "on", label: "On" }, { value: "off", label: "Off" }],
+      value: state?.settings?.reviewAfterWorkout === false ? "off" : "on",
+      onChange: (v) => {
+        if (store) Promise.resolve(store.state.update({ settings: { ...(ctx.data.state?.settings || {}), reviewAfterWorkout: v === "on" } })).catch((err) => toast({ text: errorText(coach, err), kind: "error" }));
+      },
+    });
+
     return [
       group("Appearance", [row("Theme", "Follows your iPhone unless you pick one.", themeSeg, "settings-theme")]),
-      group("Coach", [row("Coach speed", "Smart thinks more. Fast answers sooner, for quick logging at the gym. Plans always use the most capable model.", speedSeg, "settings-speed")]),
+      group("Coach", [
+        row("Coach speed", "Smart thinks more. Fast answers sooner, for quick logging at the gym. Plans always use the most capable model.", speedSeg, "settings-speed"),
+        row("Review after each workout", "When you mark a planned workout done, the coach checks how it went and may adjust the rest of the week (each change has Undo). Uses one Claude request.", reviewSeg, "settings-review"),
+      ]),
       equipmentSection(api),
       dataSection(api),
       runtime?.mode === "mock" && runtime.dev ? devSection() : null,

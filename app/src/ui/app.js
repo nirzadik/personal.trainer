@@ -16,7 +16,7 @@ const TAB_KEY = "pt.lastTab";
 
 const STATE_DEFAULTS = {
   schemaVersion: 1,
-  settings: { theme: "system", chatTier: "default" },
+  settings: { theme: "system", chatTier: "default", reviewAfterWorkout: true },
   rotation: { planId: null, done: [] },
   onboarding: { status: "not_started" },
   pendingPlanRequest: null,
