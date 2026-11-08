@@ -798,6 +798,62 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     return out;
   }
 
+  // ---------- exercise feedback ----------
+
+  const normFeedback = (v) => {
+    const viaCore = attempt(() => C.normalizeFeedback?.(v));
+    if (viaCore !== null && viaCore !== undefined) return viaCore;
+    const s = typeof v === "string" ? v.trim().toLowerCase() : "";
+    return TOOL_ENUMS.FEEDBACK.includes(s) ? s : null;
+  };
+  /**
+   * Apply feedback tags to a session's exercises: `fb` is [{ exerciseId | name, feedback }] or { exerciseIdOrName: feedback }.
+   * "metcon" / "conditioning" (optionally with a 1-based number) targets the conditioning entries.
+   * @returns {{ strength?: object[], conditioning?: object[], applied: string[], unknown: string[] }}
+   */
+  function applyFeedbackPatch(session, fb) {
+    const pairs = Array.isArray(fb)
+      ? fb.filter(isPlainObject).map((x) => [x.exerciseId ?? x.name ?? x.exercise, x.feedback ?? x.value])
+      : isPlainObject(fb) ? Object.entries(fb) : [];
+    const strength = cloneJson(Array.isArray(session?.strength) ? session.strength : []);
+    const conditioning = cloneJson(Array.isArray(session?.conditioning) ? session.conditioning : []);
+    const applied = [];
+    const unknown = [];
+    let sTouched = false;
+    let cTouched = false;
+    for (const [key, val] of pairs) {
+      const k = String(key ?? "").trim();
+      const v = val === null ? null : normFeedback(val);
+      if (!k || (v === null && val !== null)) { unknown.push(`${k || "?"}=${val}`); continue; }
+      const m = /^(metcon|conditioning|wod|hiit)\s*#?(\d+)?$/i.exec(k);
+      if (m) {
+        const i = m[2] ? Number(m[2]) - 1 : 0;
+        if (!isPlainObject(conditioning[i])) { unknown.push(k); continue; }
+        conditioning[i].feedback = v;
+        cTouched = true;
+        applied.push(`${conditioning[i].format || "metcon"} ${v ?? "cleared"}`);
+        continue;
+      }
+      const ex = resolveExercise(k);
+      const lower = k.toLowerCase();
+      const hit = strength.find((e) => e?.exerciseId === k) ?? (ex ? strength.find((e) => e?.exerciseId === ex.id) : null)
+        ?? strength.find((e) => String(e?.name ?? "").toLowerCase() === lower)
+        ?? (lower.length >= 4 ? strength.find((e) => String(e?.name ?? "").toLowerCase().includes(lower)) : null);
+      if (!hit) { unknown.push(k); continue; }
+      hit.feedback = v;
+      sTouched = true;
+      applied.push(`${clip(hit.name || exerciseName(hit.exerciseId) || hit.exerciseId, 24)} ${v ?? "cleared"}`);
+    }
+    return { ...(sTouched ? { strength } : {}), ...(cTouched ? { conditioning } : {}), applied, unknown };
+  }
+  /** App-computed next targets for a session's lifts that are in the agreed plan (after a feedback change). */
+  async function feedbackTargets(session, t) {
+    const [agreed, all] = await Promise.all([soft(() => store.plans.getAgreed()), loadSessionsAsc()]);
+    const list = sortSessionsAsc([...all.filter((s) => s.id !== session.id), session]);
+    const items = strengthItems(agreed);
+    return targetsFor((session.strength ?? []).map((e) => items.get(e?.exerciseId)).filter(Boolean), list, t, 8);
+  }
+
   const IMPLS = {
     async update_profile(input, ctx, signal) {
       if (!isPlainObject(input.patch)) throw new Error("patch must be an object of Profile fields");
