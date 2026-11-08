@@ -68,6 +68,7 @@ const ICONS = {
   close: [["path", { d: "M6 6l12 12M18 6 6 18" }]],
   chevron: [["path", { d: "m6 9 6 6 6-6" }]],
   check: [["path", { d: "m5 12.5 4.5 4.5L19.5 7" }]],
+  play: [["path", { d: "M8 5.5v13l10.5-6.5z" }]],
   stop: [["rect", { x: "7", y: "7", width: "10", height: "10", rx: "1", fill: "currentColor", stroke: "none" }]],
   send: [["path", { d: "M12 19V5M5.5 11.5 12 5l6.5 6.5" }]],
   undo: [["path", { d: "M9 14 4 9l5-5" }], ["path", { d: "M4 9h10.5a5.5 5.5 0 0 1 0 11H11" }]],

@@ -579,7 +579,7 @@ export function mountPlan(el, ctx) {
     }
     const isBusy = busy.has(key);
     return h("div", { class: ["w-actions", status === "next" && "is-next"] },
-      button({ id: `w${slug}-done`, label: "Mark as done", icon: "check", kind: status === "next" ? "primary" : "secondary", small: true, disabled: isBusy, onClick: () => openWorkoutLog(ctx, plan, w) }),
+      button({ id: `w${slug}-done`, label: "Start", icon: "play", kind: status === "next" ? "primary" : "secondary", small: true, disabled: isBusy, onClick: () => openWorkoutLog(ctx, plan, w) }),
       button({ id: `w${slug}-asplanned`, label: "As planned", ariaLabel: `Done exactly as planned: log ${w.title || w.id} with the planned values`, kind: "secondary", small: true, disabled: isBusy, onClick: () => doneAsPlanned(plan, w, key) }),
       button({ id: `w${slug}-skip`, label: "Skip", kind: "ghost", small: true, disabled: isBusy, onClick: () => { skipping.set(key, { reason: "time", notes: "" }); render(); focusLater(`#w${slug}-skip-reason-time`); } }),
     );
