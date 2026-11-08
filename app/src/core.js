@@ -947,6 +947,41 @@ const MAJOR_MUSCLES = ["chest", "upper_back", "lats", "quads", "hamstrings", "gl
 const RUN_SURFACES = ["outdoor_route", "track", "treadmill"];
 const NON_EXERCISE = /^(rest|transition|recover|recovery|walk rest)\b/i;
 
+// CrossFit modal elements for metcon balance: M monostructural (cyclical cardio), G gymnastics/bodyweight
+// (boxes, bars and rings don't count as load), W weightlifting/loaded implements.
+const LOAD_EQUIPMENT = new Set(["barbell", "plates", "dumbbells", "kettlebell", "trap_bar", "sandbag", "medicine_ball", "wall_ball", "slam_ball", "sled", "landmine"]);
+function modalElement(ex) {
+  if (!ex) return null;
+  if (ex.pattern === "cardio") return "M";
+  const eq = [...ex.equipment.all, ...ex.equipment.any];
+  return eq.some((e) => LOAD_EQUIPMENT.has(e)) && !/burpee/.test(ex.id) ? "W" : "G";
+}
+/** The block's single most frequent modal element ("M" | "G" | "W"), or null on a tie or no known items. */
+function dominantElement(block) {
+  const n = { M: 0, G: 0, W: 0 };
+  for (const it of Array.isArray(block?.items) ? block.items : []) {
+    const m = modalElement(it?.exerciseId ? getExercise(it.exerciseId) : findExercise(it?.name));
+    if (m) n[m] += 1;
+  }
+  const max = Math.max(n.M, n.G, n.W);
+  const top = Object.keys(n).filter((k) => n[k] === max);
+  return max > 0 && top.length === 1 ? top[0] : null;
+}
+/**
+ * Metcon time domain: "sprint" ≤ 5 min, "short" ≤ 10, "medium" ≤ 20, "long" > 20, or null when unknown.
+ * INTERVALS classify by the work bout (each effort's length), TABATA is sprint, other formats by total time
+ * (time cap for FOR_TIME / RFT / CHIPPER).
+ */
+function condTimeDomain(b) {
+  let min = null;
+  if (b.format === "TABATA") min = 4;
+  else if (b.format === "INTERVALS") min = num(b.workSec) > 0 ? num(b.workSec) / 60 : num(b.minutes);
+  else if (["FOR_TIME", "RFT", "CHIPPER"].includes(b.format)) min = num(b.timeCapMin) ?? num(b.minutes);
+  else min = num(b.minutes);
+  if (!(min > 0)) return null;
+  return min <= 5 ? "sprint" : min <= 10 ? "short" : min <= 20 ? "medium" : "long";
+}
+
 /**
  * Brevity limits for generated plan text (mirrored in knowledge PLAN_RULES and the Plan JSON spec).
  * validatePlan reports a TOO_VERBOSE warning when a field goes over.
@@ -1039,7 +1074,9 @@ function runBaseline(sessions, profile, refWeekStart) {
  * errors: SCHEMA, UNKNOWN_EXERCISE, EQUIPMENT_MISSING, DISLIKED_EXERCISE, WORKOUT_COUNT, TOO_LONG,
  *   RUN_RAMP (planned km > max(avg × 1.15, avg + 5)), LONG_RUN_SPIKE (> longest × 1.3 and > longest + 3 km).
  * warnings: VOLUME_LOW (< 6 sets, major muscles), VOLUME_HIGH (> 22), INJURY_CONFLICT, HARD_DAYS_ADJACENT,
- *   NO_REST_RUN_EASY (< 70 % easy km), MISSING_ALTERNATIVES, TOO_VERBOSE (text over PLAN_TEXT_LIMITS: at most one
+ *   NO_REST_RUN_EASY (< 70 % easy km), MISSING_ALTERNATIVES, COND_NO_STIMULUS (conditioning block without a
+ *   stimulus note), COND_REPEAT (consecutive conditioning blocks with the same format and the same dominant modal
+ *   element M/G/W; ties count as mixed), COND_TIME_DOMAIN (≥ 2 conditioning blocks, all in one time domain), TOO_VERBOSE (text over PLAN_TEXT_LIMITS: at most one
  *   issue for the plan-level text and one per workout, listed last).
  * Equipment checks need profile.equipment.locations; run baselines come from sessions in the 4 weeks before
  * plan.weekStart (falling back to profile.experience.running); both run checks are skipped when nothing is known.
@@ -1075,6 +1112,7 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
   const seen = new Set();
   let easyKm = 0, totalRunKm = 0;
   const hardness = [];
+  const metcons = [];
 
   const checkExercise = (w, path, id, name, eq, kind) => {
     let ex = id ? getExercise(id) : null;
@@ -1139,6 +1177,8 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
           if (!it || (!it.exerciseId && !it.name)) { err("SCHEMA", w.id, ip, "Conditioning item needs exerciseId."); return; }
           checkExercise(w, `${ip}.exerciseId`, it.exerciseId, it.name, eq, "conditioning");
         });
+        if (!textOf(b.notes)) warn("COND_NO_STIMULUS", w.id, `${bp}.notes`, "Conditioning block has no stimulus note (the intended feel or pace, e.g. \"fast, unbroken: sub-8 min\").");
+        metcons.push({ id: w.id, path: bp, format: b.format, element: dominantElement(b), domain: condTimeDomain(b) });
       } else if (b.kind === "run") {
         if (!RUN_TYPES.includes(b.runType)) err("SCHEMA", w.id, `${bp}.runType`, `Invalid runType "${b.runType}".`);
         if (b.segments != null && !Array.isArray(b.segments)) err("SCHEMA", w.id, `${bp}.segments`, "segments must be an array.");
@@ -1202,6 +1242,18 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
       warn("HARD_DAYS_ADJACENT", workouts[i + 1]?.id, `workouts[${i + 1}]`,
         `${workouts[i]?.id} and ${workouts[i + 1]?.id} are back-to-back hard sessions (intense run/conditioning or heavy legs).`);
     }
+  }
+
+  const ELEMENT = { M: "cardio", G: "bodyweight", W: "loaded" };
+  for (let i = 0; i + 1 < metcons.length; i++) {
+    const a = metcons[i], b = metcons[i + 1];
+    if (a.format === b.format && a.element && a.element === b.element) {
+      warn("COND_REPEAT", b.id, b.path, `${a.id} and ${b.id} are both ${ELEMENT[a.element]}-dominant ${a.format}s: vary the format or modality.`);
+    }
+  }
+  const domains = metcons.map((m) => m.domain).filter(Boolean);
+  if (domains.length >= 2 && domains.length === metcons.length && domains.every((d) => d === domains[0])) {
+    warn("COND_TIME_DOMAIN", null, "workouts", `All ${domains.length} conditioning blocks are ${domains[0]} (≤5 sprint, ≤10 short, ≤20 medium, >20 long min): vary the time domain.`);
   }
 
   const planVerbose = verbosePlan(plan);

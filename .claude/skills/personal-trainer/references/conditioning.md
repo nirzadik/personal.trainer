@@ -1,6 +1,6 @@
 # Conditioning: HIIT, Metcons & the Hybrid Week
 
-Defaults for HIIT and CrossFit-style conditioning ("metcons"), and for weeks that mix strength, running and conditioning. The research on mixed-modal conditioning is thin: injury rates come from heterogeneous retrospective surveys, rhabdomyolysis evidence is case-based, and most work:rest guidance is textbook or practitioner convention. So **safety rules are deliberately conservative**, and logged results and RPE override population rules. Full sources and confidence tags: `docs/research/07-conditioning.md`.
+Defaults for HIIT and CrossFit-style conditioning ("metcons"), and for weeks that mix strength, running and conditioning. The research on mixed-modal conditioning is thin: injury rates come from heterogeneous retrospective surveys, rhabdomyolysis evidence is case-based, and most work:rest guidance is textbook or practitioner convention. So **safety rules are deliberately conservative**, and logged results and RPE override population rules. Full sources and confidence tags: `docs/research/07-conditioning.md`, and for how CrossFit programs its daily workouts, `docs/research/10-crossfit-programming.md`.
 
 ## Contents
 1. Principles
@@ -14,6 +14,7 @@ Defaults for HIIT and CrossFit-style conditioning ("metcons"), and for weeks tha
 9. Technique under fatigue
 10. Hybrid weekly scheduling (gym + running + HIIT)
 11. Logging and benchmarks
+12. Programming the week: lessons from the CrossFit mainsite
 
 ---
 
@@ -23,7 +24,8 @@ Defaults for HIIT and CrossFit-style conditioning ("metcons"), and for weeks tha
 2. **Simple movements get the intensity.** Fatigue goes on movements that stay safe when tired: rower, bike, ski, run, kettlebell swings, dumbbells, bodyweight. Heavy or complex lifts belong in the strength part, done fresh.
 3. **Conditioning is a hard day.** Treat it as one in the weekly hard/easy budget (§10), whatever it's called.
 4. **Ramp in.** First sessions are short and moderate. Unaccustomed high-volume, eccentric-heavy work is the classic route to exertional rhabdomyolysis (§8).
-5. **Vary time domains and modes across the week,** not within one muddled session.
+5. **Vary time domains and modes across the week,** not within one muddled session. CrossFit's phrase is "constantly varied", but varied is not random: each workout has a job, and the variety comes from rotating those jobs (§12).
+6. **Write the stimulus down.** Every metcon carries a one-line intent: the time domain, the pace, and how it should feel ("sprint: unbroken sets, done by 7 min"). That line is what scaling protects and what the athlete checks themselves against.
 
 ## 2. Formats
 
@@ -57,7 +59,7 @@ These follow the NSCA energy-system table (Haff & Triplett): phosphagen 1:12-1:2
 - Medium 10-20 min (hard but pace-able; the default).
 - Long 20-40 min (aerobic, steady).
 
-Across a week or two, rotate time domains. Don't make every session a 15-min "hard" AMRAP.
+Across a week or two, rotate time domains. Don't make every session a 15-min "hard" AMRAP. Vary the loading too: most metcons are light and fast (sets they can do unbroken), and now and then one is a short, heavier couplet (sets of ≤5 at about 50-70%), placed where the strength days allow it (§5). For INTERVALS, the length of each work bout sets the domain, not the total session time.
 
 ## 4. Intensity and weekly frequency
 
@@ -108,7 +110,7 @@ Most good metcons are a couplet or triplet of 2-3 elements: one M, one G, one W,
 
 ## 6. Scaling
 
-**Goal:** the scaled version gives the same *stimulus*: the same time domain and the same intensity. If the Rx version would take a newcomer 25 min instead of the intended 10, it has to be scaled.
+**Goal:** the scaled version gives the same *stimulus*: the same time domain and the same intensity. If the Rx version would take a newcomer 25 min instead of the intended 10, it has to be scaled. CrossFit's daily posts make this concrete with an intermediate and a beginner version of each workout: the movements get simpler and the loads and reps smaller, but the clock and the feel stay the same. Write `scaling` the same way: one line saying what to change *and* the target it protects ("2 rounds, 12 kg KB: still under 10 min").
 
 **Scaling ladder (in order):**
 1. **Load** first. Barbell cycling of ≥10 reps/set: about 30-50% of 1RM. Heavier, lower-rep pieces (≤5 reps/set): about 50-70%. Dumbbells and kettlebells: a load they could lift for about 2× the prescribed reps unbroken when fresh.
@@ -228,6 +230,37 @@ Check each template against rules 1-3 when you change its order. Rotation order 
 ## 11. Logging and benchmarks
 
 - **Log:** format, the movements with load and reps (or a description), the result (rounds + reps, time, calories, or "capped at X"), whether it was **scaled** (and how), and session RPE.
-- **Comparable results only:** same movements, loads, standards and cap. Re-test a benchmark every 6-12 weeks (e.g. a 12-min AMRAP of a fixed triplet, or a 2 km row).
+- **Comparable results only:** same movements, loads, standards and cap. Re-test a benchmark every 6-12 weeks (e.g. a 12-min AMRAP of a fixed triplet, or a 2 km row). Build benchmarks from the person's own equipment and logged metcons; use the shape of a named CrossFit benchmark (a short couplet For Time, a 20-min bodyweight triplet AMRAP) rather than a named workout their kit or skills can't do as written.
 - **Progress signals:** same workout at the same RPE with more rounds or a faster time; using less scaling; faster recovery between intervals.
 - **Fatigue signals:** RPE ≥1-2 points higher for the same work, scores falling across 2+ sessions, poor sleep, or joint aches. Respond by cutting conditioning volume or deloading (§4).
+
+## 12. Programming the week: lessons from the CrossFit mainsite
+
+CrossFit.com has posted one free workout a day since the early 2000s. Its structure comes from Glassman's 2003 "Theoretical Template" and the Level 1 course. What carries over to a hybrid plan built from a person's own equipment and schedule:
+
+**The modal template.** Each day is built from one, two or three modal elements (M, G, W from §5), and the count sets the character of the day:
+
+| Day type | What it looks like | Priority | Our use |
+|---|---|---|---|
+| Single element | One modality: a long steady erg or run, a skill practice, or one lift worked heavy | the element (do the thing well) | Aerobic intervals, an erg piece, or a light W EMOM |
+| Couplet | 2 movements alternated for 3-5 rounds, fast and intense | task (fixed work, for time) | Short For Time / RFT, 5-10 min, with a cap |
+| Triplet | 3 movements repeated for a fixed time at moderate load | time (fixed clock, score rounds) | Medium AMRAP 12-20 min |
+
+The original cycle runs M, G, W as single days, then pairs, then triplets, so every element leads at some point and no pattern is trained hard two days running. Treat the exact order as convention, not science; the transferable rule is **rotation**.
+
+**Rules for a week here:**
+1. Each metcon gets a stimulus first, then movements that hit it (§1, principle 6).
+2. The week's metcons differ in time domain and format. Consecutive metcons never share both the format and the leading element (two bodyweight-heavy AMRAPs in a row is the classic rut).
+3. Compared with last week, change at least one of format, time domain or leading element in each metcon slot, while keeping the strength work stable.
+4. Across 3+ metcons, M, G and W each lead once. With 2, lead with different elements. Coordinate with the strength days (§5 pattern rules) and the hard/easy rules (§10).
+5. Most days are light and fast; heavy days are short and few.
+6. Retest a benchmark every 6-12 weeks, done exactly as last time (§11).
+
+**Rest cycle.** The mainsite runs 3 days on and 1 off (or 5 on and 2 off to match a working week). The point is the same as §10's hard/easy budget: hard days can be hard because a recovery day is coming. In a mixed plan with runs and lifting, §10 does that job; don't add a separate 3-on/1-off layer on top.
+
+**The theoretical hierarchy** (nutrition → metabolic conditioning → gymnastics → weightlifting → sport) is CrossFit's teaching model for what to build first, not a tested law. Its practical message fits this skill: eat enough, build aerobic and anaerobic capacity, own bodyweight control before loading complex lifts, and gate the skills (§7).
+
+**Warm-ups** follow the pattern already in this skill: a general raise, then the day's movements at light load, then one or two short build-ups to working pace.
+
+**What doesn't carry over unchanged:** "Rx" loads and high-skill gymnastics as defaults (§6, §7); 5-6 high-intensity days a week for people who also lift and run; chippers and Hero workouts for newcomers (§8). The mainsite also writes for a general audience who often have a coach in the room; here the plan has to be safe without one.
+

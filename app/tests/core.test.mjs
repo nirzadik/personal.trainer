@@ -564,6 +564,50 @@ test("validatePlan: warnings", () => {
   assert.deepEqual(base.filter((w) => w.code === "HARD_DAYS_ADJACENT").map((w) => w.workoutId), ["W4"], "heavy legs then the long run");
 });
 
+test("validatePlan: conditioning variety warnings (stimulus note, repeats, time domain)", () => {
+  const ctx = { profile: OK_PROFILE, sessions: history4w(), today: TODAY };
+  const item = (exerciseId, extra = {}) => ({ exerciseId, name: exerciseId, reps: null, calories: null, distanceM: null, durationSec: null, loadKg: null, notes: "", ...extra });
+  const block = (format, items, extra = {}) => ({ kind: "conditioning", format, minutes: null, rounds: null, timeCapMin: null, workSec: null, restSec: null,
+    items, targetRpe: 8, scaling: "Lighter load; cut reps a third", notes: "Fast and unbroken", ...extra });
+  const run = (blocks) => {
+    const p = goodPlan();
+    p.workouts[0].blocks.push(blocks[0]); // gym
+    p.workouts[2].blocks.push(blocks[1]); // gym
+    if (blocks[2]) p.workouts[1].blocks.push(blocks[2]); // home: bodyweight only
+    return core.validatePlan(p, ctx);
+  };
+  const of = (v, code) => v.warnings.filter((w) => w.code === code);
+  // G-dominant AMRAP twice, both medium (12 and 16 min)
+  const gAmrap = (minutes) => block("AMRAP", [item("push_up", { reps: 10 }), item("air_squat", { reps: 15 }), item("row_cal", { calories: 12 })], { minutes });
+  const same = run([gAmrap(12), gAmrap(16)]);
+  assert.equal(same.ok, true, "warnings only");
+  assert.deepEqual(of(same, "COND_REPEAT").map((w) => [w.workoutId, w.path]), [["W3", "workouts[2].blocks[2]"]]);
+  assert.match(of(same, "COND_REPEAT")[0].message, /W1 and W3 .*bodyweight-dominant AMRAP/);
+  assert.equal(of(same, "COND_TIME_DOMAIN").length, 1);
+  assert.match(of(same, "COND_TIME_DOMAIN")[0].message, /All 2 conditioning blocks are medium/);
+  assert.deepEqual(of(same, "COND_NO_STIMULUS"), []);
+  // different format, or different dominant element, or a tie (mixed couplet) → no repeat warning
+  const w = block("AMRAP", [item("kettlebell_swing", { reps: 15, loadKg: 16 }), item("thruster", { reps: 9 }), item("push_up", { reps: 10 })], { minutes: 12 });
+  assert.deepEqual(of(run([gAmrap(12), w]), "COND_REPEAT"), [], "G then W");
+  assert.deepEqual(of(run([gAmrap(12), block("EMOM", gAmrap(12).items, { minutes: 12 })]), "COND_REPEAT"), [], "AMRAP then EMOM");
+  const mixed = block("AMRAP", [item("row_cal", { calories: 12 }), item("kettlebell_swing", { reps: 15 })], { minutes: 10 });
+  assert.deepEqual(of(run([mixed, mixed]), "COND_REPEAT"), [], "M+W tie has no dominant element");
+  // time domains: a sprint TABATA + a medium AMRAP vary; INTERVALS classify by the work bout
+  assert.deepEqual(of(run([block("TABATA", [item("row_cal")], { rounds: 8, workSec: 20, restSec: 10 }), gAmrap(15)]), "COND_TIME_DOMAIN"), []);
+  const intervals = block("INTERVALS", [item("rower", { distanceM: 1000 })], { rounds: 5, workSec: 240, restSec: 120 });
+  const rft = block("RFT", w.items, { rounds: 3, timeCapMin: 9 });
+  assert.deepEqual(of(run([intervals, rft]), "COND_TIME_DOMAIN"), [], "4-min bouts (sprint) vs a 9-min cap (short)");
+  assert.equal(of(run([block("FOR_TIME", w.items, { timeCapMin: 25 }), block("CHIPPER", gAmrap(1).items, { timeCapMin: 30 })]), "COND_TIME_DOMAIN").length, 1, "both long");
+  assert.deepEqual(of(run([gAmrap(12), block("AMRAP", w.items, { minutes: null })]), "COND_TIME_DOMAIN"), [], "unknown length: no verdict");
+  // three blocks: the bodyweight one at home breaks the run of medium AMRAPs
+  const three = run([gAmrap(12), w, block("EMOM", [item("push_up", { reps: 8 })], { minutes: 8 })]);
+  assert.deepEqual(of(three, "COND_TIME_DOMAIN"), []);
+  // missing stimulus note
+  const bare = run([{ ...gAmrap(12), notes: "" }, { ...w, notes: "  " }]);
+  assert.deepEqual(of(bare, "COND_NO_STIMULUS").map((x) => [x.workoutId, x.path]), [["W1", "workouts[0].blocks[2].notes"], ["W3", "workouts[2].blocks[2].notes"]]);
+  assert.equal(bare.ok, true);
+});
+
 test("validatePlan: TOO_VERBOSE warning for over-long plan text", () => {
   const ctx = { profile: OK_PROFILE, sessions: history4w(), today: TODAY };
   const L = core.PLAN_TEXT_LIMITS;

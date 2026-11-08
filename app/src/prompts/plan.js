@@ -65,7 +65,7 @@ Block is one of:
   { "kind": "strength", "items": [StrengthItem] }
   { "kind": "conditioning", "format": "AMRAP" | "EMOM" | "FOR_TIME" | "RFT" | "INTERVALS" | "TABATA" | "CHIPPER",
     "minutes": number|null, "rounds": number|null, "timeCapMin": number|null, "workSec": number|null, "restSec": number|null,
-    "items": [CondItem], "targetRpe": number|null, "scaling": string (one line, ≤ 100 chars), "notes": string (≤ 100 chars or "") }
+    "items": [CondItem], "targetRpe": number|null, "scaling": string (one line, keeps the stimulus, ≤ 100 chars), "notes": string (the intended stimulus, ≤ 100 chars) }
   { "kind": "run", "runType": "easy" | "long" | "tempo" | "threshold" | "intervals" | "hills" | "fartlek" | "recovery" | "strides" | "race",
     "warmupMin": number|null, "cooldownMin": number|null, "totalKm": number,
     "segments": [ { "reps": number, "distanceM": number|null, "durationSec": number|null,

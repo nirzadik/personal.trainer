@@ -281,7 +281,7 @@ export function validatePlan(plan, { profile, sessions = [], today } = {})
       // Issue = { code, workoutId, path, message }
       // errors:   SCHEMA (missing or invalid fields), UNKNOWN_EXERCISE, EQUIPMENT_MISSING, DISLIKED_EXERCISE, WORKOUT_COUNT (≠ daysPerWeek),
       //           TOO_LONG (est > minutesPerSession + 15), RUN_RAMP (planned km > max(recent avg × 1.15, recent avg + 5)), LONG_RUN_SPIKE (> longest recent × 1.3 and > +3 km)
-      // warnings: VOLUME_LOW / VOLUME_HIGH (vs 6 / 22 sets), INJURY_CONFLICT (jointStress vs injuries), HARD_DAYS_ADJACENT, NO_REST_RUN_EASY (< 70 % easy running), MISSING_ALTERNATIVES
+      // warnings: VOLUME_LOW / VOLUME_HIGH (vs 6 / 22 sets), INJURY_CONFLICT (jointStress vs injuries), HARD_DAYS_ADJACENT, NO_REST_RUN_EASY (< 70 % easy running), MISSING_ALTERNATIVES, COND_NO_STIMULUS (conditioning block without a stimulus note), COND_REPEAT (consecutive metcons with the same format + dominant M/G/W element), COND_TIME_DOMAIN (≥ 2 metcons all in one time domain)
 export function normalizeSession(input, { today } = {})           // fills defaults, maps names → exerciseIds via catalog.findExercise, computes run pace
 
 // rotation

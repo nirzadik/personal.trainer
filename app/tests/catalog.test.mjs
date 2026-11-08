@@ -61,6 +61,26 @@ test("catalog covers gym, bodyweight, kettlebell, CrossFit/HIIT and cardio", () 
   assert.deepEqual(getExercise("air_squat").equipment, { all: [], any: [] }, "bodyweight → empty equipment");
 });
 
+test("CrossFit-style scaling variants: equipment, pattern and lookup", () => {
+  const exp = {
+    step_back_burpee: ["plyo", { all: [], any: [] }], burpee_broad_jump: ["plyo", { all: [], any: [] }],
+    lateral_burpee_over_dumbbell: ["plyo", { all: ["dumbbells"], any: [] }], dumbbell_man_maker: ["olympic", { all: ["dumbbells"], any: [] }],
+    box_pike_push_up: ["v_push", { all: [], any: ["plyo_box", "bench"] }],
+  };
+  for (const [id, [pattern, equipment]] of Object.entries(exp)) {
+    const e = getExercise(id);
+    assert.ok(e && e.modality.includes("conditioning"), id);
+    assert.equal(e.pattern, pattern, id);
+    assert.deepEqual(e.equipment, equipment, id);
+  }
+  assert.ok(!getExercise("step_back_burpee").jointStress.includes("impact"), "the low-impact burpee scale");
+  assert.ok(getExercise("box_pike_push_up").jointStress.includes("overhead"));
+  assert.ok(equipmentCheck(getExercise("box_pike_push_up"), expandEquipment(["adjustable_bench"])).ok, "a bench works as the box");
+  const cases = { "step back burpees": "step_back_burpee", "burpee broad jumps": "burpee_broad_jump", "burpee over dumbbell": "lateral_burpee_over_dumbbell",
+    "man makers": "dumbbell_man_maker", "feet elevated pike push up": "box_pike_push_up", burpees: "burpee", "pike push ups": "pike_push_up" };
+  for (const [q, id] of Object.entries(cases)) assert.equal(findExercise(q)?.id, id, `"${q}"`);
+});
+
 test("no two exercises share a normalized name/alias", () => {
   const seen = new Map();
   for (const e of EXERCISES) for (const k of [e.name, ...e.aliases]) {

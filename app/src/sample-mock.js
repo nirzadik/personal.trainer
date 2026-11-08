@@ -334,7 +334,7 @@ function buildMockPlan({ workoutCount, minutes, profile, allowedBlocks, catalogP
     return {
       id, title: c > 1 ? "Conditioning B" : "Conditioning A", type: "conditioning", locationId, estMinutes: 8 + amrap + 5,
       intent: "Steady, repeatable effort; finish able to keep talking in short sentences.",
-      blocks: [warmup, { kind: "conditioning", format: "AMRAP", minutes: amrap, rounds: null, timeCapMin: null, workSec: null, restSec: null, items: condItems, targetRpe: 7, scaling: "Cut reps by a third or slow the pace; keep moving.", notes: "" },
+      blocks: [warmup, { kind: "conditioning", format: "AMRAP", minutes: amrap, rounds: null, timeCapMin: null, workSec: null, restSec: null, items: condItems, targetRpe: 7, scaling: "Cut reps by a third or slow the pace; keep moving.", notes: "Steady: same pace every round, short sentences" },
         { kind: "cooldown", minutes: 5, items: [{ name: "Walk", detail: "3 min" }, { name: "Stretch", detail: "hips and calves" }] }],
     };
   });

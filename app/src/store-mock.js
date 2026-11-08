@@ -712,7 +712,7 @@ const rftMetcon = {
     condItem("burpee", "Burpee", { reps: 10 }),
     condItem("kettlebell_swing", "Kettlebell swing", { reps: 10, loadKg: 24 }),
   ],
-  targetRpe: 8, scaling: "200 m row; 6 burpees; 16 kg swings", notes: "",
+  targetRpe: 8, scaling: "200 m row; 6 burpees; 16 kg swings", notes: "Short and fast: unbroken sets, rest only on the row",
 };
 
 const runSeg = (reps, distanceM, pace, rpe, recoverySec = null, recoveryType = null, durationSec = null) => ({

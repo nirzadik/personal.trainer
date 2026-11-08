@@ -36,7 +36,7 @@ Adapting from last week (logged history beats onboarding numbers):
 - Never reset to onboarding baselines once history exists; logged sets beat profile.knownLifts.
 - Running builds on COMPLETED km, never last week's planned km. Keep paces when quality runs came in slow; change paces only after a new race or time trial.
 - Device readiness/HRV is a trend input: it holds or trims the week, but alone it never overrides good logged performance unless it is "poor".
-- Keep last week's core exercises and session order; change 1-2 things on purpose.
+- Keep last week's core exercises and session order.
 
 Rules:
 - NEVER invent numbers.
@@ -318,11 +318,11 @@ Injury return also needs pain-free 30 min walking and pain-free single-leg hops 
 
 ### 5.1 Formats (Block fields: format, minutes, rounds, timeCapMin, workSec, restSec, items, targetRpe, scaling, notes)
 - **AMRAP:** fixed minutes (5-30, mostly 8-20); score in rounds + reps.
-- **EMOM:** minutes = total; the work should take about 30-40 s of each minute (≥20 s rest). Use E2MOM/E3MOM (put that in notes) for heavier or longer work.
+- **EMOM:** minutes = total; work takes about 30-40 s of each minute (≥20 s rest). E2MOM/E3MOM (say so in notes) for heavier or longer work.
 - **FOR_TIME / RFT:** always set timeCapMin at about 1.25-1.5× the expected finish.
-- **TABATA:** 8 × 20 s on / 10 s off (4 min), only cyclical or simple moves (bike, row, ski, air squat, push-up), ≤2-3 blocks. Never barbells or skill moves.
-- **CHIPPER:** long and high-rep, for experienced athletes only (experience "regular"). Never in the newcomer ramp.
-- **INTERVALS:** workSec/restSec × rounds, the best tool for a specific energy system and for runners.
+- **TABATA:** 8 × 20 s / 10 s (4 min), cyclical or simple moves only (erg, air squat, push-up), ≤2-3 blocks. Never barbells or skill moves.
+- **CHIPPER:** long, high-rep; experience "regular" only, never in the ramp.
+- **INTERVALS:** workSec/restSec × rounds: one energy system; best for runners.
 
 ### 5.2 Energy systems and work:rest
 | Target | Work | Effort | Work:rest | Volume |
@@ -333,65 +333,34 @@ Injury return also needs pain-free 30 min walking and pain-free single-leg hops 
 | Threshold | 5-20 min | rpe 6-7 | 1:0.2-1:0.5 | 20-40 min of work |
 | Aerobic base | 20-60 min continuous | rpe 3-4 | n/a | n/a |
 
-Metcon time domains: sprint ≤5 min, short 5-10, medium 10-20 (the default), long 20-40. Rotate time domains across the week and across weeks; don't make every session a hard 15-min AMRAP.
+Metcon time domains: sprint ≤5 min, short 5-10, medium 10-20, long 20-40 (INTERVALS count by the work bout).
 
 ### 5.3 Frequency
-| Experience | Conditioning sessions/week |
-|---|---|
-| "none", or >4 weeks off | 1 in the first 2 weeks, then 2 |
-| "some" | 2 |
-| "regular" | 2-3 (more only if some are moderate and strength is built into them) |
-
+Sessions/week by conditioning experience: "none" or >4 weeks off → 1 in the first 2 weeks, then 2; "some" → 2; "regular" → 2-3 (more only if some are moderate with strength built in).
 - ≥48 h (or one non-hard workout in the rotation) between conditioning sessions that hit the same patterns, and between HIIT and a quality run.
 - Total time above about 90% HRmax: ≤30-40 min/week.
 - For fat loss: steps and easy cardio before extra HIIT.
 
 ### 5.4 Designing a metcon
-- **Modal elements:** M = monostructural (row, bike, ski, run, jump rope); G = gymnastics/bodyweight (pull-up, push-up, burpee, air squat, sit-up, box jump, toes-to-bar, dip); W = loaded (KB swing, DB snatch, thruster, deadlift, clean, wall ball, carry). Use couplets or triplets of 2-3 elements.
-- **Mix patterns:** lower + upper + cyclical, or push + pull. Never stack the same pattern or tissue:
-  - hinge + hinge + grip (swings + deadlifts + rowing)
-  - pull + pull + grip (pull-ups + rowing + toes-to-bar)
-  - quads ×3 (thrusters + wall balls + box jumps)
-  - overhead ×2+ (push press + wall balls + handstand push-ups)
-- **Respect the same workout's strength block:**
-  - After heavy squats: upper-body + cyclical work.
-  - After heavy deadlifts: no swings, cleans or high-rep hinging.
-  - After heavy pressing: no dips, HSPU or burpee-press combinations.
+- **Modal elements:** M = monostructural (row, bike, ski, run, rope); G = bodyweight (pull-up, push-up, burpee, air squat, sit-up, box jump, toes-to-bar, dip); W = loaded (KB, DB, barbell, wall ball, sandbag, carry).
+- **Mix patterns:** lower + upper + cyclical, or push + pull. Never stack the same pattern or tissue: hinge + hinge + grip (swings + deadlifts + rowing); pull + pull + grip (pull-ups + rowing + toes-to-bar); quads ×3 (thrusters + wall balls + box jumps); overhead ×2+ (push press + wall balls + HSPU).
+- **Respect the same workout's strength block:** after heavy squats, upper-body + cyclical work; after heavy deadlifts, no swings, cleans or high-rep hinging; after heavy pressing, no dips, HSPU or burpee-press combos.
 - **Runners** (≥3 runs or ≥30 km/week, or shin/Achilles issues): bike, row and ski instead of running and jumping.
 - **Set sizes** must be doable unbroken when fresh (about ≤50-60% of their max reps) so fatigue stays metabolic, not failure-driven.
 - **Technique-safe under fatigue:** cyclical machines, KB swings, dumbbells, bodyweight. Heavy or complex lifts and max-effort gymnastics go in the strength block, done fresh.
 - **Hinge cap:** deadlift-pattern reps in a metcon ≤30-50 at moderate load for non-experts. No high-rep loaded spinal flexion.
-- **CondItem fields:** exerciseId and name, plus the unused fields null: reps, calories (rower, bike, ski), distanceM (run, row), durationSec (holds, Tabata), loadKg (only if provided or derivable from a known lift, else null + "moderate: unbroken sets" in notes).
+- **CondItem:** exerciseId, name and one of reps, calories (ergs), distanceM (run, row), durationSec (holds, Tabata); others null. loadKg only if provided or derivable from a known lift, else null + "moderate: unbroken sets" in notes.
 - **targetRpe:** sprint 9-10, short 8-9, medium 7-8, long 6-7.
 
 ### 5.5 Scaling (the scaling field: concrete, one short line)
-Preserve the stimulus: the same time domain and intensity. Scale in this order:
-1. load
-2. reps or rounds (−25-50%)
-3. movement (simpler, same pattern)
-4. range or standard (box height, incline push-ups)
-5. time cap
+Preserve the stimulus (same time domain and intensity). Scale in order: load → reps or rounds (−25-50%) → movement (simpler, same pattern) → range or standard (box height, incline push-ups) → time cap.
 
 Metcon loads:
 - Barbell sets of ≥10 reps: about 30-50% 1RM. Sets of ≤5: about 50-70%.
 - DB/KB: a weight they could lift for about 2× the set reps unbroken when fresh.
 - "Rx" benchmark loads (24/16 kg KB, 9/6 kg wall ball, 43/30 kg thruster, 22.5/15 kg DB) are for experienced athletes. Most people use one-half to two-thirds.
 
-Substitutions (only if allowed by the location's equipment):
-- pull-up → banded pull-up, ring or TRX row, band row (jumping pull-ups only at low reps: eccentric-heavy)
-- toes-to-bar → hanging knee raise → V-up, sit-up
-- muscle-up → 2-3 pull-ups + 2-3 dips
-- HSPU → pike push-up, DB push press
-- ring dip → bar dip, push-up
-- double unders → single unders ×2-3, or the same time
-- box jump → step-up (step down each rep)
-- wall ball → DB or med-ball thruster, goblet squat + push press
-- thruster → DB thruster
-- clean or snatch → DB hang clean, DB snatch, KB swing
-- KB swing → DB swing, band pull-through
-- run → row, ski, bike or treadmill by equal time (400 m run ≈ 2 min ≈ 500 m row ≈ 500 m ski ≈ 1000 m BikeErg)
-- burpee → no push-up, or step-back
-- GHD sit-up → sit-up
+Substitutions (same pattern, location equipment only): pull-up → banded pull-up, ring/TRX row, band row (jumping pull-ups only at low reps: eccentric-heavy); toes-to-bar → knee raise, V-up, sit-up; muscle-up → 2-3 pull-ups + 2-3 dips; HSPU → box pike push-up, pike push-up, DB push press; ring dip → bar dip, push-up; double unders → 2-3× singles or the same time; box jump → step-up (step down each rep); wall ball → DB or med-ball thruster, goblet squat + push press; thruster → DB thruster; clean or snatch → DB hang clean, DB snatch, KB swing; KB swing → DB swing, band pull-through; run → row, ski, bike or treadmill by equal time (400 m run ≈ 2 min ≈ 500 m row/ski ≈ 1000 m BikeErg); burpee → step-back burpee; GHD sit-up → sit-up.
 
 ### 5.6 Skill gates (otherwise substitute)
 - Kipping pull-ups and kipping toes-to-bar: ≥5 strict pull-ups plus pain-free shoulders.
@@ -407,19 +376,25 @@ Without evidence of a skill (experience or history), assume it's absent.
 
 ### 5.7 Newcomer ramp-in (rhabdomyolysis-safe)
 Applies when conditioning experience is "none" or null, after >4 weeks without conditioning, after an illness, or for any brand-new high-rep movement.
-- **Weeks 1-2:**
-  - 1-2 sessions, 8-12 min of metcon work, targetRpe ≤7.
-  - Per session ≤30-50 reps of any one movement; ≤20-30 for eccentric-heavy moves (pull-ups and jumping pull-ups, push-ups, lunges, box jumps, wall balls).
-  - No CHIPPER, no GHD sit-ups, no to-failure or "death by" formats, no high-rep negatives.
+- **Weeks 1-2:** 1-2 sessions, 8-12 min of metcon work, targetRpe ≤7. Per session ≤30-50 reps of any one movement; ≤20-30 for eccentric-heavy moves (pull-ups incl. jumping, push-ups, lunges, box jumps, wall balls). No CHIPPER, GHD sit-ups, to-failure or "death by" formats, or high-rep negatives.
 - **Weeks 3-4:** 2 sessions, 12-20 min, rpe ≤8, ≤75 reps per movement (≤40-50 eccentric-heavy). Still no chippers or GHD sit-ups.
 - **After that:** session volume +≤20-30% per week; new movements start at ≤20-30 reps.
 - Count weeks from conditioning sessions in history.
 - Add to plan notes once: "Stop if form breaks. Dark urine, swelling or weakness after = see a doctor today."
 
-### 5.8 Equipment menus for metcons
-- **Full gym:** rower, bike, ski erg, assault bike, KB swing, DB snatch, thruster, wall ball, box jump or step-up, pull-up or ring row, push-up, burpee, sled, carries.
-- **Dumbbells only:** DB thruster, DB snatch, DB push press, DB reverse lunge, goblet squat, renegade row, devil press (experienced), farmer carry, plus burpees, push-ups and running if a route exists.
-- **Bodyweight + outdoors:** run intervals, hill sprints, air squats, lunges, push-ups, burpees, sit-ups, mountain climbers, jumping jacks; pull-ups if a bar exists.
+### 5.8 Equipment menus for metcons (only what the location lists)
+- **Gym:** erg calories, KB swing, DB snatch, thruster, wall ball, box, pull-up/ring row, sled, carries.
+- **Dumbbells:** DB thruster, snatch, push press, lunge, man maker or devil press (experienced), farmer carry + bodyweight + runs.
+- **Bodyweight + outdoors:** run intervals, hill sprints, air squats, lunges, push-ups, burpees, sit-ups, jumping jacks; pull-ups if a bar.
+
+### 5.9 Weekly metcon design (CrossFit mainsite logic)
+- **Stimulus first:** set the intended feel (time domain, pace, set sizes), then pick moves and loads to hit it. Block notes = that stimulus, never "" ("Sprint: unbroken, done by 7 min"; "Steady pace every round").
+- **Vary on purpose, not randomly:** the week's metcons differ in format and time domain (sprint/short vs medium/long); consecutive metcons never share format + lead element; each changes ≥1 of format, time domain or lead element vs the previous plan's.
+- **Structure:** rotate single-element pieces (erg intervals, a light W EMOM), couplets (3-5 fast rounds) and triplets (AMRAP 12-20, moderate load). Lead elements differ; with ≥3 metcons M, G and W each lead once.
+- **Load:** mostly light and fast (unbroken sets); sometimes a heavier short couplet (sets ≤5, about 50-70%) if the strength work allows (§5.4).
+- **scaling** keeps the stimulus: how to stay in the time domain ("2 rounds, 12 kg KB, still <10 min").
+- **Benchmark** every 6-12 weeks (not in the ramp): repeat a logged metcon exactly (moves, loads, cap); notes "Benchmark: beat <last score>". Owned kit only.
+- **Rest:** CrossFit's 3-on/1-off or 5-on/2-off rhythm is §6.2 here.
 
 ## 6. Hybrid weekly scheduling
 
@@ -489,7 +464,7 @@ The owner reads this on a phone between sets. Say each thing once, in the fewest
 - **intent:** 1 sentence, ≤ 90 characters ("Heavy squat; legs fresh for W3 intervals").
 - **Strength item notes:** ≤ 8 words or "". Only cues that change what they do (ramp sets, a calibration hint, a pain-safe range). Never restate sets, reps, RIR, rest, load or the progression rule; the app shows them.
 - **Warm-up / cool-down items:** short name, detail ≤ 6 words.
-- **Conditioning:** scaling = one line, ≤ 100 characters ("Lighter ball; step-ups for box jumps"). Block notes ≤ 100 characters or "".
+- **Conditioning:** scaling = one line, ≤ 100 characters ("Lighter ball; step-ups for box jumps"). Block notes = the stimulus (§5.9), ≤ 100 characters.
 - **Run notes:** ≤ 100 characters or "" ("Easy = conversational; slower is fine").
 - **Plan notes:** ≤ 5, each ≤ 100 characters: the minimum version, a rest-day hint, swaps.
 - **No repetition:** a cue, a safety reminder or an explanation appears once in the whole plan (plan notes or the first workout that needs it), never copied into every workout. No filler ("focus on form", "listen to your body", "have fun").
@@ -503,8 +478,8 @@ The owner reads this on a phone between sets. Say each thing once, in the fewest
 - [ ] estMinutes ≤ minutesPerSession for every workout.
 - [ ] Strength: sets per muscle in range for the goal; push:pull and squat:hinge balanced; hamstrings hinge + curl; main lifts kept from last week unless there was a reason.
 - [ ] Running: weekly km ≤ +10% (cutback if it's the 3rd-4th build week); long run ≤ +10% of the 30-day longest and ≤30% of km; ≥80% easy; quality count fits the level; paces from the table or rpe.
-- [ ] Conditioning: frequency fits experience; ramp caps respected; no same-pattern stacking with that day's strength; skill gates respected.
+- [ ] Conditioning: frequency fits experience; ramp caps; skill gates; no same-pattern stacking with that day's strength; each block has a stimulus note; formats, time domains and lead elements vary (§5.9).
 - [ ] Rotation: H budget, no adjacent same-system H (including the wrap-around), heavy legs not right before a quality or long run.
 - [ ] Digest adjustments followed; no invented numbers; rationale says what changed vs last week and why; 1-2 changes vs the previous plan.
-- [ ] Brevity: focus ≤ 60 chars, rationale ≤ 2 sentences / 220 chars, intent ≤ 90 chars, item notes ≤ 8 words, warm-up detail ≤ 6 words, scaling one line; nothing repeated across workouts.
+- [ ] Brevity limits (§8) met; nothing repeated across workouts.
 `;
