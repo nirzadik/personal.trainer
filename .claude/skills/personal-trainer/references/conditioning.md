@@ -1,266 +1,234 @@
 # Conditioning: HIIT, Metcons & the Hybrid Week
 
-Defaults for HIIT and CrossFit-style conditioning ("metcons"), and for weeks that mix strength, running and conditioning. The research on mixed-modal conditioning is thin: injury rates come from heterogeneous retrospective surveys, rhabdomyolysis evidence is case-based, and most work:rest guidance is textbook or practitioner convention. So **safety rules are deliberately conservative**, and logged results and RPE override population rules. Full sources and confidence tags: `docs/research/07-conditioning.md`, and for how CrossFit programs its daily workouts, `docs/research/10-crossfit-programming.md`.
+Rules for building HIIT/CrossFit-style metcons for a non-competitive hybrid athlete (gym + running + HIIT, often limited equipment) and scheduling them with strength and runs. Evidence is thin (small acute studies, retrospective injury surveys, case-based rhabdomyolysis data), so **safety rules are conservative**; logged results and RPE override population rules. Tags: **[R]** peer-reviewed, **[CF]** CrossFit's own published method or practice (L1 guide, CrossFit.com), **[P]** practitioner heuristic. Sources: `docs/research/07-conditioning.md`, `10-crossfit-programming.md`, `12-crossfit-wod-analysis.md` (90-day coded sample of CrossFit.com, Aug-Nov 2026).
 
 ## Contents
 1. Principles
-2. Formats
-3. Time domains, energy systems and work:rest
-4. Intensity and weekly frequency
-5. Designing a balanced metcon
-6. Scaling
-7. Skill prerequisites
+2. Design recipe (stimulus → format → time → movements → load → scaling)
+3. Formats
+4. Energy systems and work:rest
+5. Dose, frequency and recovery
+6. Movement selection and limited-equipment substitutions
+7. Scaling and skill gates
 8. Newcomer ramp-in and rhabdomyolysis safety
-9. Technique under fatigue
+9. Weekly rotation (1-4 sessions)
 10. Hybrid weekly scheduling (gym + running + HIIT)
-11. Logging and benchmarks
-12. Programming the week: lessons from the CrossFit mainsite
+11. Technique under fatigue, logging and benchmarks
 
 ---
 
 ## 1. Principles
 
-1. **Stimulus first.** Decide what the session is for (sprint power, anaerobic capacity, aerobic power, or aerobic capacity), and that sets the time domain, the work:rest and the movements. Then scale everything else to preserve that stimulus.
-2. **Simple movements get the intensity.** Fatigue goes on movements that stay safe when tired: rower, bike, ski, run, kettlebell swings, dumbbells, bodyweight. Heavy or complex lifts belong in the strength part, done fresh.
-3. **Conditioning is a hard day.** Treat it as one in the weekly hard/easy budget (§10), whatever it's called.
-4. **Ramp in.** First sessions are short and moderate. Unaccustomed high-volume, eccentric-heavy work is the classic route to exertional rhabdomyolysis (§8).
-5. **Vary time domains and modes across the week,** not within one muddled session. CrossFit's phrase is "constantly varied", but varied is not random: each workout has a job, and the variety comes from rotating those jobs (§12).
-6. **Write the stimulus down.** Every metcon carries a one-line intent: the time domain, the pace, and how it should feel ("sprint: unbroken sets, done by 7 min"). That line is what scaling protects and what the athlete checks themselves against.
+1. **Stimulus first.** Name the job (sprint, short glycolytic, medium "classic", long aerobic, intervals), then pick format, time, movements and load to hit it. Scaling protects that stimulus. [CF]
+2. **Write it down.** Every metcon gets a one-line stimulus with a time target and a load cue ("6-8 min; KB swings in 1-2 sets"). CrossFit.com attaches stimulus notes and intermediate + beginner versions to 100% of its workouts; 71% of conditioning pieces give a numeric time or split target. [CF]
+3. **Varied ≠ random.** Rotate time domain, format and leading modality across days; never repeat the same shape back to back (0 of 38 consecutive mainsite day-pairs repeated format + modalities + time domain). [CF]
+4. **Mechanics → consistency → intensity.** Intensity is earned; newcomers train scaled for ≥1 month. [CF]
+5. **Fatigue goes on simple movements** (erg, run, rope, KB/DB, bodyweight). Heavy or complex lifts go in the strength block, fresh. [P]
+6. **A metcon at RPE ≥8 is a hard day** (§10).
 
-## 2. Formats
+## 2. Design recipe
 
-| Format | Structure | Typical length | Use it for | Watch out for |
+Run these steps in order for every metcon.
+
+**Step 1. Stimulus → time domain and structure** (bands from CrossFit's own programming guide [CF]):
+
+| Stimulus | Clock | Elements | Priority / format | Feel |
 |---|---|---|---|---|
-| **AMRAP** | As many rounds + reps as possible in a fixed time | 5-30 min (most 8-20) | Self-paced density work. Scales automatically, since everyone works the same time | Pacing too hard in the first minutes. Score = rounds + reps |
-| **EMOM** (E2MOM, E3MOM) | Set work at the start of every 1 (2, 3) min; rest for the remainder | 8-30 min | Controlled intensity, skill under light fatigue, heavier loads | Work should take about 30-40 s of each minute (leave ≥20 s rest). Shrink reps once rest drops under about 15 s |
-| **For Time** | Fixed work, done as fast as possible | 3-25 min | Short, intense efforts; benchmarks | **Always set a time cap** of about 1.25-1.5× the expected finish |
-| **RFT** (rounds for time) | N rounds of a short couplet or triplet, for time | 5-20 min | Repeatable, comparable benchmarks | Same as For Time; cap it |
-| **Tabata** | 8 × 20 s all-out / 10 s rest = 4 min | 4 min per block, ≤2-3 blocks | Cyclical or simple moves: bike, row, ski, air squat, push-up | The original (Tabata 1996) was ~170% VO2max on a cycle ergometer. It isn't for barbells or skill moves. Real intensity is brutal; most "Tabata" classes are just 20/10 intervals |
-| **Chipper** | A long list of movements at high reps, done once through | 15-40 min | Long, grinding, mixed work for experienced athletes | High total eccentric volume. **Not for newcomers** or the first 4+ weeks |
-| **Intervals** | Fixed work bouts with fixed rest (e.g. 5 × 3 min row / 90 s) | 10-40 min | Targeting a specific energy system (§3); best for runners and hybrid athletes | Keep the rest honest; pace the reps evenly |
+| Sprint | ≤5 min | 1-2 | For Time, cap | All-out, near-unbroken |
+| Short | 5-10 min | 2 (couplet) | For Time / RFT, 3-5 rounds | First round hard but possible; round 2 must hurt |
+| Medium "classic" (default) | 11-20 min, most 8-15 | 2-3 | RFT or AMRAP | Hard, steady, short breaks only |
+| Long | >20 min | 3-5 | AMRAP, RFT, chipper, erg piece | Moderate, never stop moving |
+| Intervals | bout sets the domain (§4) | 1-3 | EMOM / every X min / work:rest | Repeatable output each round |
 
-Supporting formats: ladders (reps rise each round), "death by" (add 1 rep each minute until failure; cap it for newcomers), and partner workouts.
+Mainsite sample (55 conditioning pieces): ≤5 min 5%, 6-10 min 18%, 11-20 min 55%, >20 min 22%; median 15 min. Plus ~1 heavy strength day per week (14% of training days). [CF]
 
-## 3. Time domains, energy systems and work:rest
+**Step 2. Priority.** *Task* (fixed work, score = time; cap 1.25-1.5× expected) or *time* (fixed clock, score = rounds; self-limiting, best for newcomers). Mainsite: For Time/RFT/chipper 55%, intervals 14%, AMRAP 11%, strength 14% of days. [CF]
 
-| Target | Work bout | Effort | Work:rest | Volume | Example |
+**Step 3. Estimate the time** before prescribing: per-movement time for one round (e.g. 400 m run ≈ 1:45-2:15 for most, 10 KB swings ≈ 20-25 s, 10 burpees ≈ 35-45 s) → sum → × rounds → add 10-15 s per transition and ~10-20% for fatigue. If the estimate overshoots the band, cut rounds or reps. [CF method]
+
+**Step 4. Movements** (§6): pick by *function* (squat, hinge, push, pull, trunk, cyclical) so they complement: lower + upper, push + pull, plus a cyclical piece. Duplicate a function only on purpose and say so. Volume guide: reps per workout low <50, medium 50-200, high >200; distance low <800 m, moderate 0.8-3.2 km, high >3.2 km. [CF]
+
+**Step 5. Load, written as unbroken-set size** [CF definitions]:
+
+| Load | Could do unbroken (fresh) | Use for | Typical cue |
+|---|---|---|---|
+| Light | ≥20 reps | Sprint, medium, long; barbell cycling | "first set unbroken; sets ≥10 later" |
+| Moderate | 6-19 reps | Short couplets, some medium | "2-3 sets per round" |
+| Heavy | ≤5 reps | Short couplets now and then; EMOM; strength days | "singles or doubles, rest ≤20 s" |
+
+Mainsite conditioning loads: unloaded 27%, light 29%, moderate 33%, heavy 11%. Default to light/unloaded; ≤1 heavy-loaded metcon per week, and not on a heavy strength day for the same pattern.
+
+**Step 6. Scaling** (§7): write a scaled line that keeps the same clock and feel.
+
+## 3. Formats
+
+| Format | Structure | Use | Rule |
+|---|---|---|---|
+| For Time / RFT | Fixed work as fast as possible | Short, medium, benchmarks | Always cap (1.25-1.5× expected) |
+| AMRAP | Max rounds + reps in fixed time | Medium/long, mixed ability | Score rounds + reps; pace the first 2 min |
+| EMOM / E2MOM / E3MOM | Work at the top of each 1-3 min | Controlled intensity, skill, heavier loads | Work ≤40 s of each minute (≥20 s rest) |
+| Intervals | Fixed work : fixed rest | Targeting a system (§4); runners | Even pacing; rest stays honest |
+| Chipper | Long list, once through | Long, experienced athletes only | High eccentric volume: not in ramp-in (§8) |
+| Tabata | 8 × 20 s / 10 s | Erg or simple moves, ≤2-3 blocks | Original: ~170% VO2max on a cycle ergometer [R]; no barbells/skills |
+| Two-part | Strength/skill piece + short metcon | Busy weeks | Strength first; metcon avoids that pattern |
+
+## 4. Energy systems and work:rest
+
+| Target | Bout | Effort | Work:rest | Volume | Example |
 |---|---|---|---|---|---|
-| Alactic power / sprint | 6-10 s (≤15) | All-out | 1:10-1:20 (≥60-120 s) | 6-10 reps | 8 × 8 s bike sprint / 2 min easy |
-| Anaerobic capacity (glycolytic) | 20-60 s (to 2 min) | RPE 9 | 1:3-1:5 (1:2 for 20-30 s bouts in fit people) | 4-10 reps, ≤6-8 min of total work | 6 × 30 s row / 2 min |
-| Aerobic power (VO2max) | 2-5 min, or short 30/30s | RPE 8, 90-95% HRmax | 1:1 to 1:0.5 | 12-24 min of work | 4 × 4 min / 3 min (Norwegian 4×4); 2-3 × (10 × 30 s on / 30 s off) |
-| Threshold / aerobic capacity | 5-20 min | RPE 6-7 | 1:0.2-1:0.5 | 20-40 min of work | 3 × 8 min row / 2 min; 20-min steady AMRAP |
-| Aerobic base | 20-60 min continuous | RPE 3-4, conversational | none | 1-3 per week | 30-45 min easy bike, row or run |
+| Alactic sprint | 6-10 s (≤15) | All-out | 1:10-1:20 | 6-10 reps | 8 × 8 s bike / 2 min easy |
+| Glycolytic | 15-60 s (to 2 min) | RPE 9 | 1:3-1:5 (1:2 for 20-30 s in fit people) | ≤6-8 min total work | 6 × 30 s row / 2 min |
+| VO2max / aerobic power | 2-5 min, or 30/30s | RPE 8, 90-95% HRmax | 1:1-1:0.5 | 12-24 min work | 4 × 4 min / 3 min; 2 × (10 × 30/30) |
+| Threshold | 5-20 min | RPE 6-7 | 1:0.2-1:0.5 | 20-40 min work | 3 × 8 min row / 2 min |
+| Aerobic base | 20-60 min | RPE 3-4 | none | 1-3/week | 30-45 min easy bike/row/run |
 
-These follow the NSCA energy-system table (Haff & Triplett): phosphagen 1:12-1:20 for 5-10 s; fast glycolysis 1:3-1:5 for 15-30 s and 1:3-1:4 for 1-3 min; oxidative 1:1-1:3 for >3 min. The VO2max row also draws on Buchheit & Laursen 2013 (long intervals 2-4 min, short intervals <45 s, repeated sprints ≤10 s, sprint interval training 20-30 s all-out).
+Ratios: NSCA table and Buchheit & Laursen 2013 [R]. No interval structure clearly beats another for time ≥90% VO2max (network meta-analysis, 19 studies, 2026) [R]: pick by equipment and feasibility. For intervals, bout length sets the time domain, not session length.
 
-**Metcon time domains:**
-- Sprint ≤5 min (all-out, glycolytic).
-- Short 5-10 min (very hard).
-- Medium 10-20 min (hard but pace-able; the default).
-- Long 20-40 min (aerobic, steady).
+## 5. Dose, frequency and recovery
 
-Across a week or two, rotate time domains. Don't make every session a 15-min "hard" AMRAP. Vary the loading too: most metcons are light and fast (sets they can do unbroken), and now and then one is a short, heavier couplet (sets of ≤5 at about 50-70%), placed where the strength days allow it (§5). For INTERVALS, the length of each work bout sets the domain, not the total session time.
-
-## 4. Intensity and weekly frequency
-
-| Level | Conditioning sessions/week | Notes |
+| Level | Metcons/HIIT per week | Notes |
 |---|---|---|
-| Newcomer (no HIIT history, or >4 weeks off) | 1 in weeks 1-2, then 2 | Use the ramp in §8. RPE ≤7 at first. |
-| Some experience | 2 | Mix one short or medium metcon with one interval session. |
-| Regular (≥6 months, consistent) | 2-3 (CrossFit-style hobbyists 3-5 mixed sessions) | At 4-5/week, many are moderate and strength is embedded in them. Fewer separate heavy days. |
+| Newcomer (none, or >4 weeks off) | 1 in weeks 1-2, then 2 | Ramp-in §8 |
+| Some experience | 2 | One short/medium metcon + one interval or long piece |
+| Regular (≥6 months consistent) | 2-3 (max 4 if running ≤2/week) | At 3-4, most are medium and light; one may be strength-biased |
 
-- **≥48 h between sessions that hit the same patterns or both go very hard.** The same applies between a HIIT session and a quality run.
-- **Very-high-intensity time:** keep work at >90% HRmax to about **30-40 min per week**. This is a practical ceiling from a small Les Mills study (n=35, industry-funded): weak evidence, sensible cap.
-- **Total hard days per week** (heavy lower strength, quality run, long run and HIIT all count): about 2 for novices, 3 for intermediates, 4 for advanced. See §10.
-- For fat loss, more daily steps and easy cardio beat stacking more HIIT, which costs recovery that lifting needs.
-- **Deload** with the strength deload (every 4-8 weeks): about half the metcon volume, RPE ≤7, no new movements.
+- **Frequency.** 2-3 HIIT sessions/week is the usual effective range; weekly dose matters more than frequency, and sprint-interval gains don't clearly rise with more sessions [R, meta-analyses in mixed populations]. For a hybrid athlete, quality runs count toward the same budget.
+- **Recovery ≥48 h** between hard sessions that load the same tissues or system. After single CrossFit workouts, performance, CK and liver enzymes were back to baseline by 48 h (Timón 2019); after a strength-power microcycle, jump, grip and perceived recovery took ≥48 h (2026); a 68-study review puts full recovery at 48-72 h, with muscle-damage markers lagging performance [R]. Same rule between a metcon and a quality run.
+- **Very-high-intensity time:** keep work >90% HRmax at about 30-40 min/week (Les Mills, n=35, industry-funded: weak, sensible ceiling) [P].
+- **Rest rhythm.** CrossFit's 2003 template uses 3 on/1 off; the current mainsite runs 5 on/2 off as Mon-Wed, Thu off, Fri-Sat, Sun off (every week in the sample), never more than 3 days in a row. [CF] Here §10 replaces that: ≤2 hard days in a row.
+- **Deload** with the strength deload (every 4-8 weeks): ~half metcon volume, RPE ≤7, no new movements.
 
-## 5. Designing a balanced metcon
+## 6. Movement selection and limited-equipment substitutions
 
-**Modal elements** (CrossFit language):
-- **M**: monostructural, cyclical cardio: run, row, bike, ski, jump rope.
-- **G**: gymnastics and bodyweight: pull-ups, push-ups, burpees, air squats, sit-ups, box jumps, toes-to-bar, dips.
-- **W**: weightlifting and loaded movements: KB swing, DB snatch, thruster, deadlift, clean, wall ball, carries.
-
-Most good metcons are a couplet or triplet of 2-3 elements: one M, one G, one W, or two of them.
+**Modalities:** **M** monostructural (run, row, bike, ski, jump rope); **G** gymnastics/bodyweight (pull-up, push-up, burpee, air squat, sit-up, box jump, lunge, HSPU, T2B); **W** external load (barbell, DB, KB, med ball, sandbag, carries). In the mainsite sample W appeared in 77% of training days, G 59%, M 47%; couplets 42%, triplets 25%, single-element 17%, 4+ movements 16%.
 
 **Pattern rules:**
-- Mix patterns: pair a lower-body movement with an upper-body one and a cyclical one, or a push with a pull.
-- **Avoid stacking the same pattern or tissue:**
-  - hinge + hinge + grip (KB swings + deadlifts + rowing)
-  - pull + pull + grip (pull-ups + rowing + toes-to-bar)
-  - quads + quads + quads (thrusters + wall balls + box jumps)
-  - overhead + overhead (push press + handstand push-ups + wall balls)
-- **Respect today's strength work:**
-  - After heavy squats: an upper-body and cyclical metcon (e.g. bike + push-ups + ring rows).
-  - After heavy deadlifts: no swings, cleans or high-rep hinging.
-  - After heavy pressing: no burpee-dip-HSPU combinations.
-- **Runners:** prefer bike, row and ski over running and jumping in metcons during high-mileage weeks or with shin or Achilles issues.
-- **Rep ranges inside rounds:** for most people, keep each set short enough to do unbroken while fresh, roughly ≤50-60% of their max reps for that movement. That keeps the stimulus aerobic or glycolytic instead of failure-driven.
+- Complement functions; avoid unplanned stacks: hinge + hinge + grip (swings + deadlifts + rowing), pull + pull + grip (pull-ups + row + T2B), quad × 3 (thrusters + wall balls + box jumps), overhead × 2 (push press + HSPU). CrossFit uses deliberate "redundancy" as a named, occasional stimulus; for a hybrid athlete, avoid it on the day before or after a leg day or a quality run.
+- Respect the strength day: after heavy squats → upper + cyclical; after heavy deadlifts → no swings, cleans or high-rep hinging; after heavy pressing → no burpee/dip/HSPU stacks.
+- Rotate patterns day to day: the mainsite switches to lower body and trunk after two upper-body days. [CF]
+- **Runners:** in high-mileage weeks, or with shin, calf or Achilles issues, use bike, row, ski, or DB/bodyweight instead of running and jumping in metcons.
 
-**Templates** (loads chosen per §6):
+**Substitutions** (keep function, range of motion and time; swap cyclical work by **equal time**, not distance):
 
-| Stimulus | Example (full gym) | Example (dumbbells/KB) | Example (bodyweight + outdoors) |
-|---|---|---|---|
-| Short For Time (cap 8 min) | 3 RFT: 12 cal row, 9 thrusters, 6 burpees | 3 RFT: 12 DB thrusters, 10 DB snatches, 200 m run | 3 RFT: 400 m run, 15 air squats, 10 push-ups |
-| Medium AMRAP 12-15 | 10 KB swings, 8 push-ups, 12 cal bike | 10 DB push press, 10 DB reverse lunges, 10 sit-ups | 10 air squats, 10 push-ups, 10 sit-ups, 200 m run |
-| EMOM 12-16 (alternate) | odd: 12 cal ski · even: 8 DB push press | odd: 12 KB swings · even: 10 push-ups | odd: 12 burpees (scale) · even: 30 s plank |
-| Aerobic intervals | 5 × 3 min row at RPE 7 / 1 min | 4 × 4 min (DB complex at a light load) / 2 min | 6 × 3 min hill run at RPE 7 / jog down |
-| Sprint | 8 × 8 s assault bike / 2 min | 6 × 20 s KB swings hard / 60 s | 8 × 10 s hill sprints / walk back |
-
-## 6. Scaling
-
-**Goal:** the scaled version gives the same *stimulus*: the same time domain and the same intensity. If the Rx version would take a newcomer 25 min instead of the intended 10, it has to be scaled. CrossFit's daily posts make this concrete with an intermediate and a beginner version of each workout: the movements get simpler and the loads and reps smaller, but the clock and the feel stay the same. Write `scaling` the same way: one line saying what to change *and* the target it protects ("2 rounds, 12 kg KB: still under 10 min").
-
-**Scaling ladder (in order):**
-1. **Load** first. Barbell cycling of ≥10 reps/set: about 30-50% of 1RM. Heavier, lower-rep pieces (≤5 reps/set): about 50-70%. Dumbbells and kettlebells: a load they could lift for about 2× the prescribed reps unbroken when fresh.
-2. **Reps or rounds:** cut by 25-50% to fit the time domain.
-3. **Movement:** substitute a simpler version of the same pattern (table below).
-4. **Range or standard:** box height, wall-ball target, push-ups on an incline.
-5. **Time cap:** cap it so that nobody grinds past the intended domain. Score at the cap is fine.
-
-Common CrossFit "Rx" loads are men/women 24/16 kg KB, 9/6 kg wall ball, 43/30 kg thruster, 22.5/15 kg DB. They're benchmarks for experienced athletes, not defaults. Most people start at one-half to two-thirds of them.
-
-| Movement | Scaled options | No-equipment option |
+| Prescribed | Dumbbell/KB home gym | Bodyweight / outdoors only |
 |---|---|---|
-| Pull-up | Banded pull-up, ring or TRX row (jumping pull-ups only at low reps: eccentric-heavy) | Not possible without a bar: band row, or skip the pull element |
-| Toes-to-bar | Hanging knee raise → V-up | Sit-up, hollow rock |
-| Muscle-up | 2-3 pull-ups + 2-3 dips per rep | Push-up + band row |
-| Handstand push-up | Pike push-up (feet on box), DB push press | Pike push-up |
-| Ring dip | Bar dip, bench dip, push-up | Push-up |
-| Double under | Single unders ×2-3, or the same time | 30 s pogo hops or jumping jacks |
-| Box jump | Step-up (same box), lower box, step down every rep | Squat jump or step-up onto a stair |
-| Wall ball | Med-ball thruster, DB thruster (light), goblet squat + push press | Air squat + push-up |
-| Thruster | DB thruster, front squat + push press at a lighter load | Air squat + pike push-up |
-| Clean / snatch | DB hang clean, DB snatch, KB swing | Broad jump, burpee |
-| KB swing | DB swing, band pull-through | Hip-hinge good morning, glute bridge |
-| Run | Row, ski, bike, or treadmill, by equal time (400 m run ≈ 2 min ≈ 500 m row ≈ 500 m ski ≈ 1,000 m BikeErg for most) | Shuttle runs, jumping jacks |
-| Burpee | No push-up, or step-back burpee, or incline burpee | Same |
-| GHD sit-up | Sit-up (cap reps) | Sit-up |
+| Row / bike / ski (per ~1 min) | Run 200-250 m, 60-80 jump-rope singles, or 40 s DB/KB swing-burpee mix | Run, shuttle runs, 12-15 burpees, step-ups |
+| Run 400 m (≈2 min) | Rope 2 min, or row 500 m / bike 1 km | Shuttle runs 2 min, stair or hill repeats |
+| Barbell thruster / clean / snatch | DB thruster / DB hang clean / DB snatch (light: ≥20 unbroken) | Air squat + pike push-up / broad jump / burpee |
+| Deadlift | DB or KB deadlift, single-leg RDL | Hip hinge good morning, glute bridge, backpack DL |
+| Wall ball | DB thruster or goblet squat + push press | Squat jump + push-up |
+| KB swing | DB swing, band pull-through | Glute bridge, broad jump |
+| Pull-up / C2B | Band pull-up, ring/TRX/towel-door row, DB row | Table or bar row; otherwise drop the pull and say so |
+| T2B / GHD sit-up | Hanging knee raise, V-up | Sit-up, hollow rock (cap reps) |
+| HSPU | Pike push-up feet on box, DB push press | Pike push-up |
+| Box jump | Step-up, low-box jump with step-down | Stair step-ups, squat jump |
+| Double-under | Singles ×2-3 or same time | Pogo hops, jumping jacks |
+| Sandbag / carry / sled | DB farmer or goblet carry; DB lunge | Backpack carry; hill sprint |
 
-## 7. Skill prerequisites
+## 7. Scaling and skill gates
 
-| Movement | Prerequisite before it goes in a metcon | Otherwise |
+**How the mainsite scales** [CF]: every day had an intermediate and a beginner version. Intermediate was "as Rx" on 27% of days (heavy days, where heavy is relative, plus erg/run intervals and some benchmarks); otherwise ≈60-70% of Rx load with modest volume cuts. Beginner versions changed volume 81% of the time, swapped the movement 70%, cut load 63%, and changed range or standard (box height, target) 7%. Beginner loads ran ≈35-45% of Rx, with volume about 30-70% of Rx. Time targets stayed the same.
+
+**Ladder (in order):**
+1. **Load first**, set by unbroken-set size (§2): the first round must be completed without failure or broken form. Newcomers usually start at <50% of Rx. When unsure, scale more. [CF L1]
+2. **Volume:** reps, rounds, distance or time down 25-50% to fit the clock (beginners: about half for ≥2 weeks). [CF L1]
+3. **Movement:** substitute last, keeping body part, function, range and plane (§6). Prefer the same movement unloaded or with a reduced range over a different one.
+4. **Range or standard:** box height, target, incline push-ups.
+5. **Cap:** score at the cap is fine.
+- **No progressive scaling** for beginners or intermediates (lowering the weight mid-workout so an exhausted athlete never stops): let them rest instead. [CF L1]
+- Write `scaling` as change + target ("2 rounds, 12 kg KB: still ≤10 min").
+- Rx loads (24/16 kg KB, 9/6 kg wall ball, 43/30 kg barbell, 22.5/15 kg DB) are for experienced athletes, not defaults.
+
+**Skill gates** (before the movement goes into a timed piece):
+
+| Movement | Gate | Otherwise |
 |---|---|---|
-| Kipping pull-ups and kipping toes-to-bar | ≥5 strict pull-ups (coach sources range 3-10; no injury data), pain-free shoulders, solid hollow/arch swing | Strict or banded pull-ups, ring rows |
-| Butterfly pull-ups, bar or ring muscle-ups | Proficient kipping, ≥8-10 strict pull-ups (+ ≥5 strict ring dips for ring muscle-ups) | Pull-ups + dips |
-| Olympic lifts (clean, snatch, jerk) at speed | Coached technique and self-reported competence; under fatigue ≤60% 1RM | DB/KB variants |
-| Double unders | Can string ~10-20 consistently | Singles |
-| Handstand push-ups | 10 good pike push-ups and comfortable inverted (wall walk) | Pike push-ups |
-| High-rep box jumps | Step down every rep. Rebound jumps only for experienced athletes at low reps. Avoid with Achilles or calf issues | Step-ups |
-| GHD sit-ups | Never in the first 4 weeks of conditioning; then ≤10-15 reps per session and build slowly | Sit-ups |
-| Ring dips | ≥10 strict bar dips, pain-free shoulders | Bar dips, push-ups |
+| Kipping pull-ups / T2B | ≥5 strict pull-ups, pain-free shoulders, solid hollow/arch swing [P] | Strict/banded pull-ups, rows |
+| Butterfly, muscle-ups | Proficient kip, ≥8-10 strict pull-ups (+ ≥5 strict ring dips) | Pull-up + dip |
+| Olympic lifts at speed | Coached technique; ≤60% 1RM under fatigue | DB/KB variants |
+| Double-unders | 10-20 in a row consistently | Singles |
+| HSPU | 10 good pike push-ups, comfortable inverted | Pike push-ups |
+| Box jumps (high reps) | Step down every rep; rebounds only for experienced athletes; avoid with Achilles/calf issues | Step-ups |
+| GHD sit-ups | Not in first 4 weeks; then partial range (to parallel), ≤10-15 reps, build slowly [CF L1] | Sit-ups |
+| Ring dips | ≥10 strict bar dips, pain-free | Bar dips, push-ups |
 
-Shoulders take most CrossFit injuries. A 2021 meta-analysis found about 3.2 injuries per 1,000 h, mostly spine (27%), shoulder (26%) and knee (16%); gymnastics like kipping, ring dips and muscle-ups carry more shoulder risk. So gate the gymnastics.
+HIFT injuries: 3.2/1,000 h, spine 27%, shoulder 26%, knee 16% (meta-analysis) [R]; kipping, ring dips and muscle-ups carry the most shoulder risk.
 
 ## 8. Newcomer ramp-in and rhabdomyolysis safety
 
-**Who needs the ramp:**
-- conditioning experience "none"
-- >4 weeks off conditioning
-- returning from illness
-- a brand-new high-rep movement (even for fit people: a runner's first high-rep pull-up day counts)
+**Who:** no conditioning history; >4 weeks off; back from illness; any new high-rep movement (a runner's first high-rep pull-up day counts); a session far above their recent norm. CrossFit's L1 names fit people new to CrossFit, returners and experienced athletes who jump in volume as the **highest-risk** groups, because they can produce enough intensity to hurt themselves. Novices in an 8-week CrossFit start-up had 9.5 injuries/1,000 h vs 0.7-3.3 in experienced cohorts [R].
 
-| Phase | Sessions/week | Metcon work time | Effort | Per-movement cap per session | Excluded |
+| Phase | Sessions/week | Work time | Effort | Per-movement cap per session | Excluded |
 |---|---|---|---|---|---|
-| Weeks 1-2 | 1-2 | 8-12 min | RPE ≤7, talk-test "a few words" | ≤30-50 reps of any one movement (≤20-30 for eccentric-heavy: pull-ups and jumping pull-ups, push-ups, lunges, box jumps, wall balls) | chippers, GHD sit-ups, "death by"/to-failure sets, high-rep negatives, heat |
-| Weeks 3-4 | 2 | 12-20 min | RPE ≤8 | ≤75 reps (≤40-50 eccentric-heavy) | chippers, GHD sit-ups |
-| Week 5+ | per §4 | any domain | any | raise session volume ≤20-30%/week | new movements start at ≤20-30 reps |
+| Weeks 1-2 | 1-2 | 8-12 min | RPE ≤7 | ≤30-50 reps (≤20-30 eccentric-heavy: pull-ups and jumping pull-ups, push-ups, lunges, box jumps, wall balls) | chippers, GHD, to-failure / "death by", negatives, heat |
+| Weeks 3-4 | 2 | 12-20 min | RPE ≤8 | ≤75 (≤40-50 eccentric-heavy) | chippers, GHD |
+| Week 5+ | §5 | any | any | session volume +≤20-30%/week | new movements start ≤20-30 reps |
 
-These caps are practitioner heuristics, not tested thresholds. The evidence (63 HIFT-related cases in a 26-study review; CHAMP 2025 guideline) points to the same drivers: **unaccustomed volume, eccentric emphasis, heat, dehydration, recent illness, stimulants, statins, sickle-cell trait**, and coming back after a break.
+Caps are heuristics [P], consistent with CrossFit's own rule of halving intensity and volume for ≥2 weeks and scaling for ≥1 month, with "multiple months" at scaled loads being normal [CF L1]. Note that CrossFit.com's beginner options still sometimes prescribe 25-30 jumping pull-ups or 50 sit-ups: our caps win.
 
-**Red flags to teach once:**
-- muscle pain or swelling far out of proportion to the session, 1-3 days later
-- a limb that won't straighten
-- weakness
-- dark tea- or cola-colored urine, or little urine
+**Risk drivers** [R: HIFT case series (11 of 523 CrossFit-injured patients at one centre, 2.1%), 26-study review of 63 cases, CHAMP 2025 guideline]: unaccustomed volume, eccentric emphasis (jumping pull-ups, GHD), heat, dehydration, recent illness, alcohol, stimulants, statins, sickle-cell trait, return after a layoff. Cases occur in both first-timers and experienced athletes.
 
-These need **same-day urgent care**. Dark urine is not required. Never "push through" or "stretch it out".
+**Red flags, taught once:** pain or swelling far out of proportion 1-3 days later; a limb that won't straighten; weakness; nausea; dark tea- or cola-colored urine or little urine. These need **same-day urgent care**. Dark urine is not required for the diagnosis. Never "push through" or "stretch it out".
 
-## 9. Technique under fatigue
+## 9. Weekly rotation (1-4 sessions)
 
-- Prescribe movement standards the person already owns. Under fatigue, technique only gets worse.
-- Teach the rule: **"If form breaks, rest or scale mid-workout."** A slower score with good reps beats a fast one with rounded backs.
-- Cap fatiguing hinge volume for non-experts: deadlift-pattern reps in a metcon ≤30-50 at moderate load, and no high-rep loaded spinal flexion.
-- Keep heavy or complex lifts and max-effort gymnastics in the strength or skill block, before the metcon.
-- Pain rules (traffic light) apply mid-metcon too. Sharp or joint pain means stop that movement and substitute.
+The mainsite week (12 full weeks coded) had ≈1 heavy day, ≈1 long or aerobic-interval piece, ≈1 short piece and 2-3 medium couplets/triplets. That matches CrossFit's published GPP template (1 heavy, 1 short, 1 long, 3 classic per ~week). In a hybrid plan the **strength days are the heavy day** and **the long run or easy cardio is the long aerobic day**, so the metcon slots carry short, medium and interval work.
+
+| Metcons/week | Slot A | Slot B | Slot C | Slot D |
+|---|---|---|---|---|
+| 1 | Rotate weekly: medium triplet 12-15 → short couplet 6-8 (+ strength) → intervals 15-20 | | | |
+| 2 | Short/medium couplet, For Time 6-12 (task) | Medium/long triplet AMRAP 15-20, or intervals (time) | | |
+| 3 | Short couplet ≤10 | Medium triplet 11-15 | Intervals or long aerobic 20-30 (bike/row if running ≥3/week) | |
+| 4 (regulars, running ≤2/week) | Short couplet | Medium triplet | Intervals / long | Medium, strength-biased EMOM or second couplet (light) |
+
+**Rotation rules** (from the 2003 template and the observed sample [CF]):
+1. Across 2-3 weeks every metcon slot rotates its **leading modality** M → G → W (template order per 3-day block: single → couplet → triplet; leads M, then G, then W).
+2. Consecutive metcons never share format + leading modality + time domain; vs last week change at least one of format, time domain or lead in each slot.
+3. With 2+ metcons a week, include ≥2 time domains; with 3+, M, G and W each lead once.
+4. ≤1 heavy-loaded metcon per week, placed away from the heavy strength day for that pattern.
+5. Place metcons by §10 (≥48 h from same-tissue hard sessions). Order within a session: strength → metcon.
+
+Example, 2/week: W1 A = DB thruster + burpee 8 min (W), B = row + push-up + air squat AMRAP 15 (M); W2 A = band row + KB swing 10 min (G), B = 5 × 3 min bike / 1 min (M); W3 A = 400 m run + DB snatch RFT 9 min (M), B = DB complex + step-ups + sit-ups AMRAP 18 (W). W4: retest one or deload.
 
 ## 10. Hybrid weekly scheduling (gym + running + HIIT)
 
-**Classify every session:**
-- **Hard (H):** heavy lower-body or full-body strength; quality run (tempo, threshold, intervals, hills, time trial); long run; metcon or HIIT at RPE ≥8.
-- **Moderate (M):** upper-body strength; moderate full-body; aerobic intervals at RPE 6-7.
-- **Easy (E):** easy or recovery run; zone 2 cardio; mobility; skill practice.
+**Classify:** **Hard (H)** = heavy lower/full-body strength, quality run (tempo, threshold, intervals, hills, TT), long run, metcon/HIIT at RPE ≥8. **Moderate (M)** = upper-body strength, moderate full-body, aerobic intervals RPE 6-7. **Easy (E)** = easy run, zone 2, mobility, skill.
 
 **Rules:**
-1. Hard sessions per week: novice ≤2, intermediate ≤3, advanced ≤4. Never two hard sessions in a row that load the same tissues or energy system. No more than 2 hard days in a row at all.
-2. Keep intervals and hard runs away from heavy legs: ≥24-48 h apart, or stacked on the same day ≥6 h apart for intermediate+ (to keep easy days easy). Never heavy legs in the 24 h before a quality run or long run.
-3. The day after the long run is easy or upper-body only.
-4. **Sessions that can share a workout:**
+1. Hard sessions/week: novice ≤2, intermediate ≤3, advanced ≤4. Never two hard sessions in a row loading the same tissues or system; ≤2 hard days in a row.
+2. Intervals and hard runs ≥24-48 h from heavy legs, or stacked same day ≥6 h apart (intermediate+). No heavy legs in the 24 h before a quality or long run.
+3. Day after the long run: easy or upper-body only.
+4. Pairings:
 
 | Combination | OK? | How |
 |---|---|---|
 | Upper strength + any run | yes | Either order |
 | Lower strength + easy run | yes | Priority first; ideally 3-6 h apart |
-| Lower strength + quality run | only stacked (intermediate+) | Priority first, ≥6 h apart; otherwise different days |
-| Strength + short metcon (8-15 min) | yes | Strength first; the metcon avoids the patterns just trained heavy |
-| Quality run + metcon | no | Two hard conditioning hits; split them across days |
-| Long run + anything hard | no | Long run alone, or + mobility or a light upper-body session |
-| Easy run + core / mobility / skill | yes | n/a |
+| Lower strength + quality run | stacked only (intermediate+) | Priority first, ≥6 h apart |
+| Strength + short metcon (6-15 min) | yes | Strength first; metcon avoids the patterns just trained |
+| Quality run + metcon | no | Separate days |
+| Long run + anything hard | no | Alone, or + mobility/light upper |
 
-5. **Priorities by goal:**
-   - **Strength/muscle:** 3-4 strength sessions, 1-2 easy runs or zone 2 sessions, 0-1 short metcons (as finishers).
-   - **Race:** 3-5 runs (1-2 quality + long), 2 strength sessions (maintenance, lower volume), 0-1 low-impact conditioning sessions.
-   - **General fitness / fat loss:** 2-3 strength, 1-2 runs, 1-2 HIIT, plus steps.
-   - **Conditioning/CrossFit-style:** 3-4 strength + metcon sessions (strength first), plus 1 easy aerobic session.
-   - Each modality needs about 2 exposures/week to progress and 1/week to maintain.
-6. **Interference budget:** when running reaches ≥3 runs or ≥30 km/week, or conditioning ≥2 sessions/week, keep lower-body strength around 6-12 hard sets per muscle per week. Upper-body volume can stay normal.
+5. **Interference** [R]: concurrent training doesn't blunt maximal strength or hypertrophy overall (Schumann 2022, 1,090 participants), but small interference appears when both are in the same session; explosive strength may be blunted, and trained lifters' lower-body strength can suffer (Petré 2021). Running interferes more than cycling. So when running is ≥3 runs or ≥30 km/week, or conditioning ≥2/week, keep lower-body strength at about 6-12 hard sets/muscle/week, prefer bike/row metcons, and separate by ≥6 h or a day.
+6. **Priorities by goal:**
+   - **Strength/muscle:** 3-4 strength sessions, 1-2 easy runs or zone 2, 0-1 short metcons.
+   - **Race:** 3-5 runs (1-2 quality + long), 2 strength, 0-1 low-impact metcon.
+   - **General fitness / fat loss:** 2-3 strength, 1-2 runs, 1-2 metcons, plus steps.
+   - **Conditioning-led:** 2-3 strength + metcon sessions (strength first), 1 interval, 1 easy aerobic.
+   - ~2 exposures/week per modality to progress, 1 to maintain.
 
-**Template weeks** (the rotation order W1→WN; H/M/E as above):
+**Template weeks** (order = rotation order; check rules 1-3 after any reorder):
 
 | Days | Balanced hybrid | Running priority | Strength priority | Conditioning priority |
 |---|---|---|---|---|
-| 3 | Full-body A + 10-min metcon (H) · Run: quality or run/walk (H/E) · Full-body B + 20-30 min easy run (M) | Quality run + upper strength (H) · Full-body strength + easy run (M) · Long run (H) | Full-body A · Full-body B · Full-body A′, each with an optional 10-min easy run or short metcon | Strength + metcon ×2 (H) · Aerobic intervals run/row (M) |
-| 4 | Full-body A (H) · Easy run + core (E) · Full-body B + 12-min metcon (H) · Long or quality run (H) | Quality run (H) · Full-body A + easy run (M) · Long run (H) · Full-body B + strides (M) | Upper (M) · Lower (H) · Upper + easy run (M) · Lower (H) | Squat + press + metcon (H) · Aerobic intervals + skill (M) · Hinge + pull + metcon (H) · Long easy aerobic (E) |
-| 5 | Upper + easy run (M) · Lower (H) · Quality run (H) · Full-body + short metcon (H) · Long run (H) | Quality run (H) · Full-body A (M) · Easy run + strides (E) · Full-body B + easy run (M) · Long run (H) | Upper · Lower · Easy run / zone 2 · Upper + short metcon · Lower | Strength + metcon ×3 (H) · Interval run (H) · Long aerobic (E), with easy days between |
-| 6 | Upper + easy run (M) · Lower (H) · Easy run + strides (E) · Quality run (H) · Upper + low-impact metcon (M) · Long run (H) | Quality run · Upper + easy · Easy + strides · Full-body (M) · Easy run · Long run | PPL ×2 or U/L/U/L + 2 easy cardio | Strength + metcon ×3 · Intervals · 2 easy aerobic |
+| 3 | Full-body A + short metcon (H) · Quality run or run/walk (H/E) · Full-body B + easy run (M) | Quality run + upper (H) · Full-body + easy run (M) · Long run (H) | Full-body A · B · A′, each + optional 10-min easy run or short metcon | Strength + short couplet (H) · Intervals bike/row (M) · Strength + medium triplet (H) |
+| 4 | Full-body A (H) · Easy run + core (E) · Full-body B + medium metcon (H) · Long or quality run (H) | Quality run (H) · Full-body A + easy run (M) · Long run (H) · Full-body B + strides (M) | Upper (M) · Lower (H) · Upper + easy run (M) · Lower (H) | Squat + press + short metcon (H) · Intervals + skill (M) · Hinge + pull + medium metcon (H) · Long easy aerobic (E) |
+| 5 | Upper + easy run (M) · Lower (H) · Quality run (H) · Full-body + short metcon (H) · Long run (H) | Quality run (H) · Full-body A (M) · Easy + strides (E) · Full-body B + easy run (M) · Long run (H) | Upper · Lower · Zone 2 · Upper + short metcon · Lower | Strength + metcon ×3 (H) on non-consecutive days · Interval run (H) · Long aerobic (E) |
 
-Check each template against rules 1-3 when you change its order. Rotation order matters, because the next workout is simply the next one in the list.
+## 11. Technique under fatigue, logging and benchmarks
 
-## 11. Logging and benchmarks
-
-- **Log:** format, the movements with load and reps (or a description), the result (rounds + reps, time, calories, or "capped at X"), whether it was **scaled** (and how), and session RPE.
-- **Comparable results only:** same movements, loads, standards and cap. Re-test a benchmark every 6-12 weeks (e.g. a 12-min AMRAP of a fixed triplet, or a 2 km row). Build benchmarks from the person's own equipment and logged metcons; use the shape of a named CrossFit benchmark (a short couplet For Time, a 20-min bodyweight triplet AMRAP) rather than a named workout their kit or skills can't do as written.
-- **Progress signals:** same workout at the same RPE with more rounds or a faster time; using less scaling; faster recovery between intervals.
-- **Fatigue signals:** RPE ≥1-2 points higher for the same work, scores falling across 2+ sessions, poor sleep, or joint aches. Respond by cutting conditioning volume or deloading (§4).
-
-## 12. Programming the week: lessons from the CrossFit mainsite
-
-CrossFit.com has posted one free workout a day since the early 2000s. Its structure comes from Glassman's 2003 "Theoretical Template" and the Level 1 course. What carries over to a hybrid plan built from a person's own equipment and schedule:
-
-**The modal template.** Each day is built from one, two or three modal elements (M, G, W from §5), and the count sets the character of the day:
-
-| Day type | What it looks like | Priority | Our use |
-|---|---|---|---|
-| Single element | One modality: a long steady erg or run, a skill practice, or one lift worked heavy | the element (do the thing well) | Aerobic intervals, an erg piece, or a light W EMOM |
-| Couplet | 2 movements alternated for 3-5 rounds, fast and intense | task (fixed work, for time) | Short For Time / RFT, 5-10 min, with a cap |
-| Triplet | 3 movements repeated for a fixed time at moderate load | time (fixed clock, score rounds) | Medium AMRAP 12-20 min |
-
-The original cycle runs M, G, W as single days, then pairs, then triplets, so every element leads at some point and no pattern is trained hard two days running. Treat the exact order as convention, not science; the transferable rule is **rotation**.
-
-**Rules for a week here:**
-1. Each metcon gets a stimulus first, then movements that hit it (§1, principle 6).
-2. The week's metcons differ in time domain and format. Consecutive metcons never share both the format and the leading element (two bodyweight-heavy AMRAPs in a row is the classic rut).
-3. Compared with last week, change at least one of format, time domain or leading element in each metcon slot, while keeping the strength work stable.
-4. Across 3+ metcons, M, G and W each lead once. With 2, lead with different elements. Coordinate with the strength days (§5 pattern rules) and the hard/easy rules (§10).
-5. Most days are light and fast; heavy days are short and few.
-6. Retest a benchmark every 6-12 weeks, done exactly as last time (§11).
-
-**Rest cycle.** The mainsite runs 3 days on and 1 off (or 5 on and 2 off to match a working week). The point is the same as §10's hard/easy budget: hard days can be hard because a recovery day is coming. In a mixed plan with runs and lifting, §10 does that job; don't add a separate 3-on/1-off layer on top.
-
-**The theoretical hierarchy** (nutrition → metabolic conditioning → gymnastics → weightlifting → sport) is CrossFit's teaching model for what to build first, not a tested law. Its practical message fits this skill: eat enough, build aerobic and anaerobic capacity, own bodyweight control before loading complex lifts, and gate the skills (§7).
-
-**Warm-ups** follow the pattern already in this skill: a general raise, then the day's movements at light load, then one or two short build-ups to working pace.
-
-**What doesn't carry over unchanged:** "Rx" loads and high-skill gymnastics as defaults (§6, §7); 5-6 high-intensity days a week for people who also lift and run; chippers and Hero workouts for newcomers (§8). The mainsite also writes for a general audience who often have a coach in the room; here the plan has to be safe without one.
-
+- Use only movement standards the person already owns. Teach: **"If form breaks, rest or scale mid-workout."** End the piece if form stays unsafe [CF L1]. Cap fatigued hinge reps for non-experts at ≤30-50 at moderate load; no high-rep loaded spinal flexion. Traffic-light pain rules apply mid-metcon.
+- **Log:** format, movements with load/reps, result (time, rounds + reps, calories, or "capped at X"), scaled (how), session RPE.
+- **Benchmarks/retests:** the mainsite retested something on 31% of training days (~1.5/week), linking to the last attempt of the same workout or lift; gaps ran 2-15 months (median ~8 months; shortest 8-10 weeks for strength lifts and Fight Gone Bad). Named benchmarks were 20% of days (Girls/Heroes 11%). [CF] Here: retest one logged metcon every 6-12 weeks, outside the ramp-in, done exactly as before (same movements, loads, standards, cap). Build benchmarks from the person's kit, using the *shape* of a named one (a short couplet like Fran, a 20-min bodyweight AMRAP like Cindy) rather than a named workout their kit or skills can't do.
+- **Progress:** same work, same RPE, faster or more rounds; less scaling. **Fatigue:** RPE +1-2 for the same work, scores falling 2+ sessions, poor sleep, joint aches → cut conditioning volume or deload (§5).
+- **Warm-up:** general raise → the day's movements light → 1-2 build-ups.
