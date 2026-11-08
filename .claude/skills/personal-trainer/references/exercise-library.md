@@ -1,119 +1,109 @@
-# Exercise Library, Substitutions & Movement Screen
+# Exercise Library, Substitutions & Technique
 
 ## Contents
-1. Movement patterns: exercise options by equipment
-2. Substitution algorithm
-3. Joint-friendly swaps by complaint
-4. Core technique cues for main lifts
-5. Self-check movement screen (overhead squat)
-6. Muscle mapping for the tracker
+1. Movement patterns: options by equipment
+2. Picking exercises for a plan
+3. Substitution algorithm
+4. Joint-friendly swaps by complaint
+5. Technique: cues and common faults for the main lifts
+6. Self-check movement screen (overhead squat)
+7. Muscle mapping for the tracker
 
 ---
 
 ## 1. Movement patterns: options by equipment
 
-Each list runs roughly from most to least loadable. Mark the options in the client's profile as **YES**, **SUB** (substitute only) or **NO**, based on equipment, injuries and preference.
+Roughly most to least loadable. Mark options in the profile **YES**, **SUB** (substitute only) or **NO**.
 
-| Pattern | Full gym | Dumbbells / kettlebells only | Bodyweight / bands |
+| Pattern | Full gym | Dumbbells / kettlebells | Bodyweight / bands |
 |---|---|---|---|
-| **Squat** (knee-dominant) | back squat, front squat, safety-bar squat, hack squat, leg press, belt squat, Smith squat | goblet squat, DB front squat, heels-elevated goblet squat | bodyweight squat (tempo/pause), sissy squat, wall sit, band squat |
-| **Hinge** (hip-dominant) | deadlift, trap-bar deadlift, RDL, hip thrust, good morning, back extension | DB/KB RDL, single-leg RDL, KB swing, DB hip thrust | glute bridge / single-leg bridge, band pull-through, hamstring walkouts, Nordic curl (partner/anchor) |
-| **Single-leg** | Bulgarian split squat (loaded), walking lunge, step-up, single-leg leg press | DB split squat, reverse lunge, step-up | split squat, reverse lunge, step-up, skater squat, pistol progressions |
-| **Horizontal push** | barbell bench, incline bench, machine chest press, dips | DB bench / incline / floor press | push-up progressions (incline → floor → deficit → weighted/band), dips between chairs |
-| **Vertical push** | overhead press, machine shoulder press, landmine press | DB/KB overhead press (seated/standing), half-kneeling press | pike push-up, elevated pike, handstand progressions |
-| **Horizontal pull** | barbell row, chest-supported row, seated cable row, T-bar row | one-arm DB row, chest-supported DB row (incline bench) | inverted row (table/rings/TRX), band row |
-| **Vertical pull** | pull-up / chin-up, lat pulldown, assisted pull-up | (pullover as partial substitute) | pull-up/negatives on a bar, band-assisted pull-up, band pulldown |
-| **Carry** | trap-bar carry, farmer's carry | farmer's, suitcase, front-rack, overhead carry | heavy backpack carry |
-| **Core** | cable crunch, hanging leg raise, ab wheel, Pallof press | DB side bend, suitcase carry, weighted dead bug | plank, side plank, dead bug, hollow hold, bird dog, band Pallof |
-| **Isolation** | leg extension, seated leg curl, cable fly, lateral raise (cable), pushdown, calf machines | DB lateral raise, DB fly, DB curls, overhead DB triceps extension, single-leg DB calf raise | band lateral raise, band curl, band pushdown, single-leg calf raise off a step |
+| **Squat** (knee-dominant) | back/front/safety-bar squat, hack squat, leg press, belt squat, Smith squat | goblet squat, DB front squat, heels-elevated goblet | tempo/pause squat, sissy squat, wall sit, band squat |
+| **Hinge** (hip-dominant) | deadlift, trap-bar deadlift, RDL, hip thrust, good morning, back extension | DB/KB RDL, single-leg RDL, KB swing, DB hip thrust | single-leg glute bridge, band pull-through, hamstring walkout, Nordic curl |
+| **Single-leg** | Bulgarian split squat, walking lunge, step-up, single-leg leg press | DB split squat, reverse lunge, step-up | split squat, reverse lunge, skater squat, pistol progressions |
+| **Horizontal push** | bench, incline bench, machine press, dips | DB bench/incline/floor press | push-up ladder (incline → floor → deficit → weighted/band), chair dips |
+| **Vertical push** | overhead press, machine shoulder press, landmine press | DB/KB press (seated/standing), half-kneeling press | pike push-up, elevated pike, handstand progressions |
+| **Horizontal pull** | barbell row, chest-supported row, cable row, T-bar | one-arm DB row, chest-supported DB row | inverted row (table/rings/TRX), band row |
+| **Vertical pull** | pull-up/chin-up, lat pulldown, assisted pull-up | DB pullover (partial sub only) | doorway-bar pull-up, negatives, band-assisted, band pulldown |
+| **Knee flexion** | seated/lying leg curl | DB leg curl (bench), slider curl | Nordic curl, slider/towel curl, band curl |
+| **Carry / core** | farmer's/trap-bar carry, cable crunch, hanging leg raise, ab wheel, Pallof | suitcase/front-rack carry, weighted dead bug | plank, side plank, dead bug, hollow, bird dog, band Pallof |
+| **Isolation** | leg extension, cable fly, cable lateral raise, pushdown, calf machines | DB lateral raise, fly, curls, overhead extension, single-leg calf | band lateral raise/curl/pushdown, calf raise off a step |
 
-**Prioritize the stretched position** for growth: RDL, deep squat, incline curl, overhead triceps extension, seated leg curl, deficit push-up, cable fly, and calf raises with a pause in the deep stretch.
+**Home gym priorities:** adjustable dumbbells (heavy enough to row for ~10), adjustable bench, doorway pull-up bar, bands. Usual gaps: knee flexion (sliders/Nordics) and quad isolation.
 
-**Weekly coverage check:**
-- Squat, hinge, horizontal push and pull, vertical push and pull, single-leg and core should each appear at least once.
-- Push : pull set ratio about 1:1 (or slightly pull-biased for desk workers).
-- Hamstrings need both a hinge and a knee-flexion exercise.
+## 2. Picking exercises for a plan
 
-## 2. Substitution algorithm
+- Per pattern pick 1 **main lift** (stable, loadable, tracked for the whole block) and 0-2 **secondary** picks that change the joint action or muscle length.
+- **Stretched-position picks** for growth: RDL, deep squat/hack squat, Bulgarian split squat, incline curl, overhead triceps extension, seated leg curl, deficit push-up, cable/DB fly, standing calf raise with a pause in the stretch, lat pulldown/pull-up from a full hang.
+- **Stable for near-failure work:** machines, cables, chest-supported rows, and DB variations are safer to push to 0-1 RIR than barbell squats, deadlifts or rows.
+- **Weekly coverage check:** squat, hinge, single-leg, horizontal and vertical push and pull, knee flexion and core each appear ≥1×. Push:pull sets about 1:1 (pull-biased for desk workers). Quads:hamstrings roughly 1:1 to 3:2.
+- **Keep main lifts for ≥1 block (4-8+ weeks)** so progress is measurable; swap accessories every 1-3 blocks for joints, boredom or stalls. Random session-to-session rotation hurts progress (Kassiano 2022).
+- Machines ≈ free weights for muscle; free weights build free-weight strength better (Haugen 2023).
 
-When exercise X can't be done (equipment, pain or preference):
-1. **Same movement pattern and the same primary muscles.** Match the pattern, not just the muscle.
-2. **Filter by available equipment** in the profile.
-3. **Remove aggravating features** for any pain or injury: deep knee flexion, overhead position, axial spinal loading, impact, grip, wrist extension, end-range shoulder positions. Prefer supported, stable variants: machines, chest-supported rows, a bench to limit depth.
-4. **Similar loadability and skill.** A bilateral free-weight lift outloads a machine, which outloads a unilateral lift, which outloads bands or bodyweight. If the substitute has a lower load ceiling, raise the rep range (6-8 → 10-15) or slow the tempo to keep sets hard.
+## 3. Substitution algorithm
+
+When exercise X can't be done (equipment, pain, preference):
+1. **Same pattern, same primary muscles.** Match the pattern, not just the muscle.
+2. **Filter by available equipment.**
+3. **Remove aggravating features** for pain: deep knee flexion, overhead position, axial loading, impact, grip, wrist extension, end-range shoulder positions. Prefer supported, stable variants (machines, chest-supported rows, a box to limit depth).
+4. **Similar loadability and skill:** bilateral free weight > machine > unilateral > bands/bodyweight. If the substitute has a lower load ceiling, raise the rep range (6-8 → 10-20) or add tempo/pauses to keep sets hard.
 5. **Similar ROM and stretched-position stimulus** where possible.
-6. **Preference:** use exercises they like first, and never exercises they hate.
-7. **Re-baseline.** Don't carry the old e1RM over. Treat the first session as calibration at about 3 RIR.
-8. **Record it** in `plan.md` (alternatives column) and `decisions.md` with the reason, so the original lift can come back later.
+6. **Preference:** exercises they like first; never ones they hate.
+7. **Re-baseline:** don't carry the old e1RM over; first session is calibration at ~3 RIR.
+8. **Record it** in `plan.md` (alternatives column) and `decisions.md` with the reason.
 
-## 3. Joint-friendly swaps by complaint
+## 4. Joint-friendly swaps by complaint
 
-Use these alongside the pain traffic light in `safety-and-scope.md`. Modifying is in scope; diagnosing is not.
+Use with the pain traffic light in `safety-and-scope.md`. Modifying is in scope; diagnosing is not.
 
 | Irritated area | Usually aggravates | Try instead |
 |---|---|---|
-| Front of knee (patellofemoral-type) | deep loaded knee flexion, lunges, jumping, downhill running | box squat to a tolerable height, leg press in a limited range, Spanish squat / wall sit (isometric), step-ups at a tolerable height, hip thrusts, hamstring curls, hip abduction |
-| Low back | heavy axial loading, loaded flexion, long ranges off the floor | trap-bar or block pulls, RDL to mid-shin, hip thrust, belt squat / leg press, chest-supported rows, goblet squat, walking, McGill curl-up / side plank / bird dog |
-| Shoulder (overhead or end-range pain) | overhead pressing, deep dips, wide-grip bench, behind-neck work | landmine press, neutral-grip DB press, incline instead of overhead, floor press, cable or band external rotation, chest-supported rows, scapular work, partial-range lateral raises |
-| Elbow (lateral or medial) | heavy gripping, straight-bar curls, skull crushers | neutral-grip or rope variations, EZ-bar, straps for pulls, slower tempo, isometric holds, wrist extensor/flexor loading |
-| Wrist | front rack, push-ups on flat hands, straight-bar pressing | push-up handles or fists, DB neutral-grip pressing, safety-bar squat, straps |
-| Hip (front pinching) | deep flexion, wide-stance deep squats | box squat to parallel, narrower stance, hip thrust, split squats with limited depth |
-| Achilles / calf | jumping, running volume, deep dorsiflexion under load | seated/standing calf raises in a pain-monitored range (then heavy slow), cycling, rowing |
+| Front of knee | deep loaded knee flexion, lunges, jumping, downhill running | box squat to tolerable height, limited-range leg press, Spanish squat/wall sit (isometric), low step-up, hip thrust, leg curl, hip abduction |
+| Low back | heavy axial loading, loaded flexion, long pulls from the floor | trap-bar or block pulls, RDL to mid-shin, hip thrust, belt squat/leg press, chest-supported row, goblet squat, walking, curl-up/side plank/bird dog |
+| Shoulder | overhead pressing, deep dips, wide-grip bench, behind-neck work | landmine press, neutral-grip DB press, incline instead of overhead, floor press, cable/band external rotation, chest-supported row, partial-range lateral raise |
+| Elbow | heavy gripping, straight-bar curls, skull crushers | neutral/rope/EZ-bar variants, straps, slower tempo, isometrics, wrist flexor/extensor loading |
+| Wrist | front rack, flat-hand push-ups, straight-bar pressing | push-up handles/fists, neutral-grip DB press, safety-bar squat, straps |
+| Hip (front pinch) | deep flexion, wide deep squats | box squat to parallel, narrower stance, hip thrust, limited-depth split squat |
+| Achilles/calf | jumping, running volume, loaded deep dorsiflexion | pain-monitored seated/standing calf raises (then heavy slow), cycling, rowing |
 
-## 4. Core technique cues (main lifts)
+## 5. Technique: cues and common faults
 
-Keep cues to 1-2 per set. If form clearly breaks down, ask the client for a video and suggest an in-person session with a qualified coach.
+Give 1-2 cues per set, external cues first ("push the floor away"). Ask for video: side view for squat, deadlift, RDL and OHP; 45° from the head end for bench. If a fault persists after dropping load ~10-20% and one cue, regress the variation or suggest an in-person coach (sources: SBS guides, NSCA).
 
-- **Squat:**
-  - Feet about shoulder width, toes slightly out.
-  - Brace (breathe into the belly, tighten as if bracing for a punch).
-  - Knees track over the toes; depth as deep as you can keep a neutral spine.
-  - Drive up with the chest and hips rising together.
-- **Hinge / deadlift:**
-  - Bar over mid-foot.
-  - Push the hips back, keep the shins near vertical for RDL-style lifts.
-  - Lats tight ("protect your armpits").
-  - Push the floor away; hips and shoulders rise together; lock out with the glutes, not by leaning back.
-- **Bench press:**
-  - Eyes under the bar, shoulder blades pulled back and down, feet planted.
-  - Lower to the lower chest with forearms vertical, then press up and slightly back.
-- **Overhead press:**
-  - Glutes and abs tight, ribs down.
-  - Bar travels in a straight line, head moves "through the window" at the top.
-- **Row:**
-  - Torso stable, pull the elbows toward the hip, pause, and control the lowering.
-- **Pull-up:**
-  - Start from a full hang, shoulders down first, pull the chest to the bar.
-  - Control the descent.
-- **Breathing:** brace on heavy compound lifts. Clients with hypertension or other cardiovascular issues should exhale on effort and avoid long breath-holds.
+| Lift | Setup & key cues | Common fault → fix |
+|---|---|---|
+| **Squat** | Bar on upper traps (not on the C7 bump); feet ~shoulder width, toes out ~15-30°; big belly breath and brace before each rep; knees track over toes 1-2; depth = as low as neutral spine allows (≥ parallel trains glutes/adductors more: Kubo 2019) | Knees cave → "spread the floor", lighter load, banded/goblet squats · Heels lift or falls forward → heel wedge/lifting shoes, slightly wider stance, ankle work · Hips shoot up out of the hole ("good-morning squat") → "drive traps back into the bar", pause squats, front/goblet squats, don't rush the sticking point · Lower back rounds at depth → squat to a box/pins at the depth they control |
+| **Deadlift** | Bar over mid-foot, shins near the bar; narrowest grip that clears the legs; hips back until arms hang straight; lats on ("protect your armpits", "pull the bar into your shins"); pull slack out before the floor | Bar drifts forward → bar over mid-foot, lats tighter, bar stays in contact with legs · Hips rise first → "push the floor away", set hips a bit lower, pause just off the floor · Back rounds → reduce load, re-brace each rep, trap-bar or block pulls · Leans back at lockout → "stand tall, squeeze glutes" · Jerks the bar → "pull the slack out" |
+| **RDL** | Soft knees fixed; push hips back, bar slides down thighs; stop where hamstrings limit with a neutral spine (often mid-shin) | Turns into a squat → less knee bend, "hips to the wall" · Rounds → shorter range |
+| **Bench** | Eyes under bar; shoulder blades back and down, slight arch; feet planted; bar low in the palm over the forearm; touch between nipple line and bottom of the sternum; elbows tucked a little on the way down, bar travels back toward the face on the way up | Butt lifts → feet flatter/further forward, less leg drive · Elbows flared + high touch → lower touch point, ~45-70° elbows · Bouncing → brief touch or pause · Wrists bent back → bar lower in the palm, wraps · Shoulder ache → narrower grip, DB/neutral grip, floor press |
+| **Overhead press** | Grip just outside shoulders; glutes and abs tight, ribs down; bar path straight, head back then "through the window" | Big lean back → lighter load, squeeze glutes, half-kneeling/seated variant · Bar swings forward around the face → move head, not the bar |
+| **Row** | Hinged or chest-supported, torso still; pull elbows toward the hip; pause; control the lowering | Torso heaving → chest-supported row or lighter load · Shrugging → "elbows to back pockets" |
+| **Pull-up / pulldown** | Full hang, shoulders down first, chest to bar; control the descent | Half reps/kipping → band assist or pulldown at a load that allows full range; negatives 3-5 s |
+| **Hip thrust** | Upper back on bench edge, shins vertical at the top, chin tucked, ribs down; finish with glutes | Arching the low back at lockout → "ribs down, tuck the pelvis", stop at hip neutral |
+| **Split squat / lunge** | Stance long enough that the front heel stays down; torso slightly forward for glutes; back knee toward the floor | Front knee caves → lighter, slower, "knee over 2nd toe" · Balance loss → hold support, wider stance |
 
-## 5. Self-check movement screen (NASM overhead squat, adapted)
+**Breathing:** brace on heavy compounds. Clients with hypertension or other cardiovascular issues exhale on effort and avoid long breath-holds (`safety-and-scope.md`).
 
-This screen is optional and **not diagnostic**. It helps choose warm-up and corrective work.
+## 6. Self-check movement screen (NASM overhead squat, adapted)
 
-**How to do it:** the client films 5 reps from the front and 5 from the side, barefoot, feet hip-width, arms overhead, squatting to chair height.
+Optional, **not diagnostic**; guides warm-up choices only. Film 5 reps front and side, barefoot, feet hip-width, arms overhead, to chair height.
 
-| Observation | Commonly associated: likely tight / overactive | Likely under-active | Add to warm-up |
-|---|---|---|---|
-| Feet turn out / flatten | calves (soleus, lateral gastrocnemius), biceps femoris, peroneals | medial gastrocnemius, medial hamstrings, tibialis anterior/posterior, glute medius | calf foam roll + stretch, short-foot drill, single-leg balance |
-| Knees cave in | adductors, TFL, vastus lateralis | glute medius/maximus, VMO | adductor roll/stretch, banded side steps, banded squats |
-| Excessive forward lean | calves, hip flexors, abdominal complex | glute maximus, erector spinae, tibialis anterior | calf + hip-flexor stretch, glute bridges, heels-elevated goblet squat |
-| Low back arches | hip flexors, erectors, lats | glutes, hamstrings, deep core | hip-flexor + lat stretch, glute bridge, dead bug |
-| Arms fall forward | lats, pecs, teres major | mid/low traps, rhomboids, rotator cuff | lat/pec stretch, prone Y/T, band pull-aparts |
-| Heels rise | soleus | tibialis anterior | calf stretch, ankle mobility, temporarily heel-elevated squats |
-| Weight shifts to one side | asymmetry (adductors/calves on the shift side) | glute medius on the shift side | single-leg work, side-lying hip abduction |
+| Observation | Often associated (tight / under-active) | Add to warm-up |
+|---|---|---|
+| Feet turn out or flatten | calves, peroneals / glute med, tibialis | calf stretch, short-foot drill, single-leg balance |
+| Knees cave in | adductors, TFL / glute med and max | banded side steps, banded squats, adductor stretch |
+| Excessive forward lean | calves, hip flexors / glutes, erectors | calf + hip-flexor stretch, glute bridge, heels-elevated goblet squat |
+| Low back arches | hip flexors, lats / glutes, deep core | hip-flexor + lat stretch, dead bug |
+| Arms fall forward | lats, pecs / mid-low traps, cuff | lat/pec stretch, prone Y/T, band pull-aparts |
+| Heels rise | soleus / tibialis | calf stretch, ankle mobility, heel elevation for now |
+| Shift to one side | asymmetry | single-leg work, side-lying hip abduction |
 
-Quick tests:
-- If **heels-elevated** squatting fixes forward lean or heel rise, ankle dorsiflexion is likely the limiter.
-- If **hands-on-hips** squatting fixes a back arch or arms falling forward, the lats or pecs are likely the limiter.
+If **heels elevated** fixes lean or heel rise, ankles are the likely limiter; if **hands on hips** fixes the arch or arms, lats/pecs are. Corrective sequence (5-10 min inside the warm-up): roll ~30 s → stretch 30 s → activate 10-15 slow reps → integrate in a full movement for 10-15 reps.
 
-Corrective sequence: roll about 30 s, stretch 30 s, activate 10-15 reps with a slow tempo, then integrate into a full movement (10-15 reps). This takes 5-10 minutes, inside the warm-up.
+## 7. Muscle mapping for the tracker
 
-## 6. Muscle mapping for the tracker
+`trainer.py report` counts weekly hard sets per muscle from a built-in map of ~100 exercises, with partial matching ("paused bench press" = bench press). Muscles: chest, front delts, side delts, rear delts, upper back, lats, lower back, biceps, triceps, forearms, quads, hamstrings, glutes, adductors, calves, abs.
 
-`trainer.py report` counts weekly hard sets per muscle from a built-in map of about 100 common exercises. It also tries partial matches, e.g. "paused bench press" counts as bench press. Muscle names used: chest, front delts, side delts, rear delts, upper back, lats, lower back, biceps, triceps, forearms, quads, hamstrings, glutes, adductors, calves, abs.
-
-For exercises it reports as "unmapped", add a row to `<data-home>/exercises.csv`:
+For exercises reported as "unmapped", add a row to `<data-home>/exercises.csv`:
 ```
 exercise,pattern,primary,secondary
 Zercher Squat,squat,quads;glutes,upper back;abs
