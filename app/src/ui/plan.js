@@ -1,7 +1,7 @@
 // Owner: Agent D. Plan tab: agreed plan in rotation order (Done / Up next / Later) with targets from
 // core.nextTarget, Mark as done / Done as planned / Skip per workout (logged sessions link to History),
 // the draft with validation chips and Approve / Ask for changes / Regenerate, and plan generation with an
-// elapsed timer and Stop. Styles for the logging actions and one-line clamps: plan-log.css.
+// elapsed timer and Stop. Styles: the "plan quick-log" section of styles.css.
 
 import {
   h, icon, button, append, replaceChildren, pill, typePill, emptyState, errorLine, inlineConfirm, toast,
