@@ -90,12 +90,12 @@ Ratios: NSCA table and Buchheit & Laursen 2013 [R]. No interval structure clearl
 |---|---|---|
 | Newcomer (none, or >4 weeks off) | 1 in weeks 1-2, then 2 | Ramp-in §8 |
 | Some experience | 2 | One short/medium metcon + one interval or long piece |
-| Regular (≥6 months consistent) | 2-3 (max 4 if running ≤2/week) | At 3-4, most are medium and light; one may be strength-biased |
+| Regular (≥6 months) | 2-3 (4 if running ≤2/week) | At 3-4, most medium and light |
 
-- **Frequency.** 2-3 HIIT sessions/week is the usual effective range; weekly dose matters more than frequency, and sprint-interval gains don't clearly rise with more sessions [R, meta-analyses in mixed populations]. For a hybrid athlete, quality runs count toward the same budget.
-- **Recovery ≥48 h** between hard sessions that load the same tissues or system. After single CrossFit workouts, performance, CK and liver enzymes were back to baseline by 48 h (Timón 2019); after a strength-power microcycle, jump, grip and perceived recovery took ≥48 h (2026); a 68-study review puts full recovery at 48-72 h, with muscle-damage markers lagging performance [R]. Same rule between a metcon and a quality run.
+- **Frequency.** 2-3 HIIT sessions/week is the usual effective range; weekly dose matters more than frequency [R, meta-analyses]. Quality runs count toward the same budget.
+- **Recovery ≥48 h** between hard sessions loading the same tissues or system, metcon ↔ quality run included. Performance, CK and liver enzymes normalise by ~48 h after single CrossFit workouts (Timón 2019) and a strength-power microcycle (2026); a 68-study review says 48-72 h, with muscle-damage markers lagging performance [R].
 - **Very-high-intensity time:** keep work >90% HRmax at about 30-40 min/week (Les Mills, n=35, industry-funded: weak, sensible ceiling) [P].
-- **Rest rhythm.** CrossFit's 2003 template uses 3 on/1 off; the current mainsite runs 5 on/2 off as Mon-Wed, Thu off, Fri-Sat, Sun off (every week in the sample), never more than 3 days in a row. [CF] Here §10 replaces that: ≤2 hard days in a row.
+- **Rest rhythm.** 2003 template: 3 on/1 off; current mainsite: Mon-Wed, Thu off, Fri-Sat, Sun off (every sampled week) [CF]. Here §10 governs: ≤2 hard days in a row.
 - **Deload** with the strength deload (every 4-8 weeks): ~half metcon volume, RPE ≤7, no new movements.
 
 ## 6. Movement selection and limited-equipment substitutions
@@ -164,7 +164,7 @@ HIFT injuries: 3.2/1,000 h, spine 27%, shoulder 26%, knee 16% (meta-analysis) [R
 | Weeks 3-4 | 2 | 12-20 min | RPE ≤8 | ≤75 (≤40-50 eccentric-heavy) | chippers, GHD |
 | Week 5+ | §5 | any | any | session volume +≤20-30%/week | new movements start ≤20-30 reps |
 
-Caps are heuristics [P], consistent with CrossFit's own rule of halving intensity and volume for ≥2 weeks and scaling for ≥1 month, with "multiple months" at scaled loads being normal [CF L1]. Note that CrossFit.com's beginner options still sometimes prescribe 25-30 jumping pull-ups or 50 sit-ups: our caps win.
+Caps are heuristics [P], consistent with CrossFit's rule: halve intensity and volume for ≥2 weeks, scale for ≥1 month, "multiple months" scaled is normal [CF L1]. CrossFit.com beginner options sometimes still list 25-30 jumping pull-ups or 50 sit-ups: our caps win.
 
 **Risk drivers** [R: HIFT case series (11 of 523 CrossFit-injured patients at one centre, 2.1%), 26-study review of 63 cases, CHAMP 2025 guideline]: unaccustomed volume, eccentric emphasis (jumping pull-ups, GHD), heat, dehydration, recent illness, alcohol, stimulants, statins, sickle-cell trait, return after a layoff. Cases occur in both first-timers and experienced athletes.
 
@@ -172,7 +172,7 @@ Caps are heuristics [P], consistent with CrossFit's own rule of halving intensit
 
 ## 9. Weekly rotation (1-4 sessions)
 
-The mainsite week (12 full weeks coded) had ≈1 heavy day, ≈1 long or aerobic-interval piece, ≈1 short piece and 2-3 medium couplets/triplets. That matches CrossFit's published GPP template (1 heavy, 1 short, 1 long, 3 classic per ~week). In a hybrid plan the **strength days are the heavy day** and **the long run or easy cardio is the long aerobic day**, so the metcon slots carry short, medium and interval work.
+A mainsite week had ≈1 heavy day, ≈1 long or interval piece, ≈1 short piece and 2-3 medium couplets/triplets, matching CrossFit's GPP template (1 heavy, 1 short, 1 long, 3 classic) [CF]. In a hybrid plan the **strength days are the heavy day** and **the long run/easy cardio is the long day**, so metcon slots carry short, medium and interval work.
 
 | Metcons/week | Slot A | Slot B | Slot C | Slot D |
 |---|---|---|---|---|

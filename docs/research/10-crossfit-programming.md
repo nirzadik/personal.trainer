@@ -2,7 +2,9 @@
 
 Research date: 2026-11-08. Purpose: improve the app's HIIT/metcon programming (`references/conditioning.md` §12, `app/src/knowledge/plan.js` §5.9, `app/src/knowledge/chat.js`, the conditioning warnings in `core.validatePlan`).
 
-**Access and method.**
+> **Update 2026-11-08 (second pass):** crossfit.com, games.crossfit.com and library.crossfit.com were reachable in a later session. The 2003 template, the L1 guide and 90 days of daily workouts were read and coded in `12-crossfit-wod-analysis.md`. Claims below are corrected where that reading disagreed; corrections are marked **[corrected, see 12]**. `references/conditioning.md` was restructured, so its section numbers mentioned in §11 below no longer apply (§12 there was merged into §2, §9 and §11).
+
+**Access and method (first pass).**
 - **Could not fetch:** `www.crossfit.com/workout` and `games.crossfit.com` both failed DNS (ENOTFOUND) under this session's network policy. Per policy I stopped fetching after the second failure. To read the live workout pages, those hosts need to be allowed in the session's network settings.
 - **What I used:** WebSearch result summaries of CrossFit's own pages (essays on the theoretical hierarchy, constantly varied programming, variance, heavy days, scaling and retesting; the 2003 CrossFit Journal template reprint; daily workout archive entries), third-party study guides for the L1/L3 courses, affiliate blogs, and peer-reviewed benchmark-norm papers. I also used my own background knowledge of the CrossFit Level 1 Training Guide and the 2003 "Theoretical Template" article, which I could not re-read here.
 - **Copyright:** principles are summarized in my own words. No workouts or long passages are copied. Named benchmarks are mentioned by name only.
@@ -34,8 +36,8 @@ Confidence tags (same as `07-conditioning.md`):
   - **Single-element days:** one modality, with the element itself as the priority. M is typically a longer, steady effort, G a single skill practised at high quality, W a single lift worked heavy at low reps.
   - **Two-element days (couplets):** usually 2 movements alternated for 3-5 rounds for time, at high intensity. These are **task priority**: fixed work, and the score is time.
   - **Three-element days (triplets):** 3 movements repeated for a fixed time (about 20 minutes in the original) at moderate, sustainable loads. These are **time priority**: fixed clock, and the score is rounds.
-- **Rotation:** the template spreads M, G and W across single, couplet and triplet days in a repeating cycle (described as 12 days for the 3-on/1-off version), so each element leads in turn [V, study guide; exact sequence P]. One study guide gives the order as M/G/W singles, then MG/MW/GW pairs, then MGW. I could not check that against the original table, so I treat the exact sequence as **[P]**.
-- **Most daily workouts are couplets and triplets** [P: coaching write-ups; the original article favours them, not re-read]. The search did not confirm a specific share or a "10-20 min" norm [!].
+- **Rotation [corrected, see 12]:** the original 12-day table is M | GW | MGW | off | G | WM | GWM | off | W | MG | WMG | off. Each 3-day block runs single → couplet → triplet, and the single-element lead rotates M → G → W. The study-guide order (all singles, then all pairs, then MGW) was **wrong**. The 5-on/2-off table runs single, couplet, triplet, couplet, single each week. The article itself says the template is descriptive and did not generate the daily workouts.
+- **Most daily workouts are couplets and triplets [corrected, see 12]:** in the 90-day sample, 42% of training days were couplets and 25% triplets. CrossFit's Programming Basics says most workouts are 8-15 min; the sample's conditioning median was 15 min (55% in 11-20 min).
 - **Why it works (mechanism, my synthesis):**
   - Rotating which element leads stops one tissue, pattern or energy system being trained hard every day.
   - Couplets let the intensity go high because few movements dilute it.
@@ -44,7 +46,7 @@ Confidence tags (same as `07-conditioning.md`):
 
 ## 4. Rest cycle
 
-- The original rhythm is **3 days on, 1 day off**. Glassman noted its drawback: it doesn't line up with a 5-day working week, so **5 on, 2 off** variants exist (study-guide figures: about 75% vs 71% training days) [V: template reprint summary, study guide, affiliate posts].
+- **[corrected, see 12]** The current mainsite does not run 3 on/1 off: every week in Jul-Nov 2026 was Mon-Wed on, Thu off, Fri-Sat on, Sun off, even though an Essentials article still describes 3 on/1 off. The original rhythm in the 2003 template was **3 days on, 1 day off**. Glassman noted its drawback: it doesn't line up with a 5-day working week, so **5 on, 2 off** variants exist (study-guide figures: about 75% vs 71% training days) [V: template reprint summary, study guide, affiliate posts].
 - Affiliates explain the rest day as part of the design: athletes can push the third day hard because recovery comes next [V, affiliate blog].
 - A third-party L3 guide flags people training 6 days a week on 3-on/1-off as at risk of non-functional overreaching [P].
 - **App mapping:** the app already has a stricter hard/easy budget (≤2-4 hard days, never 3 hard in a row, alternate H with M/E). I map the rest cycle onto those rules instead of adding a second layer.
@@ -90,7 +92,7 @@ Confidence tags (same as `07-conditioning.md`):
 - **"Rx" as a default.** Mainsite loads and high-skill gymnastics are for experienced athletes. The app keeps its scaling ladder, skill gates and newcomer ramp (rhabdomyolysis risk is highest with unaccustomed volume).
 - **5-6 high-intensity days a week** for an owner who also lifts and runs. The hard/easy budget wins.
 - **Copying named workouts.** Short named references are fine in prose, but generated plans build their own metcons from the owner's equipment.
-- **A strict 12-day M/G/W sequence.** Not verified, and the app plans weekly rotations with strength and running days in between. Only the principle (rotate which element leads) is encoded.
+- **A strict 12-day M/G/W sequence.** Now verified (see 12), but still not adopted literally: the app plans weekly rotations with strength and running days in between. The principle (single → couplet → triplet, lead rotating M → G → W) is encoded in `conditioning.md` §9.
 
 ## 11. Changes made in the app (summary)
 
