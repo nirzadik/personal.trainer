@@ -1,4 +1,4 @@
-// Owner: Agent D (v2 feedback + review: Agent F). Logging planned workouts from the Plan tab: "Mark as done" /
+// Owner: Agent D (v2 feedback + review: Agent F). Logging planned workouts from the Plan tab: "Start" (live sheet, workout.js) /
 // "Done as planned" / "Skip". Shared by plan.js (card actions) and history.js (the prefilled quick-log form). Keeps
 // the session log and the rotation consistent, and every write comes with an Undo that reverts both.
 // v2: the Easy / Fine / Hard feedback control, and the post-workout review the save tap starts (coach.reviewWorkout).

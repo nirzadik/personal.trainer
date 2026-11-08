@@ -1631,7 +1631,7 @@ dialog.ws-sheet { height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px
   color: var(--ink);
 }
 .ws-count { color: var(--ink-3); }
-.ws-count:not(:empty)::before { content: "·"; margin-right: 8px; }
+.ws-count:not(:empty)::before { content: "\00B7"; margin-right: 8px; }
 .ws-bar { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; }
 .ws-bar span { display: block; height: 100%; width: 0; background: var(--ok); transition: width 0.3s ease; }
 
@@ -1655,24 +1655,6 @@ dialog.ws-sheet { height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px
 .ws-ready .seg { min-width: 0; padding: 0; }
 .ws-ready-hint { flex-basis: 100%; font-size: var(--fs-xs); color: var(--ink-3); }
 
-.ws-warmup { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
-.ws-warmup summary {
-  list-style: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 48px;
-  padding: 0 12px;
-  font-weight: 600;
-  cursor: pointer;
-  border-radius: inherit;
-}
-.ws-warmup summary::-webkit-details-marker { display: none; }
-.ws-warmup summary .icon { color: var(--ink-3); transition: transform 0.15s ease; }
-.ws-warmup[open] summary .icon { transform: rotate(180deg); }
-.ws-warmup ul { padding: 0 12px 12px; display: grid; gap: 4px; font-size: var(--fs-sm); }
-.ws-sub { color: var(--ink-3); font-weight: 500; }
 
 .ws-section { display: grid; gap: 10px; }
 .ws-card { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); min-width: 0; }
@@ -1855,4 +1837,40 @@ html.kb-open .ws-sheet .ws-finish { min-height: 44px; font-size: 1.0625rem; }
 /* Plan card: an in-progress workout */
 .w-actions.w-live { display: grid; gap: 8px; justify-items: start; }
 .w-live-status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--ok); }
+/* plan-order block sections (same headers as the Plan tab), supersets, warm-up / cool-down checklists */
+.ws-blk { display: grid; gap: 8px; min-width: 0; }
+.ws-blk + .ws-blk { padding-top: 12px; border-top: 1px solid var(--line); }
+.ws-ex-label { min-width: 0; }
+.ws-ex-name .ss-tag { margin-right: 0; vertical-align: 0; }
+.ws-superset { display: grid; gap: 8px; padding-left: 10px; border-left: 3px solid var(--ink); }
+.ws-ss-label { margin-bottom: -2px; }
+.ws-checklist { list-style: none; display: grid; gap: 6px; }
+.ws-tick {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+.ws-tick-box {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--line-strong);
+  border-radius: 6px;
+  color: transparent;
+}
+.ws-tick[aria-pressed="true"] { background: var(--ok-bg); border-color: transparent; }
+.ws-tick[aria-pressed="true"] .ws-tick-box { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.ws-tick-text { min-width: 0; overflow-wrap: anywhere; }
+.ws-moves { gap: 4px; }
+.ws-run-rx { font-weight: 600; overflow-wrap: anywhere; }
 /* end live workout sheet */

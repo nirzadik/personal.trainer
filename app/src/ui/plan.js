@@ -1,5 +1,5 @@
 // Owner: Agent D. Plan tab: agreed plan in rotation order (Done / Up next / Later) with targets from
-// core.nextTarget, Mark as done / Done as planned / Skip per workout (logged sessions link to History),
+// core.nextTarget, Start (live workout sheet, Resume / Discard while in progress) / Done as planned / Skip per workout (logged sessions link to History),
 // the draft with validation chips and Approve / Ask for changes / Regenerate, and plan generation with an
 // elapsed timer and Stop. Styles: the "plan quick-log" section of styles.css.
 // v2 (Agent S): a Swap control on every strength and conditioning movement (agreed plan and draft) that
@@ -598,9 +598,7 @@ export function mountPlan(el, ctx) {
       replaceChildren(host,
         h("p", { class: "w-live-status num" },
           h("span", { class: "ws-dot", "aria-hidden": "true" }),
-          "In progress · ",
-          h("span", { "data-live-key": `${plan.id}|${w.id}` }, liveElapsedText(live)),
-          p?.total ? ` · ${p.done}/${p.total} done` : null),
+          h("span", {}, "In progress · ", h("span", { "data-live-key": `${plan.id}|${w.id}` }, liveElapsedText(live)), p?.total ? ` · ${p.done}/${p.total} done` : null)),
         h("div", { class: "btn-row" },
           button({ id: `w${slug}-resume`, label: "Resume", icon: "play", kind: "primary", small: true, onClick: () => openWorkoutLog(ctx, plan, w) }),
           button({

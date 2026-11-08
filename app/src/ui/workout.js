@@ -105,6 +105,16 @@ export function liveElapsedText(d) {
 function newLive(ctx, plan, workout) {
   const s = workoutDraft(ctx, plan, workout);
   const slots = swappableItems(workout).filter((x) => x.kind === "strength" && (x.item?.exerciseId || x.item?.name));
+  const blocks = workout.blocks || [];
+  const condBlocks = blocks.map((b, i) => (b?.kind === "conditioning" ? i : -1)).filter((i) => i >= 0);
+  const ssCount = {};
+  const ssTag = (slot) => {
+    const g = slot?.item?.supersetGroup;
+    if (!g) return null;
+    const k = `${slot.blockIndex}:${g}`;
+    ssCount[k] = (ssCount[k] || 0) + 1;
+    return `${g}${ssCount[k]}`;
+  };
   const now = Date.now();
   return {
     v: 1,
@@ -126,6 +136,9 @@ function newLive(ctx, plan, workout) {
       exerciseId: ex.exerciseId,
       name: exerciseName(ctx.catalog, ex.exerciseId, ex.name),
       itemIndex: slots[i]?.itemIndex ?? null,
+      blockIndex: slots[i]?.blockIndex ?? null,
+      ssGroup: slots[i]?.item?.supersetGroup || null,
+      ssTag: ssTag(slots[i]),
       incKg: Number(slots[i]?.item?.incrementKg) > 0 ? Number(slots[i].item.incrementKg) : 2.5,
       bw: Boolean(ex.sets?.[0]?.bodyweight),
       target: ex.target || null,
@@ -134,7 +147,9 @@ function newLive(ctx, plan, workout) {
       swappedFrom: null,
       sets: (ex.sets || []).map((st) => ({ loadKg: st.loadKg ?? null, reps: st.reps ?? null, rir: st.rir ?? null, bodyweight: Boolean(st.bodyweight), done: false, edited: false })),
     })),
+    checks: {}, // warm-up / cool-down / mobility checklists: { [blockIndex]: [bool per item] }
     run: s.run ? {
+      blockIndex: blocks.findIndex((b) => b?.kind === "run"),
       runType: s.run.runType || "easy",
       distanceKm: s.run.distanceKm ?? null,
       durationSec: s.run.durationSec ?? null,
@@ -143,16 +158,29 @@ function newLive(ctx, plan, workout) {
       target: s.run.target || null,
       done: false,
     } : null,
-    conditioning: (s.conditioning || []).map((c) => ({ ...c, result: { ...(c.result || {}) }, feedback: null, done: false })),
+    conditioning: (s.conditioning || []).map((c, k) => ({ ...c, blockIndex: condBlocks[k] ?? null, result: { ...(c.result || {}) }, feedback: null, done: false })),
   };
 }
 
-/** Section order of the workout: strength / run / conditioning by first block appearance. */
-function sectionOrder(workout) {
-  const out = [];
-  for (const b of workout?.blocks || []) if (["strength", "run", "conditioning"].includes(b?.kind) && !out.includes(b.kind)) out.push(b.kind);
-  for (const k of ["strength", "run", "conditioning"]) if (!out.includes(k)) out.push(k);
-  return out;
+/**
+ * Block header [title, sub] in the Plan tab's wording (plan.js blockView): STRENGTH, RUN · tempo · 7 km,
+ * AMRAP · 12 min, WARM-UP · 8 min, …
+ */
+function blockHeading(b) {
+  if (b.kind === "strength") return ["Strength", ""];
+  if (b.kind === "run") return ["Run", [prettifyId(b.runType || "run"), b.totalKm ? fmtKm(b.totalKm) : null].filter(Boolean).join(" · ")];
+  if (b.kind === "conditioning") {
+    const shape = [];
+    if (b.format === "RFT" && b.rounds) shape.push(`${b.rounds} rounds`);
+    else if (b.rounds && b.format !== "AMRAP") shape.push(plural(b.rounds, "round"));
+    if (b.minutes) shape.push(`${b.minutes} min`);
+    if (b.workSec || b.restSec) shape.push(`${b.workSec || 0} s on / ${b.restSec || 0} s off`);
+    if (b.timeCapMin) shape.push(`cap ${b.timeCapMin} min`);
+    if (b.targetRpe) shape.push(`RPE ${b.targetRpe}`);
+    return [FORMAT_LABEL[b.format] || b.format || "Conditioning", shape.join(" · ")];
+  }
+  const title = { warmup: "Warm-up", cooldown: "Cool-down", mobility: "Mobility" }[b.kind] || prettifyId(b.kind);
+  return [title, b.minutes ? `${b.minutes} min` : ""];
 }
 
 function parseNum(v) {
@@ -266,22 +294,110 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
   function render(focusId) {
     const scroll = sheet.body.scrollTop;
     exNodes.length = 0;
-    const sections = [];
-    for (const kind of sectionOrder(workout)) {
-      if (kind === "strength" && live.strength.length) sections.push(h("section", { class: "ws-section", "aria-label": "Exercises" }, live.strength.map((_, ei) => (exNodes[ei] = exerciseCard(ei)))));
-      if (kind === "run" && live.run) sections.push(runCard());
-      if (kind === "conditioning" && live.conditioning.length) sections.push(live.conditioning.map((_, ci) => condCard(ci)));
-    }
+    const blocks = workout.blocks || [];
+    const parts = [];
+    let runShown = false;
+    blocks.forEach((b, bi) => {
+      if (!b || typeof b !== "object") return;
+      if (b.kind === "strength") {
+        const idx = live.strength.map((e, i) => (e.blockIndex === bi ? i : -1)).filter((i) => i >= 0);
+        if (idx.length) parts.push(blockSection(b, bi, strengthGroups(idx)));
+      } else if (b.kind === "run") {
+        if (live.run && !runShown && (live.run.blockIndex == null || live.run.blockIndex === bi || live.run.blockIndex < 0)) {
+          runShown = true;
+          parts.push(blockSection(b, bi, runCard()));
+        }
+      } else if (b.kind === "conditioning") {
+        const ci = live.conditioning.findIndex((c, k) => (c.blockIndex ?? k) === bi);
+        if (ci >= 0) parts.push(blockSection(b, bi, condCard(ci, b)));
+      } else if ((b.items || []).length) {
+        parts.push(blockSection(b, bi, checklist(b, bi)));
+      }
+    });
+    // anything not tied to a plan block (a draft from an older version): keep it loggable at the end
+    const orphans = live.strength.map((e, i) => (e.blockIndex == null || !blocks[e.blockIndex] ? i : -1)).filter((i) => i >= 0);
+    if (orphans.length) parts.push(blockSection({ kind: "strength" }, "x", strengthGroups(orphans)));
+    if (live.run && !runShown) parts.push(blockSection({ kind: "run", runType: live.run.runType }, "x", runCard()));
     replaceChildren(form,
       note ? h("p", { class: "ws-note-banner" }, icon("alert", { size: 18 }), h("span", {}, note)) : null,
       readinessRow(),
-      warmupCard(),
-      sections,
+      parts,
       wrapUp(),
     );
     sheet.body.scrollTop = scroll;
     refreshStatus();
     if (focusId) focusSoon(focusId);
+  }
+
+  function blockSection(b, bi, content) {
+    const [title, sub] = blockHeading(b);
+    const id = `ws-blk-${bi}`;
+    return h("section", { class: ["ws-blk", `ws-blk-${b.kind}`], "aria-labelledby": id },
+      h("h4", { class: "block-title ws-blk-title", id }, title, sub ? h("span", { class: "block-sub num" }, sub) : null),
+      content,
+    );
+  }
+
+  /** Exercise cards in plan order; consecutive exercises of one superset share a bracket. */
+  function strengthGroups(idx) {
+    const out = [];
+    for (let k = 0; k < idx.length; k++) {
+      const ex = live.strength[idx[k]];
+      if (!ex.ssGroup) {
+        out.push(exNodes[idx[k]] = exerciseCard(idx[k]));
+        continue;
+      }
+      const members = [];
+      while (k < idx.length && live.strength[idx[k]].ssGroup === ex.ssGroup) members.push(idx[k++]);
+      k -= 1;
+      out.push(h("div", { class: "ws-superset", role: "group", "aria-label": `Superset ${ex.ssGroup}` },
+        h("p", { class: "ws-mini-label ws-ss-label" }, `Superset ${ex.ssGroup} · alternate sets`),
+        members.map((i) => (exNodes[i] = exerciseCard(i))),
+      ));
+    }
+    return h("div", { class: "ws-section" }, out);
+  }
+
+  /** Warm-up / cool-down / mobility items as a tickable checklist (kept in the draft, noted on Finish). */
+  function checklist(b, bi) {
+    const items = b.items || [];
+    if (!live.checks) live.checks = {};
+    const ticks = Array.isArray(live.checks[bi]) ? live.checks[bi] : (live.checks[bi] = items.map(() => false));
+    return h("ul", { class: "ws-checklist" }, items.map((it, k) => {
+      const name = it.name || exerciseName(catalog, it.exerciseId);
+      const btn = h("button", {
+        type: "button",
+        class: "ws-tick",
+        id: `ws-b${bi}-i${k}`,
+        "aria-pressed": String(Boolean(ticks[k])),
+        onClick: () => {
+          ticks[k] = !ticks[k];
+          btn.setAttribute("aria-pressed", String(ticks[k]));
+          persist();
+        },
+      },
+        h("span", { class: "ws-tick-box", "aria-hidden": "true" }, icon("check", { size: 18 })),
+        h("span", { class: "ws-tick-text" },
+          h("span", { class: "li-name" }, name),
+          it.detail ? h("span", { class: "li-detail num" }, ` · ${it.detail}`) : null,
+        ),
+      );
+      return h("li", {}, btn);
+    }));
+  }
+
+  /** "Warm-up done. Cool-down: 1/3 done." for the session notes. */
+  function checklistNotes() {
+    const out = [];
+    (workout.blocks || []).forEach((b, bi) => {
+      const ticks = live.checks?.[bi];
+      if (!Array.isArray(ticks) || !ticks.length || ["strength", "run", "conditioning"].includes(b?.kind)) return;
+      const n = ticks.filter(Boolean).length;
+      if (!n) return;
+      const [title] = blockHeading(b);
+      out.push(n === ticks.length ? `${title} done.` : `${title}: ${n}/${ticks.length} done.`);
+    });
+    return out.join(" ");
   }
 
   function focusSoon(id) {
@@ -313,19 +429,6 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
         },
       }),
       h("span", { class: "ws-ready-hint", "aria-hidden": "true" }, "1 drained · 5 great"),
-    );
-  }
-
-  function warmupCard() {
-    const items = (workout.blocks || []).filter((b) => b?.kind === "warmup").flatMap((b) => b.items || []);
-    if (!items.length) return null;
-    const mins = (workout.blocks || []).filter((b) => b?.kind === "warmup").reduce((a, b) => a + (Number(b.minutes) || 0), 0);
-    return h("details", { class: "ws-warmup" },
-      h("summary", {}, h("span", {}, "Warm-up", mins ? h("span", { class: "ws-sub num" }, ` · ${mins} min`) : null), icon("chevron", { size: 18 })),
-      h("ul", { class: "plain-list" }, items.map((it) => h("li", {},
-        h("span", { class: "li-name" }, it.name || exerciseName(catalog, it.exerciseId)),
-        it.detail ? h("span", { class: "li-detail num" }, ` · ${it.detail}`) : null,
-      ))),
     );
   }
 
@@ -384,7 +487,7 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
       },
     },
       h("span", { class: "ws-ex-text" },
-        h("span", { class: "ws-ex-name" }, ex.name, ex.swappedFrom ? h("span", { class: "sw-mark" }, "Swapped") : null),
+        h("span", { class: "ws-ex-name" }, ex.ssTag ? h("span", { class: "ss-tag" }, ex.ssTag) : null, h("span", { class: "ws-ex-label" }, ex.name), ex.swappedFrom ? h("span", { class: "sw-mark" }, "Swapped") : null),
         h("span", { class: "ws-ex-rx num" }, rxText(ex)),
       ),
       h("span", { class: ["ws-count-pill", "num", complete && "is-complete", done > 0 && !complete && "is-partial"], "aria-label": `${done} of ${plural(ex.sets.length, "set")} done` },
@@ -658,8 +761,8 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
     const fill = () => replaceChildren(card,
       h("div", { class: "ws-block-head" },
         h("div", { class: "ws-ex-text" },
-          h("h3", { class: "ws-ex-name" }, `Run · ${prettifyId(r.runType)}`),
-          rx ? h("p", { class: "ws-ex-rx num" }, rx) : null,
+          h("p", { class: "ws-mini-label" }, "Target"),
+          h("p", { class: "ws-run-rx num" }, rx || prettifyId(r.runType)),
         ),
         blockCheck("ws-run-check", r.done, r.done ? "Run done. Tap to undo" : "Run done", () => {
           showError("");
@@ -698,7 +801,7 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
   }
 
   // ---- conditioning --------------------------------------------------------------------------
-  function condCard(ci) {
+  function condCard(ci, block = null) {
     const c = live.conditioning[ci];
     const t = c.target || {};
     const pre = `ws-c${ci}`;
@@ -712,10 +815,15 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
     const card = h("article", { class: ["ws-card", "ws-block", c.done && "is-complete"], id: pre });
     const fill = () => replaceChildren(card,
       h("div", { class: "ws-block-head" },
-        h("div", { class: "ws-ex-text" },
-          h("h3", { class: "ws-ex-name" }, head[0]),
-          head.length > 1 ? h("p", { class: "ws-ex-rx num" }, head.slice(1).join(" · ")) : null,
-        ),
+        (block?.items || []).length
+          ? h("ul", { class: "plain-list movements ws-moves" }, block.items.map((it) => h("li", {},
+            [it.reps ? `${it.reps}` : null, it.calories ? `${it.calories} cal` : null, it.distanceM ? `${it.distanceM} m` : null, it.durationSec ? `${it.durationSec} s` : null].some(Boolean)
+              ? h("span", { class: "mv-amt num" }, [it.reps ? `${it.reps}` : null, it.calories ? `${it.calories} cal` : null, it.distanceM ? `${it.distanceM} m` : null, it.durationSec ? `${it.durationSec} s` : null].filter(Boolean).join(" "))
+              : null,
+            h("span", { class: "li-name" }, it.name || exerciseName(catalog, it.exerciseId)),
+            it.loadKg ? h("span", { class: "li-detail num" }, ` · ${fmtKg(it.loadKg)} kg`) : null,
+          )))
+          : h("div", { class: "ws-ex-text" }, h("p", { class: "ws-desc" }, c.description || head[0])),
         blockCheck(`${pre}-check`, c.done, c.done ? `${head[0]} done. Tap to undo` : `${head[0]} done`, () => {
           showError("");
           c.done = !c.done;
@@ -727,7 +835,6 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
           focusSoon(`${pre}-check`);
         }),
       ),
-      c.description ? h("p", { class: "ws-desc" }, c.description) : null,
       t.scaling ? h("p", { class: "ws-hint" }, h("strong", {}, "Scaling "), t.scaling) : null,
       c.format === "AMRAP"
         ? h("div", { class: "ws-grid" }, numField(`${pre}-rounds`, "Rounds", "rounds", "0"), numField(`${pre}-reps`, "+ Reps", "reps", "0"))
@@ -820,6 +927,8 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
     if (saving) return;
     showError("");
     const input = core.liveSessionInput(live, { now: Date.now() });
+    const ticked = checklistNotes();
+    if (ticked) input.notes = [input.notes, ticked].filter(Boolean).join("\n");
     if (!input.date) {
       showError("Pick a date in Wrap-up.");
       focusSoon("ws-date");
