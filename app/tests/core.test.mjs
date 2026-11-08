@@ -217,6 +217,61 @@ test("nextTarget: other branches (no history, linear add, rpe, none, AMRAP, body
   assert.equal(typeof bw.note, "string");
 });
 
+test("nextTarget: owner feedback (easy bump, hard hold, hard twice reduce, hard + pain protocol)", () => {
+  const item = { exerciseId: "bench_press", sets: 3, reps: "8-12", targetRir: 2, incrementKg: 2.5, progression: "double" };
+  const at = (date, sets, feedback, extra) => S(date, [{ exerciseId: "bench_press", sets, feedback }], extra);
+  // all sets within 1 rep of the top + "easy" → add the increment (without feedback it would be add_reps)
+  const nearTop = ["80x11@2", "80x11@2", "80x12@2"];
+  const plain = core.nextTarget([at("2026-11-04", nearTop)], item, { today: TODAY });
+  assert.equal(plain.reason, "add_reps");
+  const easy = core.nextTarget([at("2026-11-04", nearTop, "easy")], item, { today: TODAY });
+  assert.deepEqual([easy.reason, easy.loadKg, easy.reps], ["add_load", 82.5, "8"]);
+  assert.ok(easy.flags.includes("feedback_easy"));
+  // "easy" but 2 reps short: progress as normal (add reps)
+  assert.equal(core.nextTarget([at("2026-11-04", ["80x10@2", "80x10@2"], "easy")], item, { today: TODAY }).reason, "add_reps");
+  // fixed reps "5" missed by one + easy → add load
+  const five = core.nextTarget([S("2026-11-04", [{ exerciseId: "back_squat", sets: ["100x5@2", "100x5@2", "100x4@2"], feedback: "easy" }])],
+    { exerciseId: "back_squat", reps: "5", targetRir: 2, incrementKg: 2.5, progression: "double" }, { today: TODAY });
+  assert.deepEqual([five.reason, five.loadKg], ["add_load", 102.5]);
+  // "hard" holds the load even when every set hit the top
+  const top = ["80x12@2", "80x12@2", "80x12@2"];
+  assert.equal(core.nextTarget([at("2026-11-04", top)], item, { today: TODAY }).reason, "add_load");
+  const hard = core.nextTarget([at("2026-11-04", top, "hard")], item, { today: TODAY });
+  assert.deepEqual([hard.reason, hard.loadKg, hard.reps], ["feedback_hold", 80, "12"]);
+  assert.ok(hard.flags.includes("feedback_hard"));
+  // "hard" twice in a row → −5-10 %
+  const twice = core.nextTarget([at("2026-10-31", top, "hard"), at("2026-11-04", top, "hard")], item, { today: TODAY });
+  assert.equal(twice.reason, "feedback_reduce");
+  assert.ok(twice.loadKg < 80 && twice.loadKg >= 72, `reduced load ${twice.loadKg}`);
+  // "fine" in between resets the streak
+  assert.equal(core.nextTarget([at("2026-10-31", top, "hard"), at("2026-11-02", top, "fine"), at("2026-11-04", top, "hard")], item, { today: TODAY }).reason, "feedback_hold");
+  // "hard" + pain → pain protocol (no progression)
+  const pain = core.nextTarget([at("2026-11-04", top, "hard", { pain: [{ area: "shoulder", score: 4 }] })], item, { today: TODAY });
+  assert.deepEqual([pain.reason, pain.loadKg], ["pain_protocol", 80]);
+  assert.match(pain.note, /pain protocol/);
+  // bodyweight: hard holds reps, easy near the top adds load
+  const pu = (sets, feedback) => [S("2026-11-04", [{ exerciseId: "pull_up", sets, feedback }])];
+  const puItem = { exerciseId: "pull_up", reps: "8-12", targetRir: 2, incrementKg: 2.5 };
+  assert.deepEqual([core.nextTarget(pu(["bwx10@2", "bwx10@2"], "hard"), puItem, { today: TODAY }).reason], ["feedback_hold"]);
+  assert.equal(core.nextTarget(pu(["bwx11@2", "bwx12@2"], "easy"), puItem, { today: TODAY }).reason, "add_load");
+});
+
+test("normalizeSession keeps and validates feedback and reviewedAt", () => {
+  const s = core.normalizeSession({
+    strength: [{ exerciseId: "back_squat", sets: ["100x5"], feedback: "hard" }, { exerciseId: "bench_press", sets: ["80x8"], feedback: "Tough" },
+      { exerciseId: "deadlift", sets: ["140x5"], feedback: "meh" }, { exerciseId: "barbell_row", sets: ["60x10"], feedback: "OK" }],
+    conditioning: [{ format: "AMRAP", description: "x", feedback: "easy" }, { format: "EMOM", description: "y" }],
+    reviewedAt: "2026-11-07T10:00:00.000Z",
+  }, { today: TODAY });
+  assert.deepEqual(s.strength.map((e) => e.feedback), ["hard", "hard", null, "fine"]);
+  assert.deepEqual(s.conditioning.map((c) => c.feedback), ["easy", null]);
+  assert.equal(s.reviewedAt, "2026-11-07T10:00:00.000Z");
+  assert.equal(core.normalizeSession({}).reviewedAt, null);
+  assert.deepEqual(core.FEEDBACK_VALUES, ["easy", "fine", "hard"]);
+  assert.equal(core.normalizeFeedback(" too easy "), "easy");
+  assert.equal(core.normalizeFeedback(3), null);
+});
+
 test("exerciseStats shape", () => {
   const sessions = buildSessions(TODAY);
   const st = core.exerciseStats(sessions, "bench_press");
@@ -656,7 +711,7 @@ test("normalizeSession fills defaults and maps names", () => {
   assert.deepEqual(s.strength[0].sets, [
     { type: "work", loadKg: 30, bodyweight: false, reps: 10, rir: 2 }, { type: "work", loadKg: 30, bodyweight: false, reps: 10, rir: 2 },
     { type: "work", loadKg: 32, bodyweight: false, reps: 8, rir: 1 }]);
-  assert.deepEqual(s.strength[1], { exerciseId: "pull_up", name: "pullups", sets: [{ type: "work", loadKg: 10, bodyweight: true, reps: 6, rir: 1 }] });
+  assert.deepEqual(s.strength[1], { exerciseId: "pull_up", name: "pullups", sets: [{ type: "work", loadKg: 10, bodyweight: true, reps: 6, rir: 1 }], feedback: null });
   assert.equal(s.strength[2].exerciseId, null);
   for (const k of ["id", "planId", "workoutId", "missedReason", "readiness", "sessionRpe", "run", "durationMin"]) assert.equal(s[k], null, k);
   assert.deepEqual([s.pain, s.conditioning, s.prs], [[], [], []]);

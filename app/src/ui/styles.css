@@ -1503,3 +1503,45 @@ details > summary::-webkit-details-marker { display: none; }
 .pl-toast { flex-wrap: wrap; row-gap: 0; }
 .pl-toast .toast-action + .toast-action { margin-left: -8px; }
 /* end plan quick-log */
+
+/* ============================================================================================
+   v2: swap (Agent S): per-exercise Swap control on Plan rows, "Swapped" marker, swap sheet. */
+.lift-side { display: grid; justify-items: end; align-content: start; gap: 8px; }
+.sw-btn { gap: 6px; min-height: 44px; padding: 0 12px; color: var(--accent-text); border-color: var(--line-strong); }
+.sw-btn .icon { flex: none; }
+.sw-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.sw-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.sw-mark {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+.lift.is-swapped .lift-name,
+.mv-row.is-swapped .li-name { color: var(--ink); }
+
+.plain-list li.mv-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mv-text { min-width: 0; overflow-wrap: anywhere; }
+.mv-row .sw-btn { flex: none; }
+
+.sw-sheet { display: grid; gap: 18px; }
+.sw-keep { font-size: var(--fs-sm); color: var(--ink-2); }
+.sw-section { display: grid; gap: 8px; }
+.sw-list { max-height: none; overflow: visible; }
+.sw-option { min-height: 56px; padding: 8px 12px; }
+.sw-opt-text { display: grid; gap: 2px; min-width: 0; }
+.sw-reason { font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; }
+.sw-option.is-caution .sw-reason { color: var(--warn); }
+.sw-opt-go { flex: none; color: var(--ink-3); display: inline-flex; }
+.sw-option:hover .sw-opt-go { color: var(--accent-text); }
+.sw-option:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+/* end v2: swap */

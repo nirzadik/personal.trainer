@@ -1,4 +1,4 @@
-// Owner: Agent C. See CONTRACT.md §4 and §5.3.
+// Owner: Agent C (v2 additions: Agent S). See CONTRACT.md §4 and §5.3, CONTRACT-v2.md.
 //
 // The app's data layer over the `db` capability. Everything lives under the
 // viewer's private subtree `data/users/<uid>/`:
@@ -7,6 +7,7 @@
 //   data/users/<uid>/coach                      CoachMemory
 //   data/users/<uid>/state                      AppState
 //   data/users/<uid>/body                       { entries: [{ date, kg }] }   (≤ 400, oldest first)
+//   data/users/<uid>/wellness                   { entries: [WellnessEntry] }  (≤ 400, one per date, oldest first)
 //   data/users/<uid>/plans/weeks/<planId>       Plan
 //   data/users/<uid>/log/sessions/<sessionId>   Session
 //   data/users/<uid>/chat/days/<YYYY-MM-DD>     { date, messages }            (≤ 300 per day)
@@ -41,6 +42,8 @@ export const LIMITS = Object.freeze({
   noteChars: 1000,
   summaryChars: 2000,
   bodyEntries: 400,
+  wellnessEntries: 400,
+  wellnessNoteChars: 500,
   chatMessagesPerDay: 300,
   messageChars: 20000,
   /** Byte budget for capped-list docs, safely under the 256 KiB document cap. */
@@ -114,6 +117,30 @@ export function defaultSession() {
     missedReason: null, durationMin: null, readiness: null, sessionRpe: null, notes: "",
     pain: [], strength: [], conditioning: [], run: null, prs: [],
     coachComment: "", createdBy: "manual", createdAt: "", updatedAt: "",
+  };
+}
+
+/** WellnessEntry score fields (0-100) and their numeric siblings with plausible ranges (CONTRACT-v2). */
+const WELLNESS_RANGES = Object.freeze({
+  trainingReadiness: [0, 100],
+  sleepScore: [0, 100],
+  sleepHours: [0, 24],
+  hrvMs: [0, 400],
+  bodyBattery: [0, 100],
+  restingHr: [20, 250],
+  stress: [0, 100],
+});
+const HRV_STATUSES = ["balanced", "unbalanced", "low", "poor"];
+const WELLNESS_SOURCES = ["manual", "garmin"];
+
+/**
+ * A WellnessEntry with every field null (CONTRACT-v2); `source` defaults to "manual".
+ * @returns {object}
+ */
+export function defaultWellnessEntry() {
+  return {
+    date: "", trainingReadiness: null, sleepScore: null, sleepHours: null, hrvStatus: null, hrvMs: null,
+    bodyBattery: null, restingHr: null, stress: null, notes: null, source: "manual",
   };
 }
 
@@ -323,6 +350,7 @@ function buildStore(db, uid, now) {
     coach: `${base}/coach`,
     state: `${base}/state`,
     body: `${base}/body`,
+    wellness: `${base}/wellness`,
     plans: `${base}/plans/weeks`,
     sessions: `${base}/log/sessions`,
     chat: `${base}/chat/days`,
@@ -538,6 +566,91 @@ function buildStore(db, uid, now) {
     list: guard(async () => clone((await readDoc(P.body))?.entries ?? [])),
   };
 
+  // -- wellness ---------------------------------------------------------------
+  /** Validate and normalize a WellnessEntry input (only known fields; missing → null). */
+  function normalizeWellness(input) {
+    if (!isPlainObject(input)) throw invalid("wellness entry must be an object");
+    const out = { date: checkDate(input.date ?? today(), "wellness date") };
+    for (const [key, [lo, hi]] of Object.entries(WELLNESS_RANGES)) {
+      const raw = input[key];
+      if (raw == null || raw === "") { out[key] = null; continue; }
+      const v = Number(raw);
+      if (!Number.isFinite(v) || v < lo || v > hi) throw invalid(`${key} must be a number from ${lo} to ${hi}, got ${JSON.stringify(raw)}`);
+      out[key] = v;
+    }
+    const hrv = input.hrvStatus == null || input.hrvStatus === "" ? null : String(input.hrvStatus).toLowerCase();
+    if (hrv !== null && !HRV_STATUSES.includes(hrv)) throw invalid(`hrvStatus must be one of ${HRV_STATUSES.join(", ")}, got ${JSON.stringify(input.hrvStatus)}`);
+    out.hrvStatus = hrv;
+    const notes = input.notes == null ? "" : String(input.notes).trim();
+    out.notes = notes ? notes.slice(0, LIMITS.wellnessNoteChars) : null;
+    out.source = WELLNESS_SOURCES.includes(input.source) ? input.source : "manual";
+    return out;
+  }
+  const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const wellnessEntries = (doc) => (Array.isArray(doc?.entries) ? clone(doc.entries) : []);
+
+  const wellness = {
+    /**
+     * Record a wellness reading. One entry per date: a second add for the same
+     * date merges into it (fields given as null / missing keep the stored
+     * value). Entries stay sorted oldest → newest, capped at 400. `date`
+     * defaults to today; `source` "manual" | "garmin" (default "manual").
+     * Rejects `invalid_argument` for out-of-range values or an entry with nothing in it.
+     * @param {object} entry  WellnessEntry fields
+     * @returns {Promise<{ entry, undo }>} the merged entry for that date
+     */
+    add: guard(async (entry) => {
+      const input = normalizeWellness(entry);
+      const given = Object.entries(input).filter(([k, v]) => k !== "date" && k !== "source" && v !== null);
+      if (!given.length) throw invalid("wellness entry has no values");
+      const { date } = input;
+      let replaced = null;
+      let merged = null;
+      let evicted = [];
+      const { prev } = await rmw(P.wellness, (cur) => {
+        const entries = wellnessEntries(cur).filter((e) => {
+          if (e?.date !== date) return true;
+          replaced = e;
+          return false;
+        });
+        merged = { ...defaultWellnessEntry(), ...(replaced ?? {}), ...Object.fromEntries(given), date, source: input.source };
+        entries.push(merged);
+        entries.sort(byDate);
+        evicted = entries.length > LIMITS.wellnessEntries ? entries.splice(0, entries.length - LIMITS.wellnessEntries) : [];
+        return { ...clone(cur ?? {}), entries };
+      });
+      const undo = makeUndo(() => rmw(P.wellness, (cur) => {
+        let entries = wellnessEntries(cur).filter((e) => e?.date !== date);
+        if (replaced) entries.push(replaced);
+        const dates = new Set(entries.map((e) => e.date));
+        entries.push(...evicted.filter((e) => !dates.has(e.date)));
+        entries.sort(byDate);
+        if (entries.length > LIMITS.wellnessEntries) entries = entries.slice(entries.length - LIMITS.wellnessEntries);
+        return entries.length === 0 && prev === undefined ? DELETE : { ...clone(cur ?? {}), entries };
+      }));
+      return { entry: clone(merged), undo };
+    }),
+    /**
+     * Entries oldest → newest, optionally within [from, to] (inclusive YYYY-MM-DD).
+     * @param {{ from?: string, to?: string }} [range]
+     * @returns {Promise<object[]>}
+     */
+    list: guard(async ({ from, to } = {}) => {
+      if (from != null) checkDate(from, "from");
+      if (to != null) checkDate(to, "to");
+      return wellnessEntries(await readDoc(P.wellness))
+        .filter((e) => (from == null || e.date >= from) && (to == null || e.date <= to))
+        .sort(byDate);
+    }),
+    /**
+     * Live entries, oldest → newest.
+     * @param {(entries: object[], meta: object) => void} cb
+     * @param {{ onError?: Function }} [opts]
+     * @returns {() => void} unsubscribe
+     */
+    subscribe: (cb, opts) => subscribeDoc(P.wellness, (d) => wellnessEntries(d).sort(byDate), cb, opts),
+  };
+
   // -- plans ----------------------------------------------------------------
   const plansColl = () => db.collection(P.plans);
   const PLANS_LOCK = `${P.plans}#lock`; // serializes saveDraft / approve against each other
@@ -640,6 +753,32 @@ function buildStore(db, uid, now) {
         }));
         return { plan: clone(next), archived: previous.map((p) => p.id), state: st.value, undo };
       });
+    }),
+    /**
+     * Patch a plan (draft, agreed or archived): top-level fields are replaced
+     * (no deep merge; `workouts` is replaced as a whole array) and `updatedAt`
+     * is stamped. `id`, `createdAt` and `status` are ignored: status changes go
+     * through saveDraft / approve. Undo puts back only the fields this patch
+     * replaced, so later changes to other fields (e.g. an approval) survive.
+     * Rejects `not_found` for an unknown id.
+     * @param {string} id
+     * @param {object} patch
+     * @returns {Promise<{ plan, undo }>}
+     */
+    update: guard(async (id, patch) => {
+      if (!isPlainObject(patch)) throw invalid("patch must be an object");
+      const path = planPath(id);
+      const p = toJson(patch);
+      for (const k of ["id", "createdAt", "status"]) delete p[k];
+      p.updatedAt = nowISO();
+      let inverse = [];
+      const { next } = await rmw(path, (cur) => {
+        if (!cur) throw new StoreError("not_found", `No plan with id "${id}"`);
+        inverse = Object.keys(p).map((k) => ({ path: [k], had: Object.hasOwn(cur, k), value: Object.hasOwn(cur, k) ? clone(cur[k]) : undefined }));
+        return { ...clone(cur), ...p };
+      });
+      const undo = makeUndo(() => rmw(path, (cur) => (cur ? applyInverse(cur, inverse) : KEEP)));
+      return { plan: clone(next), undo };
     }),
     /**
      * Plans newest first (the newest `limit`, default 50, by weekStart).
@@ -846,8 +985,8 @@ function buildStore(db, uid, now) {
   const byKey = (key) => (a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0);
 
   async function exportAll() {
-    const [p, c, s, b, planList, sessionList, dayList] = await Promise.all([
-      readDoc(P.profile), readDoc(P.coach), readDoc(P.state), readDoc(P.body),
+    const [p, c, s, b, w, planList, sessionList, dayList] = await Promise.all([
+      readDoc(P.profile), readDoc(P.coach), readDoc(P.state), readDoc(P.body), readDoc(P.wellness),
       allDocs(plansColl()), allDocs(sessionsColl()), allDocs(daysColl()),
     ]);
     return {
@@ -859,6 +998,7 @@ function buildStore(db, uid, now) {
         coach: clone(c) ?? null,
         state: clone(s) ?? null,
         body: clone(b) ?? null,
+        wellness: clone(w) ?? null,
         plans: planList.sort(byKey("id")),
         sessions: sessionList.sort((x, y) => byKey("date")(x, y) || byKey("id")(x, y)),
         chat: dayList.sort(byKey("date")),
@@ -878,10 +1018,12 @@ function buildStore(db, uid, now) {
     const d = backup.data;
     if (!isPlainObject(d)) throw invalid("The backup has no data.");
     const out = {};
-    for (const key of ["profile", "coach", "state", "body"]) {
+    for (const key of ["profile", "coach", "state", "body", "wellness"]) {
       if (d[key] != null && !isPlainObject(d[key])) throw invalid(`backup data.${key} must be an object or null`);
       out[key] = d[key] == null ? null : toJson(d[key]);
     }
+    // Backups written before wellness existed leave the stored wellness alone.
+    if (d.wellness === undefined) out.wellness = undefined;
     const list = (key, check) => {
       const arr = d[key] ?? [];
       if (!Array.isArray(arr)) throw invalid(`backup data.${key} must be an array`);
@@ -903,7 +1045,7 @@ function buildStore(db, uid, now) {
       if (!Array.isArray(x.messages)) throw invalid(`backup data.chat[${i}].messages must be an array`);
       return checkDate(x.date, `backup data.chat[${i}].date`);
     });
-    for (const doc of [out.profile, out.coach, out.state, out.body, ...out.plans, ...out.sessions, ...out.chat]) {
+    for (const doc of [out.profile, out.coach, out.state, out.body, out.wellness, ...out.plans, ...out.sessions, ...out.chat]) {
       if (doc && byteSize(doc) > 256 * 1024) throw invalid("A document in the backup is larger than 256 KiB.");
     }
     return out;
@@ -915,7 +1057,8 @@ function buildStore(db, uid, now) {
       [plansColl(), sessionsColl(), daysColl()].map(async (c) => (await c.get()).docs.map((d) => d.id)),
     );
     const tasks = [];
-    for (const key of ["profile", "coach", "state", "body"]) {
+    for (const key of ["profile", "coach", "state", "body", "wellness"]) {
+      if (data[key] === undefined) continue; // not in this backup: keep what is stored
       tasks.push(() => rmw(P[key], () => (data[key] ? data[key] : DELETE)));
     }
     const sync = (items, existing, idOf, pathOf) => {
@@ -936,12 +1079,13 @@ function buildStore(db, uid, now) {
     coach,
     state,
     body,
+    wellness,
     plans,
     sessions,
     chat,
     /**
      * Snapshot of everything as a versioned backup object (JSON-serializable):
-     * `{ format: "personal-trainer-backup", version: 1, exportedAt, data: { profile, coach, state, body, plans, sessions, chat } }`.
+     * `{ format: "personal-trainer-backup", version: 1, exportedAt, data: { profile, coach, state, body, wellness, plans, sessions, chat } }`.
      * Stringify it for downloads.save().
      * @returns {Promise<object>}
      */

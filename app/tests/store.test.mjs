@@ -1058,3 +1058,167 @@ describe("env.getRuntime", () => {
     assert.equal(rt.mode, "mock");
   });
 });
+
+// ===========================================================================
+// v2 (Agent S): plans.update and the wellness namespace (CONTRACT-v2).
+describe("store v2: plans.update", () => {
+  const plan = (weekStart, focus = "f") => ({
+    weekStart, focus, rationale: "r",
+    workouts: [{ id: "W1", title: "A", type: "strength", blocks: [{ kind: "strength", items: [{ exerciseId: "back_squat", name: "Back Squat", sets: 3, reps: "5", loadKg: 100 }] }] }],
+  });
+
+  test("replaces top-level fields (workouts as a whole), stamps updatedAt; undo restores", async () => {
+    const { store, now } = setup();
+    const { plan: draft } = await store.plans.saveDraft(plan("2026-11-08"));
+    now.advance(60_000);
+    const workouts = [{ id: "W1", title: "A", type: "strength", blocks: [{ kind: "strength", items: [{ exerciseId: "leg_press", name: "Leg Press", sets: 3, reps: "5", loadKg: null }] }] }];
+    const res = await store.plans.update(draft.id, { workouts, weeklyTargets: { runKm: 5 } });
+    assert.equal(res.plan.updatedAt, now().toISOString());
+    assert.deepEqual(res.plan.workouts, workouts);
+    assert.deepEqual(res.plan.weeklyTargets, { runKm: 5 }, "top-level fields replace, no deep merge");
+    assert.equal(res.plan.status, "draft");
+    const stored = await store.plans.get(draft.id);
+    assert.equal(stored.workouts[0].blocks[0].items[0].exerciseId, "leg_press");
+    await res.undo();
+    const back = await store.plans.get(draft.id);
+    assert.deepEqual(back.workouts, draft.workouts);
+    assert.deepEqual(back.weeklyTargets, draft.weeklyTargets);
+    assert.equal(Object.hasOwn(back, "updatedAt"), false, "a field the plan did not have is removed again");
+    await res.undo(); // idempotent
+  });
+
+  test("works on the agreed plan; ignores id/status/createdAt; undo keeps a later approval", async () => {
+    const { store } = setup();
+    const { plan: a } = await store.plans.saveDraft(plan("2026-11-01"));
+    const res = await store.plans.update(a.id, { focus: "swapped", id: "x", status: "archived", createdAt: "nope" });
+    assert.equal(res.plan.id, a.id);
+    assert.equal(res.plan.status, "draft");
+    assert.equal(res.plan.createdAt, a.createdAt);
+    await store.plans.approve(a.id);
+    const agreed = await store.plans.update(a.id, { notes: ["n"] });
+    assert.equal(agreed.plan.status, "agreed");
+    assert.deepEqual(agreed.plan.notes, ["n"]);
+    await res.undo();
+    const cur = await store.plans.get(a.id);
+    assert.equal(cur.focus, "f");
+    assert.equal(cur.status, "agreed", "the approval after the update survives its undo");
+    assert.deepEqual(cur.notes, ["n"]);
+  });
+
+  test("unknown id → not_found; bad input → invalid_argument; no user → no_user", async () => {
+    const { store } = setup();
+    await assert.rejects(store.plans.update("2026-01-04", { focus: "x" }), { code: "not_found" });
+    await assert.rejects(store.plans.update("bad/id", { focus: "x" }), { code: "invalid_argument" });
+    await assert.rejects(store.plans.update("2026-01-04", null), { code: "invalid_argument" });
+    await assert.rejects(createStore(createMockDb(), null).plans.update("2026-11-01", {}), { code: "no_user" });
+  });
+
+  test("concurrent updates to one plan are serialized and none is lost", async () => {
+    const { store } = setup();
+    const { plan: d } = await store.plans.saveDraft(plan("2026-11-08"));
+    await Promise.all([
+      store.plans.update(d.id, { focus: "one" }),
+      store.plans.update(d.id, { rationale: "two" }),
+      store.plans.update(d.id, { notes: ["three"] }),
+    ]);
+    const cur = await store.plans.get(d.id);
+    assert.deepEqual([cur.focus, cur.rationale, cur.notes], ["one", "two", ["three"]]);
+  });
+});
+
+describe("store v2: wellness", () => {
+  test("add fills every field, lives at data/users/<uid>/wellness; list oldest first with a range", async () => {
+    const { store, db } = setup();
+    const { entry } = await store.wellness.add({ date: "2026-11-06", sleepScore: 80, hrvStatus: "Balanced", bogus: 1 });
+    assert.deepEqual(entry, {
+      date: "2026-11-06", trainingReadiness: null, sleepScore: 80, sleepHours: null, hrvStatus: "balanced", hrvMs: null,
+      bodyBattery: null, restingHr: null, stress: null, notes: null, source: "manual",
+    });
+    await store.wellness.add({ trainingReadiness: 55, source: "garmin" }); // today = 2026-11-07
+    await store.wellness.add({ date: "2026-11-01", restingHr: 52 });
+    assert.ok(db.__mock.dump()[`${ROOT}/wellness`]);
+    assert.deepEqual((await store.wellness.list()).map((e) => e.date), ["2026-11-01", "2026-11-06", "2026-11-07"]);
+    assert.deepEqual((await store.wellness.list({ from: "2026-11-02", to: "2026-11-06" })).map((e) => e.date), ["2026-11-06"]);
+    assert.equal((await store.wellness.list({ from: "2026-11-07" }))[0].source, "garmin");
+    await assert.rejects(store.wellness.list({ from: "soon" }), { code: "invalid_argument" });
+  });
+
+  test("same date merges (null keeps the stored value); undo restores the previous entry", async () => {
+    const { store } = setup();
+    await store.wellness.add({ date: "2026-11-06", sleepScore: 80, sleepHours: 7.5, notes: "  slept ok " });
+    const res = await store.wellness.add({ date: "2026-11-06", sleepScore: 60, sleepHours: null, stress: 30, source: "garmin" });
+    assert.equal(res.entry.sleepScore, 60);
+    assert.equal(res.entry.sleepHours, 7.5);
+    assert.equal(res.entry.stress, 30);
+    assert.equal(res.entry.notes, "slept ok");
+    assert.equal(res.entry.source, "garmin");
+    assert.equal((await store.wellness.list()).length, 1);
+    await res.undo();
+    const [e] = await store.wellness.list();
+    assert.deepEqual([e.sleepScore, e.stress, e.source], [80, null, "manual"]);
+  });
+
+  test("undo of the first-ever entry removes the doc again", async () => {
+    const { store, db } = setup();
+    const res = await store.wellness.add({ date: "2026-11-06", bodyBattery: 70 });
+    await res.undo();
+    assert.equal(db.__mock.dump()[`${ROOT}/wellness`], undefined);
+    assert.deepEqual(await store.wellness.list(), []);
+  });
+
+  test("validation: ranges, hrvStatus enum, empty entries, bad dates", async () => {
+    const { store } = setup();
+    for (const bad of [
+      { sleepScore: 101 }, { trainingReadiness: -1 }, { sleepHours: 30 }, { restingHr: "fast" },
+      { hrvStatus: "great" }, {}, { notes: "   " }, { date: "2026-02-30", stress: 10 }, null,
+    ]) await assert.rejects(store.wellness.add(bad), { code: "invalid_argument" }, JSON.stringify(bad));
+    assert.equal((await store.wellness.add({ sleepScore: "77" })).entry.sleepScore, 77, "numeric strings are accepted");
+  });
+
+  test("capped at 400 entries, newest last; undo brings the evicted one back", async () => {
+    const { store, db } = setup();
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const entries = Array.from({ length: LIMITS.wellnessEntries }, (_, i) => ({ date: iso(new Date(2025, 0, 1 + i)), stress: 10, source: "manual" }));
+    await db.doc(`${ROOT}/wellness`).set({ entries });
+    const oldest = entries[0].date;
+    const res = await store.wellness.add({ date: "2026-11-07", stress: 20 });
+    const list = await store.wellness.list();
+    assert.equal(list.length, LIMITS.wellnessEntries);
+    assert.equal(list[0].date, entries[1].date);
+    assert.equal(list.at(-1).date, "2026-11-07");
+    await res.undo();
+    const back = await store.wellness.list();
+    assert.equal(back.length, LIMITS.wellnessEntries);
+    assert.equal(back[0].date, oldest);
+  });
+
+  test("concurrent adds are serialized; subscribe delivers entries oldest first", async () => {
+    const { store, db } = setup();
+    const rec = recorder();
+    const unsub = store.wellness.subscribe(rec.fn);
+    await Promise.all([
+      store.wellness.add({ date: "2026-11-05", stress: 1 }),
+      store.wellness.add({ date: "2026-11-03", stress: 2 }),
+      store.wellness.add({ date: "2026-11-05", sleepScore: 3 }),
+    ]);
+    await db.__mock.flush();
+    const last = rec.last().value;
+    assert.deepEqual(last.map((e) => e.date), ["2026-11-03", "2026-11-05"]);
+    assert.deepEqual([last[1].stress, last[1].sleepScore], [1, 3]);
+    unsub();
+  });
+
+  test("backup: wellness round-trips; an older backup without it leaves wellness alone", async () => {
+    const { store } = setup();
+    await store.wellness.add({ date: "2026-11-06", sleepScore: 81 });
+    const backup = await store.exportAll();
+    assert.equal(backup.data.wellness.entries[0].sleepScore, 81);
+    const other = createStore(createMockDb({ strictWrites: true }), "u_other");
+    await other.importAll(backup);
+    assert.equal((await other.wellness.list())[0].sleepScore, 81);
+    const { wellness: _drop, ...older } = backup.data;
+    await other.wellness.add({ date: "2026-11-07", stress: 5 });
+    await other.importAll({ ...backup, data: older });
+    assert.equal((await other.wellness.list()).length, 2, "no wellness key in the backup → stored wellness kept");
+  });
+});

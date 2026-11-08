@@ -33,7 +33,19 @@ export function isClearCommand(text) {
 export const MODE_LINE = Object.freeze({
   chat: "Mode: chat",
   onboarding: "Mode: onboarding",
+  review: "Mode: post-workout review",
 });
+
+/** Used only when knowledge.REVIEW_RULES is empty. */
+export const FALLBACK_REVIEW_RULES = [
+  "The owner just logged a planned workout. In ≤120 words: one specific win; for each exercise they tagged easy/fine/hard, what it means for next time (quote the app's next targets);",
+  "then whether the rest of this week's workouts need changes. Make only small, justified changes with update_plan_workout (never to done workouts) and explain each in one line; otherwise say the week stays as planned.",
+].join("\n");
+
+/** The user turn that starts a post-workout review (the owner's "Mark as done" tap; nothing they typed). */
+export const REVIEW_START_TURN =
+  "[App event] The owner just marked this workout done from the Plan tab. Review it now: the win, what each tagged exercise means for next time, " +
+  "and whether the remaining workouts this week need changes (make them with update_plan_workout if so). Keep it short.";
 
 /** Used only when knowledge.CHAT_RULES is empty (e.g. skeleton during development). */
 export const FALLBACK_CHAT_RULES = [
@@ -58,7 +70,7 @@ export const FALLBACK_ONBOARDING_RULES = [
 /**
  * App-level instructions that wrap the coaching rules: what the app is, how replies render,
  * how to use the tools. Kept short; the coaching content comes from knowledge/*.js.
- * @param {{ mode: "chat"|"onboarding", toolNames?: string[] }} opts
+ * @param {{ mode: "chat"|"onboarding"|"review", toolNames?: string[] }} opts
  * @returns {string}
  */
 export function buildAppPreamble({ mode, toolNames = [] }) {
@@ -70,12 +82,21 @@ export function buildAppPreamble({ mode, toolNames = [] }) {
     "Write phone-sized replies: short paragraphs, bullet lists for workouts. Markdown subset only: **bold**, *italic*, - lists, 1. lists, ### headings, simple | tables |, `code`. No HTML, no links.",
     "Never do mental math: use the numbers in this context and in tool results (targets, e1RM, paces, km). If a number is missing, say so or ask.",
   ];
+  if (mode === "review") {
+    lines.push("This is an automatic post-workout review the app started when the owner saved the workout. Your reply appears in the Coach chat.");
+    lines.push(toolNames.length
+      ? `Tools you can call: ${toolNames.join(", ")}. update_plan_workout changes one remaining workout per call; each change is saved at once and shown to the owner with Undo. Never change done workouts.`
+      : "Tools are unavailable in this view: suggest changes in words only and say the owner can ask you in chat to apply them.");
+    return lines.join("\n");
+  }
   if (toolNames.length) {
     lines.push(`Tools you can call: ${toolNames.join(", ")}. Call them when they help; results are compact. Writes are saved immediately and the owner can undo them from the chat.`);
     if (mode === "onboarding") {
       lines.push("Save each answered round with update_profile before asking the next round. When the intake is complete, call update_profile with {\"onboarded\": true}, then request_plan for the first plan if that tool is listed, and tell the owner to tap Generate plan.");
     } else {
       lines.push("When the owner reports a workout, call log_session (one call per session) and then reply with a short comment using the returned PRs and next targets. Do not log the same session twice: earlier assistant turns note what was already saved.");
+      if (toolNames.includes("update_plan_workout")) lines.push("Small changes to remaining workouts of this week's agreed plan (after feedback, pain or low readiness) go through update_plan_workout; done workouts are locked.");
+      if (toolNames.includes("log_wellness")) lines.push("When the owner types readiness metrics (training readiness, sleep score, HRV, body battery, resting HR, stress), save them with log_wellness.");
       lines.push("Plans are written by a separate, more capable step: use request_plan, then tell the owner to tap Generate plan. Never write a whole week's plan in chat.");
     }
   } else {
@@ -87,12 +108,12 @@ export function buildAppPreamble({ mode, toolNames = [] }) {
 /**
  * Build the leading instructions turn: app preamble + coaching rules + context snapshot, ≤ maxBytes.
  * The rules are never cut below the snapshot: the snapshot is trimmed first.
- * @param {{ mode: "chat"|"onboarding", rules: string, snapshot: string, toolNames?: string[], maxBytes?: number }} opts
+ * @param {{ mode: "chat"|"onboarding"|"review", rules: string, snapshot: string, toolNames?: string[], maxBytes?: number }} opts
  * @returns {string}
  */
 export function buildInstructionsTurn({ mode, rules, snapshot, toolNames = [], maxBytes = CHAT_BUDGETS.instructionsBytes }) {
   const preamble = buildAppPreamble({ mode, toolNames });
-  const fallback = mode === "onboarding" ? FALLBACK_ONBOARDING_RULES : FALLBACK_CHAT_RULES;
+  const fallback = mode === "onboarding" ? FALLBACK_ONBOARDING_RULES : mode === "review" ? FALLBACK_REVIEW_RULES : FALLBACK_CHAT_RULES;
   const ruleText = String(rules ?? "").trim() || fallback;
   const head = `${preamble}\n\n# Coaching rules\n${ruleText}\n\n# App data (current)\n`;
   const tail = `\n\n${INSTRUCTIONS_END}`;

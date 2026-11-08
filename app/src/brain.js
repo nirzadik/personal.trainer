@@ -8,12 +8,13 @@ import {
   addDaysISO, clip, cloneJson, fmtNum, fmtSets, formatSessionCompact, isIsoDate, isPlainObject,
   localISODate, sortSessionsAsc, sundayOf, truncateBytes, utf8Bytes, weekdayName,
 } from "./prompts/util.js";
-import { CHAT_TOOL_ORDER, NOTE_KINDS, ONBOARDING_TOOL_ORDER, TOOL_ENUMS, TOOL_SPECS, checkToolSpec } from "./prompts/tools.js";
-import { buildContextSnapshot, formatPlanOverview, formatWorkout } from "./prompts/context.js";
+import { CHAT_TOOL_ORDER, NOTE_KINDS, ONBOARDING_TOOL_ORDER, REVIEW_TOOL_ORDER, TOOL_ENUMS, TOOL_SPECS, checkToolSpec } from "./prompts/tools.js";
+import { buildContextSnapshot, buildReviewSnapshot, formatPlanOverview, formatWellnessEntry, formatWorkout } from "./prompts/context.js";
 import {
-  CHAT_BUDGETS, ONBOARDING_START_TURN, buildChatTurns, buildInstructionsTurn, isClearCommand, normalizeTurns,
+  CHAT_BUDGETS, ONBOARDING_START_TURN, REVIEW_START_TURN, buildChatTurns, buildInstructionsTurn, isClearCommand, normalizeTurns,
 } from "./prompts/chat.js";
 import { buildPlanPrompt, buildRepairPrompt, formatPaces } from "./prompts/plan.js";
+import { progressionDigest } from "./progress.js";
 import { SUMMARY_STALE_AFTER, buildSummaryPrompt, composeSummary, parseSummary } from "./prompts/summary.js";
 import { buildCommentPrompt, clampWords } from "./prompts/comment.js";
 
@@ -94,7 +95,9 @@ const TOOL_RESULT_MAX_BYTES = 12000;
 const SESSIONS_FETCH_LIMIT = 300;
 const SUMMARY_SCAN = 80;
 const DEFAULT_TIERS = ["default", "complex", "quick"];
-const MAX_TOOLS = 8;
+const MAX_TOOLS = 10;
+const PLAN_CHANGELOG_MAX = 30;
+const WELLNESS_NUMBERS = { trainingReadiness: [0, 100], sleepScore: [0, 100], sleepHours: [0, 24], hrvMs: [1, 300], bodyBattery: [0, 100], restingHr: [20, 200], stress: [0, 100] };
 const ERROR_DETAIL_CHARS = 300;
 
 /**
@@ -110,6 +113,9 @@ const ERROR_DETAIL_CHARS = 300;
  * @property {(opts?: { instruction?: string, signal?: AbortSignal, onProgress?: (p: PlanProgress) => void }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} generatePlan
  * @property {(instruction: string, opts?: { signal?: AbortSignal, onProgress?: (p: PlanProgress) => void }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} reviseDraft
  * @property {(sessionId: string, opts?: { signal?: AbortSignal }) => Promise<string>} commentOnSession
+ * @property {(sessionId: string, opts?: { signal?: AbortSignal, onText?: Function, onTool?: Function }) => Promise<SendResult>} reviewWorkout
+ * @property {(ref: string) => Promise<{ plan: object, undo?: Function }>} undoPlanChange
+ * @property {(ref: string, plans?: object[]) => boolean} planChangeActive
  * @property {(code: string) => string} errorCopy
  */
 
@@ -980,6 +986,15 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       ]);
       const sessionsAsc = sortSessionsAsc(sessionsDesc);
       const base = revise && isPlainObject(draft) ? draft : null;
+      // Adaptive planning (Agent P): last week's logged progress leads the prompt and overrides onboarding baselines.
+      const [planList, wellness] = await Promise.all([
+        soft(() => store.plans.list?.({ limit: 12 }), []),
+        soft(() => store.wellness?.list?.({ from: addDaysISO(today(), -27), to: today() }), []),
+      ]);
+      const plansForDigest = [...(Array.isArray(planList) ? planList : []), agreed].filter(isPlainObject);
+      const digest = attempt(() => progressionDigest({
+        sessions: sessionsAsc, plans: plansForDigest, wellness: Array.isArray(wellness) ? wellness : [], profile, today: today(), weeks: 2,
+      }));
       const lim = await getLimits();
       const tier = tierFor("complex", lim);
 
@@ -1007,6 +1022,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         recentSessions: sessionsAsc.filter((s) => s.date >= from14 && s.date <= t),
         targets: targetsFor([...strengthItems(base ?? agreed).values()], sessionsAsc, t, 40),
         previousPlan: agreed, previousDone, draft: base, instruction, pacesText: pacesFor(profile),
+        digest,
       });
 
       progress("generating");

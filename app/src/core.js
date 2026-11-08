@@ -232,16 +232,42 @@ function entryId(entry) {
   return findExercise(entry?.exerciseId || entry?.name, { modality: "strength" })?.id ?? entry?.exerciseId ?? null;
 }
 
+// ------------------------------------------------------------------ exercise feedback (CONTRACT-v2)
+/** How an exercise felt overall, as the owner tagged it (Session.strength[].feedback). */
+export const FEEDBACK_VALUES = Object.freeze(["easy", "fine", "hard"]);
+const FEEDBACK_SYNONYMS = {
+  easy: "easy", "too easy": "easy", light: "easy", easier: "easy",
+  fine: "fine", ok: "fine", okay: "fine", good: "fine", moderate: "fine", medium: "fine", "just right": "fine", normal: "fine",
+  hard: "hard", "too hard": "hard", tough: "hard", heavy: "hard", brutal: "hard", difficult: "hard", harder: "hard",
+};
+/**
+ * Normalize an exercise feedback value ("easy" | "fine" | "hard"); synonyms such as "ok" or "tough" are mapped,
+ * anything else is null.
+ * @param {unknown} v
+ * @returns {"easy"|"fine"|"hard"|null}
+ */
+export function normalizeFeedback(v) {
+  if (typeof v !== "string") return null;
+  return FEEDBACK_SYNONYMS[v.trim().toLowerCase().replace(/[\s_-]+/g, " ")] ?? null;
+}
+/** Feedback of one exposure (all matching entries of that session): "hard" wins, then "easy", then "fine". */
+function exposureFeedback(entries) {
+  const fb = entries.map((e) => normalizeFeedback(e?.feedback)).filter(Boolean);
+  return fb.includes("hard") ? "hard" : fb.includes("easy") ? "easy" : fb[0] ?? null;
+}
+
 /** exposures with the session attached (internal) */
 function exposuresDetailed(sessions, exerciseId) {
   const out = [];
   for (const s of sortSessions(activeSessions(sessions))) {
     const sets = [];
+    const entries = [];
     for (const entry of s.strength || []) {
       if (entryId(entry) !== exerciseId) continue;
+      entries.push(entry);
       for (const set of entry.sets || []) if (!isWarmup(set)) sets.push(set);
     }
-    if (sets.length) out.push({ date: s.date, sessionId: s.id ?? null, sets, session: s });
+    if (sets.length) out.push({ date: s.date, sessionId: s.id ?? null, sets, session: s, feedback: exposureFeedback(entries) });
   }
   return out;
 }
@@ -284,10 +310,14 @@ function painNote(session) {
  * @param {object[]} sessions Session[]
  * @param {object} item StrengthItem { exerciseId, sets, reps "8-12"|"5"|"AMRAP", targetRir, loadKg, progression, incrementKg }
  * @param {{ today?: string }} [opts]
+ * Owner feedback on the last exposure (Session.strength[].feedback, CONTRACT-v2): "easy" progresses as normal and
+ * also adds the increment when every set was within 1 rep of the range top; "hard" holds the load (and reps);
+ * "hard" on the last two exposures drops ~5-10 %; "hard" plus pain switches to the pain protocol (no progression).
  * @returns {{ loadKg: number|null, reps: string, note: string, reason: string, flags: string[] }}
  *   reason: no_history | layoff | add_load | add_reps | repeat | reduce | reset | effort_hold |
- *   rpe_increase | rpe_hold | rpe_reduce | no_progression. reps is a string ("8", "9/9/8", "AMRAP").
- *   flags may contain "effort_overshoot", "pain", "layoff".
+ *   rpe_increase | rpe_hold | rpe_reduce | no_progression | feedback_hold | feedback_reduce | pain_protocol.
+ *   reps is a string ("8", "9/9/8", "AMRAP").
+ *   flags may contain "effort_overshoot", "pain", "layoff", "feedback_easy", "feedback_fine", "feedback_hard".
  */
 export function nextTarget(sessions, item, { today } = {}) {
   const day = today || todayISO();
@@ -324,8 +354,19 @@ export function nextTarget(sessions, item, { today } = {}) {
     const added = Math.max(0, ...last.sets.map((s) => num(s.loadKg) || 0));
     if (daysAgo >= 21) { flags.push("layoff"); notes.push(`${daysAgo} days since last time: ease back in at ~3 RIR with fewer sets.`); }
     if (pain) { flags.push("pain"); notes.push(`Pain was noted (${pain}): the pain protocol (traffic light) overrides this progression suggestion.`); }
-    if (hi != null && Math.min(...reps) >= hi) {
-      return result(added + inc, lo, "add_load", [`All sets hit ${hi}. Add load (e.g. +${fmtN(inc)} kg) or a harder variation; reset to ${lo} reps.`, ...notes]);
+    const bwFb = last.feedback ?? null;
+    if (bwFb) flags.push(`feedback_${bwFb}`);
+    if (bwFb === "hard") {
+      const same = reps.every((r) => r === reps[0]) ? String(reps[0]) : reps.join("/");
+      if (pain) return result(added || null, same, "pain_protocol", [`Felt hard and pain was noted (${pain}): follow the pain protocol (traffic light): no progression, an easier variation or less range until it settles.`]);
+      const prevHard = ex.length >= 2 && ex[ex.length - 2].feedback === "hard";
+      return result(added || null, same, "feedback_hold", [prevHard
+        ? "Felt hard twice in a row: use an easier variation or 1-2 fewer reps per set and rebuild."
+        : `Felt hard last time: repeat ${same} reps before adding more.`, ...notes]);
+    }
+    const easyBump = bwFb === "easy" && !pain && hi != null && Math.min(...reps) >= hi - 1;
+    if (hi != null && (Math.min(...reps) >= hi || easyBump)) {
+      return result(added + inc, lo, "add_load", [`${easyBump && Math.min(...reps) < hi ? `Felt easy and every set was within 1 rep of ${hi}.` : `All sets hit ${hi}.`} Add load (e.g. +${fmtN(inc)} kg) or a harder variation; reset to ${lo} reps.`, ...notes]);
     }
     const tgt = hi != null ? reps.map((r) => Math.min(r + 1, hi)).join("/") : prescribed;
     return result(added || null, tgt, "add_reps", [`Same variation, aim +1 rep per set toward ${hi ?? "a new best"} (keep ~${fmtN(targetRir)} RIR).`, ...notes]);
@@ -345,6 +386,35 @@ export function nextTarget(sessions, item, { today } = {}) {
   }
   if (pain) { flags.push("pain"); notes.push(`Pain was noted (${pain}): the pain protocol (traffic light) overrides this progression suggestion.`); }
 
+  // owner feedback on the last exposure (CONTRACT-v2): hard → hold, hard twice → −5-10 %, hard + pain → pain protocol
+  const fb = last.feedback ?? null;
+  const prevFb = ex.length >= 2 ? ex[ex.length - 2].feedback ?? null : null;
+  if (fb) flags.push(`feedback_${fb}`);
+  if (fb === "hard" && pain) {
+    return result(topLoad, lo ?? prescribed, "pain_protocol",
+      [`Felt hard and pain was noted (${pain}): follow the pain protocol (traffic light): no load increase; cut range, load or volume, or swap the exercise if it stays above 3/10.`]);
+  }
+  if (fb === "hard" && prevFb === "hard") {
+    let next = roundTo(topLoad * 0.925, inc);
+    if (!(next < topLoad)) next = clean(topLoad - inc);
+    return result(Math.max(0, next), lo ?? prescribed, "feedback_reduce",
+      [`Felt hard twice in a row at ${fmtN(topLoad)} kg: drop ~5-10% to ${fmtN(next)} kg and rebuild. Check sleep, stress and food.`, ...notes]);
+  }
+
+  const base = progressByModel();
+  if (fb === "hard" && ["add_load", "add_reps", "rpe_increase"].includes(base.reason)) {
+    const same = reps.every((r) => r === reps[0]) ? String(reps[0]) : reps.join("/");
+    return result(topLoad, same, "feedback_hold", [`Felt hard last time: hold ${fmtN(topLoad)} kg and repeat ${same} reps before progressing.`, ...notes]);
+  }
+  if (fb === "easy" && !overshoot && !pain && lo != null && hi != null && (model === "double" || model === "linear") &&
+      ["add_reps", "repeat"].includes(base.reason) && Math.min(...reps) >= hi - 1) {
+    const next = inc ? roundTo(topLoad + inc, inc) : topLoad;
+    const r = model === "linear" ? hi : lo;
+    return result(next, r, "add_load", [`${fmtN(next)} kg for ${nSets}×${r}: it felt easy and the reps were within 1 of ${hi}, so add ${fmtN(inc)}.`, ...notes]);
+  }
+  return base;
+
+  function progressByModel() {
   if (lo == null) { // AMRAP or unparseable reps: hold load, beat the rep count
     return result(topLoad, prescribed, "repeat", [`Repeat ${fmtN(topLoad)} kg; aim to beat last time's best of ${Math.max(...reps)} reps.`, ...notes]);
   }
@@ -402,6 +472,7 @@ export function nextTarget(sessions, item, { today } = {}) {
   }
   const tgt = reps.map((r) => Math.min(r + 1, hi)).join("/");
   return result(topLoad, tgt, "add_reps", [`Stay at ${fmtN(topLoad)} kg, aim for ${tgt} reps (@~${fmtN(targetRir)} RIR).`, ...notes]);
+  }
 }
 
 /** trainer.py fmt_sets with ×: "100×5,5,4@1 / 90×8" */
@@ -1184,7 +1255,7 @@ function normStrength(entry) {
     const reps = Array.isArray(entry.reps) ? entry.reps : Array.from({ length: count }, () => entry.reps);
     sets = reps.flatMap((r) => normSet({ reps: r }, entry));
   }
-  return { exerciseId: ex?.id ?? (entry.exerciseId || null), name: String(entry.name || ex?.name || entry.exerciseId || ""), sets };
+  return { exerciseId: ex?.id ?? (entry.exerciseId || null), name: String(entry.name || ex?.name || entry.exerciseId || ""), sets, feedback: normalizeFeedback(entry.feedback) };
 }
 function normDurationSec(v) {
   if (v == null || v === "") return null;
@@ -1212,6 +1283,7 @@ export function normalizeSession(input, { today, now } = {}) {
       description: String(c.description || ""),
       result: { rounds: num(r.rounds), reps: num(r.reps), timeSec: normDurationSec(r.timeSec ?? r.time), calories: num(r.calories), completed: r.completed == null ? true : Boolean(r.completed) },
       scaled: Boolean(c.scaled), rpe: clamp(num(c.rpe), 1, 10), notes: String(c.notes || ""),
+      feedback: normalizeFeedback(c.feedback),
     };
   });
   let run = null;
@@ -1266,6 +1338,7 @@ export function normalizeSession(input, { today, now } = {}) {
     run,
     prs: Array.isArray(i.prs) ? i.prs : [],
     coachComment: String(i.coachComment || ""),
+    reviewedAt: typeof i.reviewedAt === "string" && i.reviewedAt ? i.reviewedAt : null,
     createdBy: i.createdBy === "manual" ? "manual" : "chat",
     createdAt: i.createdAt || stamp,
     updatedAt: i.updatedAt || i.createdAt || stamp,

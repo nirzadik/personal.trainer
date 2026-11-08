@@ -9,6 +9,8 @@ const SESSION_TYPES = ["strength", "run", "conditioning", "hybrid", "mobility", 
 const RUN_TYPES = ["easy", "long", "tempo", "threshold", "intervals", "hills", "fartlek", "recovery", "strides", "race"];
 const COND_FORMATS = ["AMRAP", "EMOM", "FOR_TIME", "RFT", "INTERVALS", "TABATA", "CHIPPER"];
 const MISSED_REASONS = ["travel", "time", "sick", "pain", "motivation", "other"];
+const FEEDBACK = ["easy", "fine", "hard"];
+const HRV_STATUSES = ["balanced", "unbalanced", "low", "poor"];
 const strEnum = (values, description) => ({ type: "string", enum: values, ...(description ? { description } : {}) });
 
 // Every inputSchema below sticks to a conservative JSON Schema subset that any tool API accepts:
@@ -18,7 +20,7 @@ const strEnum = (values, description) => ({ type: "string", enum: values, ...(de
 // naive schema walkers read those as keywords. checkToolSchema() enforces this; tests and the mock run it.
 
 /** Value lists brain.js validates against (some are given to Claude as descriptions to keep schemas small). */
-export const TOOL_ENUMS = Object.freeze({ SESSION_TYPES, RUN_TYPES, COND_FORMATS, MISSED_REASONS });
+export const TOOL_ENUMS = Object.freeze({ SESSION_TYPES, RUN_TYPES, COND_FORMATS, MISSED_REASONS, FEEDBACK, HRV_STATUSES });
 
 /** Kinds accepted by add_coach_note (CoachMemory.notes[].kind). */
 export const NOTE_KINDS = ["insight", "decision", "injury", "preference", "goal"];
@@ -126,8 +128,9 @@ export const TOOL_SPECS = {
     startLabel: "Logging workout…",
     description:
       "Save a workout the owner reports (or a missed day with status \"missed\"). Expand set notation: \"100x5,5,4\" = 3 sets; \"3x8 @60\" = 3 sets of 8 at 60 kg. " +
-      "Use exerciseId when known, else name (the app maps names). Set workoutId to the planned id, or \"next\" when they did the up-next workout; omit for unplanned sessions. " +
-      "Omit any number the owner did not give. The app computes pace, PRs and the rotation. Returns {id, prs, nextTargets, upNext}. Log only what the owner said; never invent numbers.",
+      "Use exerciseId when known, else name (the app maps names); per set omit loadKg for bodyweight, rir = reps in reserve (omit if not given), warmup true for a warm-up set; conditioning summary = what the workout was. Set workoutId to the planned id, or \"next\" when they did the up-next workout; omit for unplanned sessions. " +
+      "Omit any number the owner did not give. feedback = how an exercise or metcon felt overall (easy/fine/hard), only when the owner said so. " +
+      "The app computes pace, PRs and the rotation. Returns {id, prs, nextTargets, upNext}. Log only what the owner said; never invent numbers.",
     // Flat (no `session` wrapper) to keep the schema small; brain.js also accepts { session: {...} }.
     inputSchema: {
       type: "object",
@@ -151,14 +154,15 @@ export const TOOL_SPECS = {
                 items: {
                   type: "object",
                   properties: {
-                    loadKg: { type: "number", description: "omit for bodyweight" },
+                    loadKg: NUM,
                     reps: NUM,
-                    rir: { type: "number", description: "reps in reserve; omit if not given" },
-                    warmup: { type: "boolean", description: "true for a warm-up set" },
+                    rir: NUM,
+                    warmup: BOOL,
                   },
                   required: ["reps"],
                 },
               },
+              feedback: strEnum(FEEDBACK),
             },
           },
         },
@@ -176,9 +180,9 @@ export const TOOL_SPECS = {
             type: "object",
             properties: {
               metconFormat: { type: "string", description: COND_FORMATS.join("|") },
-              summary: { type: "string", description: "what the workout was" },
+              summary: STR,
               rounds: NUM, reps: NUM, timeSec: NUM, calories: NUM,
-              completed: BOOL, scaled: BOOL, rpe: NUM,
+              completed: BOOL, scaled: BOOL, rpe: NUM, feedback: strEnum(FEEDBACK),
             },
           },
         },
@@ -264,7 +268,8 @@ export const TOOL_SPECS = {
     name: "update_session",
     startLabel: "Updating workout…",
     description:
-      "Correct a logged session by sessionId (the id from log_session, history or context), or save coachComment. Top-level fields in `patch` replace; send the full strength array when changing sets. Returns the updated compact line.",
+      "Correct a logged session by sessionId (the id from log_session, history or context), or save coachComment. Top-level fields in `patch` replace; send the full strength array when changing sets. " +
+      "To tag how exercises felt without resending sets, patch {\"feedback\":[{\"exerciseId\":\"back_squat\",\"feedback\":\"hard\"}]} (easy|fine|hard; exerciseId or name; \"metcon\" for the conditioning part). Returns the updated compact line.",
     inputSchema: {
       type: "object",
       properties: {
@@ -272,6 +277,72 @@ export const TOOL_SPECS = {
         patch: { type: "object", description: "Session fields to replace, e.g. {\"sessionRpe\":8} or {\"coachComment\":\"…\"}" },
       },
       required: ["sessionId", "patch"],
+    },
+  },
+
+  update_plan_workout: {
+    name: "update_plan_workout",
+    startLabel: "Adjusting the plan…",
+    description:
+      "Change ONE remaining (not done) workout of the agreed plan: per-item sets/reps/targetRir/loadKg/restSec tweaks, swapTo another exercise id (equipment-checked), drop an item, " +
+      "shorten its conditioning or run, or move it to another rotation position. Done workouts are refused. The app validates the plan (equipment, time, run ramp) and rejects changes that add errors, " +
+      "returning the issues. The owner sees each change with Undo. Use for small adjustments after feedback, readiness or a review; structural changes go through request_plan. " +
+      "Returns {ok, workout} or {ok:false, issues}.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workoutId: { type: "string", description: "W1… of the agreed plan" },
+        reason: { type: "string", description: "≤ 140 chars, shown to the owner" },
+        changes: {
+          type: "array",
+          description: "changes to strength or conditioning items, matched by their current exerciseId",
+          items: {
+            type: "object",
+            properties: {
+              exerciseId: STR,
+              sets: NUM,
+              reps: { type: "string", description: "e.g. \"5\" or \"8-10\"" },
+              targetRir: NUM,
+              loadKg: NUM,
+              restSec: NUM,
+              swapTo: { type: "string", description: "exercise id to use instead" },
+              drop: { type: "boolean", description: "remove this item" },
+              note: STR,
+            },
+            required: ["exerciseId"],
+          },
+        },
+        conditioningMinutes: NUM,
+        conditioningRounds: NUM,
+        targetRpe: NUM,
+        runKm: { type: "number", description: "new total km of the run block" },
+        estMinutes: NUM,
+        moveTo: { type: "number", description: "new 1-based position in the rotation" },
+      },
+      required: ["workoutId", "reason"],
+    },
+  },
+
+  log_wellness: {
+    name: "log_wellness",
+    startLabel: "Saving wellness…",
+    description:
+      "Save daily readiness metrics the owner reports (e.g. from Garmin): training readiness, sleep score and hours, HRV status and ms, body battery, resting HR, stress. " +
+      "One entry per date; a second call for the same date merges. Send only the numbers given. Returns the entry plus app-computed bands to guide today's training.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD, default today" },
+        trainingReadiness: { type: "number", description: "0-100" },
+        sleepScore: { type: "number", description: "0-100" },
+        sleepHours: NUM,
+        hrvStatus: strEnum(HRV_STATUSES),
+        hrvMs: NUM,
+        bodyBattery: { type: "number", description: "0-100" },
+        restingHr: NUM,
+        stress: { type: "number", description: "0-100" },
+        notes: STR,
+      },
     },
   },
 
@@ -321,9 +392,12 @@ export const TOOL_SPECS = {
 
 /** Chat-mode tools in priority order (kept first when `limits().tools.maxCount` is smaller). */
 export const CHAT_TOOL_ORDER = [
-  "log_session", "get_plan", "update_profile", "get_history",
-  "update_session", "request_plan", "add_coach_note", "get_exercise_info",
+  "log_session", "get_plan", "update_session", "update_plan_workout", "log_wellness",
+  "update_profile", "get_history", "request_plan", "add_coach_note", "get_exercise_info",
 ];
+
+/** Post-workout review tools (coach.reviewWorkout): change remaining workouts, check swaps, read history. */
+export const REVIEW_TOOL_ORDER = ["update_plan_workout", "get_exercise_info", "get_history"];
 
 /** Onboarding-mode tools: centred on update_profile. */
 export const ONBOARDING_TOOL_ORDER = ["update_profile", "get_exercise_info", "request_plan"];

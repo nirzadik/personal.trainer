@@ -252,7 +252,7 @@ export function formatSessionCompact(session, { notesChars = 140, commentChars =
   const lines = [head];
   if (Array.isArray(s.strength) && s.strength.length) {
     lines.push("  " + s.strength
-      .map((ex) => `${ex.exerciseId || clip(ex.name, 30) || "?"} ${fmtSets(ex.sets)}`.trim())
+      .map((ex) => `${ex.exerciseId || clip(ex.name, 30) || "?"} ${fmtSets(ex.sets)}${ex.feedback ? ` [felt ${ex.feedback}]` : ""}`.trim())
       .join("; "));
   }
   if (isPlainObject(s.run)) {
@@ -274,7 +274,7 @@ export function formatSessionCompact(session, { notesChars = 140, commentChars =
         res.calories ? `${res.calories} cal` : null,
         res.completed === false ? "not finished" : null,
       ].filter(Boolean).join(" + ");
-      lines.push(`  ${c.format || "metcon"}: ${clip(c.description, 120)}${result ? ` → ${result}` : ""}${c.scaled ? " (scaled)" : ""}${c.rpe ? ` RPE ${c.rpe}` : ""}`);
+      lines.push(`  ${c.format || "metcon"}: ${clip(c.description, 120)}${result ? ` → ${result}` : ""}${c.scaled ? " (scaled)" : ""}${c.rpe ? ` RPE ${c.rpe}` : ""}${c.feedback ? ` [felt ${c.feedback}]` : ""}`);
     }
   }
   if (Array.isArray(s.pain) && s.pain.length) {

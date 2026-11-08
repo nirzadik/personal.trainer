@@ -134,6 +134,42 @@ export function formatPlanOverview(plan, { done = [], label = "Plan" } = {}) {
   return [head, ...rows].join("\n");
 }
 
+/**
+ * One line for a WellnessEntry (CONTRACT-v2), e.g. "2026-11-07: readiness 62, sleep 78 (7.2 h), HRV balanced 48 ms, RHR 52".
+ * Only the values that are set.
+ * @param {object} e WellnessEntry
+ * @returns {string}
+ */
+export function formatWellnessEntry(e) {
+  if (!isPlainObject(e)) return "";
+  const parts = [
+    e.trainingReadiness != null ? `readiness ${fmtNum(e.trainingReadiness)}` : null,
+    e.sleepScore != null || e.sleepHours != null
+      ? `sleep${e.sleepScore != null ? ` ${fmtNum(e.sleepScore)}` : ""}${e.sleepHours != null ? ` (${fmtNum(e.sleepHours)} h)` : ""}` : null,
+    e.hrvStatus || e.hrvMs != null ? `HRV${e.hrvStatus ? ` ${e.hrvStatus}` : ""}${e.hrvMs != null ? ` ${fmtNum(e.hrvMs)} ms` : ""}` : null,
+    e.bodyBattery != null ? `body battery ${fmtNum(e.bodyBattery)}` : null,
+    e.restingHr != null ? `RHR ${fmtNum(e.restingHr)}` : null,
+    e.stress != null ? `stress ${fmtNum(e.stress)}` : null,
+    e.notes ? `"${clip(e.notes, 80)}"` : null,
+  ].filter(Boolean);
+  return parts.length ? `${e.date ?? "?"}: ${parts.join(", ")}` : "";
+}
+
+/**
+ * Wellness section body: the latest entry first (flagged when it's today's), then up to 4 earlier days for the trend.
+ * @param {object[]} entries oldest first
+ * @param {string} [today]
+ * @returns {string}
+ */
+export function formatWellness(entries, today) {
+  const list = (Array.isArray(entries) ? entries : []).filter(isPlainObject).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (!list.length) return "";
+  const latest = list[list.length - 1];
+  const head = `Latest${latest.date === today ? " (today)" : ""}: ${formatWellnessEntry(latest)}`;
+  const earlier = list.slice(-5, -1).reverse().map(formatWellnessEntry).filter(Boolean);
+  return [head, ...(earlier.length ? ["Earlier:", ...earlier.map((l) => `- ${l}`)] : [])].join("\n");
+}
+
 function formatEquipment(profile, equipmentNames) {
   const eq = isPlainObject(profile?.equipment) ? profile.equipment : {};
   const locs = Array.isArray(eq.locations) ? eq.locations : [];
@@ -193,6 +229,7 @@ function profileForPrompt(profile, mode) {
  * @param {object} [data.trainingSummary] core.trainingSummary result
  * @param {object[]} [data.recentSessions] newest first
  * @param {string} [data.pacesText] prompts/plan.js formatPaces() output
+ * @param {object[]} [data.wellness] WellnessEntry[] oldest first (the latest is shown first)
  * @param {{ maxBytes?: number }} [opts]
  * @returns {string}
  */
@@ -227,6 +264,7 @@ export function buildContextSnapshot(data, { maxBytes = 26000 } = {}) {
       maxBytes: B.nextWorkout,
     });
     sections.push({ title: "Running paces (computed by the app)", body: d.pacesText ?? "", maxBytes: 2000 });
+    sections.push({ title: "Wellness (owner-reported, e.g. Garmin)", body: formatWellness(d.wellness, d.today), maxBytes: 1200 });
     sections.push({
       title: "Training summary (computed by the app; use these numbers)",
       body: d.trainingSummary ? compactJson(d.trainingSummary) : "",
@@ -239,5 +277,69 @@ export function buildContextSnapshot(data, { maxBytes = 26000 } = {}) {
       maxBytes: B.sessions,
     });
   }
+  return joinSections(sections, maxBytes);
+}
+
+/**
+ * Context snapshot for the post-workout review (coach.reviewWorkout): the session just logged with its feedback,
+ * app-computed next targets, the agreed plan's remaining (changeable) and done (locked) workouts, the progression
+ * digest, wellness and the training summary. Budgeted like buildContextSnapshot.
+ * @param {object} data
+ * @param {string} data.today
+ * @param {string} [data.weekday]
+ * @param {object} data.profile
+ * @param {object} [data.coach] CoachMemory (summary stripped of app markers)
+ * @param {object} [data.equipmentNames]
+ * @param {object} data.session the Session just logged
+ * @param {object} [data.plannedWorkout] the plan workout it was logged against
+ * @param {Array<{ exerciseId: string, name?: string, feedback: string|null, target?: object|null }>} [data.exercises]
+ * @param {object[]} [data.remaining] remaining workouts (strength items carry `target`)
+ * @param {object[]} [data.doneWorkouts] done or skipped workouts of the plan
+ * @param {object} [data.plan] the agreed plan (id, focus)
+ * @param {object} [data.digest] progress.progressionDigest result
+ * @param {object[]} [data.wellness]
+ * @param {object} [data.trainingSummary]
+ * @param {string} [data.pacesText]
+ * @param {{ maxBytes?: number }} [opts]
+ * @returns {string}
+ */
+export function buildReviewSnapshot(data, { maxBytes = 26000 } = {}) {
+  const d = isPlainObject(data) ? data : {};
+  const B = CONTEXT_BUDGETS;
+  const s = isPlainObject(d.session) ? d.session : {};
+  const exercises = Array.isArray(d.exercises) ? d.exercises.filter(isPlainObject) : [];
+  const fbLines = [
+    ...exercises.map((e) => `- ${e.exerciseId ?? clip(e.name, 30)}: ${e.feedback ?? "not tagged"}`),
+    ...(Array.isArray(s.conditioning) ? s.conditioning : []).filter(isPlainObject)
+      .map((c, i) => `- metcon ${i + 1} (${c.format || "conditioning"}): ${c.feedback ?? "not tagged"}`),
+  ];
+  const targetLines = exercises.filter((e) => isPlainObject(e.target)).map((e) => {
+    const t = e.target;
+    const load = t.loadKg !== null && t.loadKg !== undefined ? `${fmtNum(t.loadKg)} kg` : "no load";
+    return `- ${e.exerciseId}: next ${load}${t.reps ? ` × ${t.reps}` : ""}${t.reason ? ` [${t.reason}]` : ""}${t.note ? ` — ${clip(t.note, 140)}` : ""}`;
+  });
+  const remaining = Array.isArray(d.remaining) ? d.remaining.filter(isPlainObject) : [];
+  const done = Array.isArray(d.doneWorkouts) ? d.doneWorkouts.filter(isPlainObject) : [];
+  const plan = isPlainObject(d.plan) ? d.plan : null;
+  const sections = [
+    { title: "Today", body: `${d.today ?? "?"} (${d.weekday ?? ""})` },
+    { title: "Owner profile (JSON)", body: truncateBytes(profileForPrompt(d.profile, "chat"), B.profile) },
+    { title: "Equipment", body: formatEquipment(d.profile, d.equipmentNames), maxBytes: B.equipment },
+    { title: "Coach memory", body: formatMemory(d.coach), maxBytes: 3000 },
+    { title: "Workout just logged", body: formatSessionCompact(s, { notesChars: 300, commentChars: 0 }), maxBytes: 3000 },
+    { title: "Planned version of it", body: isPlainObject(d.plannedWorkout) ? formatWorkout(d.plannedWorkout) : "", maxBytes: 3000 },
+    { title: "Owner feedback (how each part felt)", body: fbLines.length ? fbLines.join("\n") : "None given." },
+    { title: "Next targets (computed by the app after this session, feedback included; quote as given)", body: targetLines.join("\n"), maxBytes: 2500 },
+    {
+      title: `Remaining workouts of plan ${plan?.id ?? ""} (not done: the only ones update_plan_workout may change)`,
+      body: plan ? (remaining.length ? remaining.map(formatWorkout).join("\n\n") : "None: this was the last workout of the week.") : "No agreed plan.",
+      maxBytes: 9000,
+    },
+    { title: "Done or skipped workouts (locked, never change)", body: done.map((w) => `- ${w.id} ${clip(w.title, 50)}`).join("\n") },
+    { title: "Progress digest (computed by the app)", body: isPlainObject(d.digest) ? compactJson(d.digest) : "", maxBytes: 6000 },
+    { title: "Wellness (owner-reported, e.g. Garmin)", body: formatWellness(d.wellness, d.today), maxBytes: 1200 },
+    { title: "Training summary (computed by the app)", body: d.trainingSummary ? compactJson(d.trainingSummary) : "", maxBytes: 3000 },
+    { title: "Running paces (computed by the app)", body: d.pacesText ?? "", maxBytes: 1500 },
+  ];
   return joinSections(sections, maxBytes);
 }

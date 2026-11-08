@@ -2,14 +2,35 @@
 // core.nextTarget, Mark as done / Done as planned / Skip per workout (logged sessions link to History),
 // the draft with validation chips and Approve / Ask for changes / Regenerate, and plan generation with an
 // elapsed timer and Stop. Styles: the "plan quick-log" section of styles.css.
+// v2 (Agent S): a Swap control on every strength and conditioning movement (agreed plan and draft) that
+// opens a sheet of swap options + an equipment-filtered catalog search; styles in "v2: swap".
 
 import {
-  h, icon, button, append, replaceChildren, pill, typePill, emptyState, errorLine, inlineConfirm, toast,
+  h, icon, button, append, replaceChildren, pill, typePill, emptyState, errorLine, inlineConfirm, toast, openSheet,
   createTicker, fmtElapsed, fmtWeekRange, fmtKg, fmtRest, fmtPace, fmtKm, fmtRelDay, plural, safe, errorText, TYPE_LABEL,
 } from "./components.js";
-import { exerciseName, prettifyId } from "./ops.js";
+import { exerciseName, prettifyId, equipmentSet } from "./ops.js";
+import { swapOptions, applySwap, swappableItems } from "../swap.js";
 import { openWorkoutLog } from "./history.js";
 import { MISSED_REASONS, findLoggedSession, logAsPlanned, missingForDirectSave, skipWorkout, workoutDraft } from "./quicklog.js";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * Two opposing arrows (the Swap icon; components.js has none).
+ * @param {number} [size]
+ * @returns {SVGSVGElement}
+ */
+function swapIcon(size = 18) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: size, height: size, fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false", class: "icon" })) svg.setAttribute(k, String(v));
+  for (const d of ["M4 8h14M14 4l4 4-4 4", "M20 16H6M10 12l-4 4 4 4"]) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
 
 /** Text longer than this gets a one-line clamp that expands on tap. */
 const CLAMP_CHARS = 38;
@@ -60,6 +81,7 @@ export function mountPlan(el, ctx) {
   const touched = new Set(); // plans whose expansion the user changed
   const skipping = new Map(); // `${planId}:${workoutId}` → { reason, notes } while the Skip panel is open
   const busy = new Set(); // workouts with a one-tap save in flight
+  let swapping = false; // a swap write is in flight
   let job = null; // { kind, ctl, ticker, t0, progress, error, retry }
   let showAllIssues = false;
 
@@ -296,7 +318,8 @@ export function mountPlan(el, ctx) {
     const loc = (ctx.data.profile?.equipment?.locations || []).find((l) => l.id === w.locationId)?.name;
     const meta = [TYPE_LABEL[w.type] || prettifyId(w.type), w.estMinutes ? `${w.estMinutes} min` : null, loc].filter(Boolean).join(" · ");
     const body = h("div", { class: "workout-body", id: bodyId, hidden: !isOpen });
-    const fill = () => fillBody(body, w, withTargets, actionsInBody ? actions() : null);
+    const sw = swapContext(plan, w, status);
+    const fill = () => fillBody(body, w, withTargets, actionsInBody ? actions() : null, sw);
     if (isOpen) fill();
     const toggle = h("button", {
       type: "button",
@@ -325,12 +348,206 @@ export function mountPlan(el, ctx) {
     return h("article", { class: ["workout-card", `is-${status || "draft"}`], id: `wcard-${bodyId}` }, toggle, canLog && !actionsInBody ? actions() : null, body);
   }
 
-  function fillBody(body, w, withTargets, footer = null) {
+  function fillBody(body, w, withTargets, footer = null, sw = null) {
     replaceChildren(body,
       w.intent ? lineClamp(w.intent, "w-intent") : null,
-      (w.blocks || []).map((b) => blockView(b, withTargets)),
+      (w.blocks || []).map((b) => blockView(b, withTargets, sw)),
       footer,
     );
+  }
+
+  // ---- swap (v2) -------------------------------------------------------------------------------
+  /**
+   * Swap state for one workout card: null when swapping isn't allowed (no store, archived plan, or a
+   * workout already done / skipped). Otherwise maps each swappable item to its flat index.
+   */
+  function swapContext(plan, w, status) {
+    if (!store || !["draft", "agreed"].includes(plan.status)) return null;
+    if (status === "done" || status === "skipped") return null;
+    const index = new Map(swappableItems(w).map((x) => [x.item, x.itemIndex]));
+    return { plan, w, index };
+  }
+
+  function swapControl(sw, it) {
+    const idx = sw?.index.get(it);
+    if (idx == null) return null;
+    const name = it.name || exerciseName(ctx.catalog, it.exerciseId);
+    const draftBusy = sw.plan.status === "draft" && Boolean(job && !job.error);
+    const b = h("button", {
+      type: "button",
+      class: "btn btn-secondary btn-sm sw-btn",
+      id: swapButtonId(sw.plan, sw.w, idx),
+      "aria-label": `Swap ${name}`,
+      "aria-haspopup": "dialog",
+      disabled: swapping || draftBusy,
+      title: draftBusy ? "Wait for the revision to finish" : null,
+      onClick: () => openSwapSheet(sw.plan, sw.w, idx),
+    }, swapIcon(18), h("span", {}, "Swap"));
+    return b;
+  }
+
+  function swapButtonId(plan, w, idx) {
+    return `sw-${plan.id}-${w.id}-${idx}`.replace(/[^\w-]/g, "_");
+  }
+
+  function swappedMark(it) {
+    if (!it?.swappedFrom) return null;
+    const was = exerciseName(ctx.catalog, it.swappedFrom);
+    return h("span", { class: "sw-mark", title: `Swapped from ${was}` }, "Swapped", h("span", { class: "visually-hidden" }, ` from ${was}`));
+  }
+
+  function prescription(it, kind) {
+    if (kind === "strength") return [`${it.sets} × ${it.reps}`, it.targetRir != null ? `@ RIR ${it.targetRir}` : null].filter(Boolean).join(" ");
+    return [it.reps ? `${it.reps} reps` : null, it.calories ? `${it.calories} cal` : null, it.distanceM ? `${it.distanceM} m` : null, it.durationSec ? `${it.durationSec} s` : null].filter(Boolean).join(" · ");
+  }
+
+  function openSwapSheet(plan, w, idx) {
+    const slot = swappableItems(w)[idx];
+    if (!slot) return;
+    const it = slot.item;
+    const name = it.name || exerciseName(ctx.catalog, it.exerciseId);
+    const returnFocus = swapButtonId(plan, w, idx);
+    const profile = ctx.data.profile;
+    const options = safe(() => swapOptions(it, { profile, plan, workoutId: w.id, kind: slot.kind, core: ctx.core, catalog: ctx.catalog, limit: 8 }), []) || [];
+    const eq = equipmentSet(ctx, w.locationId);
+    const mods = slot.kind === "strength" ? ["strength"] : ["conditioning", "cardio"];
+    const inWorkout = new Set(swappableItems(w).map((x) => x.item?.exerciseId).filter(Boolean));
+    let chosen = false;
+
+    openSheet({
+      title: `Swap ${name}`,
+      id: "swap-sheet",
+      onClose: () => { if (!chosen) requestAnimationFrame(() => document.getElementById(returnFocus)?.focus()); },
+      build: (api) => {
+        const pick = (exerciseId) => {
+          if (chosen) return;
+          chosen = true;
+          api.close();
+          doSwap(plan.id, w.id, idx, exerciseId, returnFocus);
+        };
+        const optionButton = (o, i, prefix) => h("li", {}, h("button", {
+          type: "button",
+          class: ["picker-item", "sw-option", o.caution && "is-caution"],
+          id: `${prefix}-${i}`,
+          onClick: () => pick(o.exerciseId),
+        },
+          h("span", { class: "sw-opt-text" },
+            h("span", { class: "picker-name" }, o.name),
+            h("span", { class: "sw-reason" }, o.reason),
+          ),
+          h("span", { class: "sw-opt-go", "aria-hidden": "true" }, icon("arrow", { size: 18 })),
+        ));
+
+        const rx = prescription(it, slot.kind);
+        const keep = h("p", { class: "sw-keep" },
+          rx ? h("span", { class: "num" }, `Keeps ${rx}. `) : null,
+          slot.kind === "strength" ? "The target load resets, so pick a load on your first set." : "Check the amount suits the new movement.",
+        );
+
+        const suggested = options.length
+          ? h("ul", { class: "picker-results sw-list", id: "sw-suggested", "aria-label": "Suggested swaps" }, options.map((o, i) => optionButton(o, i, "sw-opt")))
+          : h("p", { class: "picker-empty" }, "No close match with your equipment. Search the full list below.");
+
+        const results = h("ul", { class: "picker-results sw-list", id: "sw-results", "aria-label": "Search results", "aria-live": "polite" });
+        const search = h("input", {
+          id: "sw-search",
+          class: "input",
+          type: "search",
+          placeholder: slot.kind === "strength" ? "Search: press, row, lunge…" : "Search: bike, burpee, wall ball…",
+          autocomplete: "off",
+          enterkeyhint: "search",
+          "aria-controls": "sw-results",
+          onInput: () => fill(),
+          onKeydown: (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              results.querySelector("button")?.click();
+            }
+          },
+        });
+        function fill() {
+          const q = search.value.trim();
+          if (!q) {
+            replaceChildren(results);
+            return;
+          }
+          const found = (safe(() => ctx.catalog.searchExercises(q, { equipment: eq.size ? eq : null, modality: mods, limit: 30 }), []) || [])
+            .filter((e) => e.id !== it.exerciseId && !inWorkout.has(e.id))
+            .filter((e) => !eq.size || safe(() => ctx.core.exerciseAllowed(e.id, eq).ok, true))
+            .slice(0, 12);
+          const items = found.map((e, i) => optionButton({
+            exerciseId: e.id,
+            name: e.name,
+            reason: [(e.primary || []).slice(0, 2).map(prettifyId).join(", "), eq.size ? "your equipment" : null].filter(Boolean).join(" · "),
+          }, i, "sw-hit"));
+          replaceChildren(results, items.length ? items : h("li", { class: "picker-empty" }, eq.size ? "No match with your equipment." : "No match."));
+        }
+        const locName = (profile?.equipment?.locations || []).find((l) => l.id === (w.locationId || profile?.equipment?.defaultLocationId))?.name;
+        return h("div", { class: "sw-sheet" },
+          keep,
+          h("section", { class: "sw-section", "aria-labelledby": "sw-suggested-title" },
+            h("h3", { class: "field-label", id: "sw-suggested-title" }, "Suggested"),
+            suggested,
+          ),
+          h("section", { class: "sw-section" },
+            h("label", { class: "field-label", for: "sw-search" }, "Search all exercises"),
+            search,
+            h("p", { class: "field-hint" }, eq.size ? `Only what your ${locName || "saved"} equipment allows.` : "Tell the coach your equipment to filter this list."),
+            results,
+          ),
+        );
+      },
+    });
+  }
+
+  async function doSwap(planId, workoutId, idx, exerciseId, focusId) {
+    if (swapping) return;
+    const plan = (ctx.data.plans || []).find((p) => p?.id === planId);
+    const w = plan?.workouts?.find((x) => x.id === workoutId);
+    const old = w ? swappableItems(w)[idx]?.item : null;
+    if (!plan || !old) {
+      toast({ text: "That plan changed. Try the swap again.", kind: "error" });
+      return;
+    }
+    const oldName = old.name || exerciseName(ctx.catalog, old.exerciseId);
+    let next;
+    try {
+      next = applySwap(plan, workoutId, idx, exerciseId, { catalog: ctx.catalog });
+    } catch (err) {
+      toast({ text: err?.message || "Couldn't swap that exercise.", kind: "error" });
+      return;
+    }
+    const newName = swappableItems(next.workouts.find((x) => x.id === workoutId))[idx].item.name;
+    const patch = { workouts: next.workouts };
+    if (plan.validation != null || plan.status === "draft") {
+      const v = safe(() => ctx.core.validatePlan(next, { profile: ctx.data.profile, sessions: ctx.data.sessions, today: ctx.today() }), null);
+      if (v) patch.validation = v;
+    }
+    swapping = true;
+    render();
+    try {
+      const res = await store.plans.update(planId, patch);
+      toast({
+        text: `Swapped ${oldName} → ${newName}`,
+        action: res?.undo ? {
+          label: "Undo",
+          fn: async () => {
+            try {
+              await res.undo();
+              toast({ text: `Back to ${oldName}` });
+            } catch (err) {
+              toast({ text: errorText(coach, err), kind: "error" });
+            }
+          },
+        } : undefined,
+      });
+    } catch (err) {
+      toast({ text: errorText(coach, err), kind: "error" });
+    } finally {
+      swapping = false;
+      render();
+      setTimeout(() => document.getElementById(focusId)?.focus({ preventScroll: true }), 120);
+    }
   }
 
   // ---- logging from the plan -------------------------------------------------------------------
@@ -437,10 +654,10 @@ export function mountPlan(el, ctx) {
     );
   }
 
-  function blockView(b, withTargets) {
-    if (b.kind === "strength") return strengthBlock(b, withTargets);
+  function blockView(b, withTargets, sw = null) {
+    if (b.kind === "strength") return strengthBlock(b, withTargets, sw);
     if (b.kind === "run") return runBlock(b);
-    if (b.kind === "conditioning") return condBlock(b);
+    if (b.kind === "conditioning") return condBlock(b, sw);
     const title = { warmup: "Warm-up", cooldown: "Cool-down", mobility: "Mobility" }[b.kind] || prettifyId(b.kind);
     return h("section", { class: `block block-${b.kind}` },
       h("h4", { class: "block-title" }, title, b.minutes ? h("span", { class: "block-sub num" }, `${b.minutes} min`) : null),
@@ -451,7 +668,7 @@ export function mountPlan(el, ctx) {
     );
   }
 
-  function strengthBlock(b, withTargets) {
+  function strengthBlock(b, withTargets, sw = null) {
     const groupCounts = {};
     return h("section", { class: "block block-strength" },
       h("h4", { class: "block-title" }, "Strength"),
@@ -467,18 +684,22 @@ export function mountPlan(el, ctx) {
         const tLoad = target?.loadKg ?? it.loadKg ?? null;
         const tReps = target?.reps ?? null;
         const alts = (it.alternatives || []).map((id) => exerciseName(ctx.catalog, id)).filter(Boolean);
-        return h("li", { class: "lift" },
+        const swapBtn = swapControl(sw, it);
+        return h("li", { class: ["lift", it.swappedFrom && "is-swapped"] },
           h("div", { class: "lift-main" },
-            h("p", { class: "lift-name" }, tag ? h("span", { class: "ss-tag" }, tag) : null, it.name || exerciseName(ctx.catalog, it.exerciseId)),
+            h("p", { class: "lift-name" }, tag ? h("span", { class: "ss-tag" }, tag) : null, it.name || exerciseName(ctx.catalog, it.exerciseId), swappedMark(it)),
             h("p", { class: "lift-rx num" }, rx, extra ? h("span", { class: "lift-extra" }, ` · ${extra}`) : null),
             it.notes ? lineClamp(it.notes, "lift-note lift-cue") : null,
             target?.note && target.note !== it.notes ? lineClamp(target.note, "lift-note") : null,
-            alts.length ? h("p", { class: "lift-alts" }, h("span", { class: "alts-label" }, "Swap"), ` ${alts.join(", ")}`) : null,
+            alts.length ? h("p", { class: "lift-alts" }, h("span", { class: "alts-label" }, "Alternatives"), ` ${alts.join(", ")}`) : null,
           ),
-          withTargets || tLoad != null ? h("div", { class: "lift-target", title: target?.reason || "" },
-            h("span", { class: "target-label" }, "Target"),
-            h("span", { class: "target-val num" }, tLoad != null ? `${fmtKg(tLoad)}` : "—", tLoad != null ? h("span", { class: "target-unit" }, "kg") : null),
-            tReps != null ? h("span", { class: "target-reps num" }, `× ${tReps}`) : h("span", { class: "target-reps num" }, tLoad == null ? "pick a load" : `× ${it.reps}`),
+          withTargets || tLoad != null || swapBtn ? h("div", { class: "lift-side" },
+            withTargets || tLoad != null ? h("div", { class: "lift-target", title: target?.reason || "" },
+              h("span", { class: "target-label" }, "Target"),
+              h("span", { class: "target-val num" }, tLoad != null ? `${fmtKg(tLoad)}` : "—", tLoad != null ? h("span", { class: "target-unit" }, "kg") : null),
+              tReps != null ? h("span", { class: "target-reps num" }, `× ${tReps}`) : h("span", { class: "target-reps num" }, tLoad == null ? "pick a load" : `× ${it.reps}`),
+            ) : null,
+            swapBtn,
           ) : null,
         );
       })),
@@ -520,7 +741,7 @@ export function mountPlan(el, ctx) {
     );
   }
 
-  function condBlock(b) {
+  function condBlock(b, sw = null) {
     const fmt = { AMRAP: "AMRAP", EMOM: "EMOM", FOR_TIME: "For time", RFT: "Rounds for time", INTERVALS: "Intervals", TABATA: "Tabata", CHIPPER: "Chipper" }[b.format] || b.format || "Conditioning";
     const shape = [];
     if (b.format === "RFT" && b.rounds) shape.push(`${b.rounds} rounds`);
@@ -538,12 +759,17 @@ export function mountPlan(el, ctx) {
           it.distanceM ? `${it.distanceM} m` : null,
           it.durationSec ? `${it.durationSec} s` : null,
         ].filter(Boolean).join(" ");
-        return h("li", {},
+        const swapBtn = swapControl(sw, it);
+        const text = [
           amount ? h("span", { class: "mv-amt num" }, amount) : null,
           h("span", { class: "li-name" }, it.name || exerciseName(ctx.catalog, it.exerciseId)),
+          swappedMark(it),
           it.loadKg ? h("span", { class: "li-detail num" }, ` · ${fmtKg(it.loadKg)} kg`) : null,
           it.notes ? h("span", { class: "li-detail" }, ` · ${it.notes}`) : null,
-        );
+        ];
+        return swapBtn
+          ? h("li", { class: ["mv-row", it.swappedFrom && "is-swapped"] }, h("span", { class: "mv-text" }, text), swapBtn)
+          : h("li", {}, text);
       })),
       b.scaling ? lineClamp(b.scaling, "block-note", h("strong", {}, "Scaling ")) : null,
       b.notes ? lineClamp(b.notes, "block-note") : null,

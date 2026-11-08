@@ -17,8 +17,23 @@ export const PROFILE_HEADING = "Owner profile (JSON)";
 /** Heading of the run caps line (parsed by sample-mock.js). */
 export const RUN_CAPS_HEADING = "Running load (computed by the app)";
 
+/** Heading of the progression digest section, the first section of every plan prompt (owner: Agent P). */
+export const DIGEST_HEADING = "Progression digest: last week's logged training vs its plan (computed by the app; plan FROM this)";
+
+/**
+ * Standing instruction placed in the plan prompt header: logged progress overrides onboarding baselines.
+ * Exported so tests (and the repair path) can check it verbatim.
+ */
+export const ADAPT_INSTRUCTION = [
+  "ADAPT FROM LAST WEEK, NOT FROM ONBOARDING. When the digest's basis is \"history\", logged performance and the digest override the onboarding baselines (profile.experience.knownLifts, running baselines, experience level) for every exercise and modality that has history.",
+  "Use the profile for constraints (equipment, schedule, injuries, goals, dislikes) and only as a fallback for exercises or modalities without history (the digest lists those under baselines).",
+  "Continue the progression: keep last week's core exercises unless a digest adjustment says swap, or a stall rule applies; follow each adjustment (progress, hold, repeat, deload, reduce_volume, swap, return, calibrate) and its kg / km limits.",
+  "In the rationale (≤ 2 short sentences) say what changed vs last week and why, citing the digest.",
+].join("\n");
+
 /** Byte budgets of the plan prompt sections. */
 export const PLAN_BUDGETS = Object.freeze({
+  digest: 7000,
   rules: 42 * 1024,
   profile: 12000,
   memory: 6000,
@@ -186,6 +201,7 @@ function planJsonForPrompt(plan, maxBytes) {
  * @param {string} [d.instruction]
  * @param {string} [d.pacesText] formatted easy pace / race / pace zones (see formatPaces)
  * @param {object[]} d.allowedLocations see formatAllowedExercises
+ * @param {object} [d.digest] progress.progressionDigest result; leads the prompt and overrides profile baselines
  * @returns {string}
  */
 export function buildPlanPrompt(d) {
@@ -201,7 +217,10 @@ export function buildPlanPrompt(d) {
     `Today: ${d.today} (${weekdayName(d.today)}). Plan week starts: ${d.weekStart}.`,
     `Required: exactly ${d.workoutCount} workouts (schedule.daysPerWeek) in rotation order${minutes ? `, each estMinutes ≤ ${minutes} (session length ${minutes} min; the hard limit is ${minutes + 15})` : ""}.`,
     "The plan is a draft the owner approves. Use only numbers given here; the app computed them.",
+    ...(isPlainObject(d.digest) ? [ADAPT_INSTRUCTION] : []),
   ].join("\n");
+  const fromHistory = isPlainObject(d.digest) && d.digest.basis === "history";
+  const runLogged = fromHistory && d.digest.run?.logged === true;
 
   const sessions = (Array.isArray(d.recentSessions) ? d.recentSessions : [])
     .map((s) => formatSessionCompact(s, { notesChars: 100, withId: false })).join("\n");
@@ -211,8 +230,10 @@ export function buildPlanPrompt(d) {
     : "";
 
   const sections = [
+    { title: DIGEST_HEADING, body: isPlainObject(d.digest) ? formatDigest(d.digest) : "", maxBytes: B.digest },
     { title: "Coaching rules", body: String(d.rules ?? "").trim() || "Plan evidence-based training across the owner's modalities: progressive overload, 10-20 hard sets per muscle per week for strength goals, ~80% easy running, hard/easy alternation, scale conditioning to experience.", maxBytes: B.rules },
-    { title: PROFILE_HEADING, body: "```json\n" + JSON.stringify(compactValue(d.profile) ?? {}) + "\n```", maxBytes: B.profile },
+    { title: PROFILE_HEADING, body: (fromHistory ? "Constraints and goals; onboarding baselines with logged history were removed (the digest wins).\n" : "") +
+      "```json\n" + JSON.stringify(compactValue(profileForPlan(d.profile, d.digest)) ?? {}) + "\n```", maxBytes: B.profile },
     { title: "Coach memory", body: d.memoryText ?? "", maxBytes: B.memory },
     { title: "Training summary (computed by the app)", body: d.trainingSummary ? compactJson(d.trainingSummary) : "No history yet.", maxBytes: B.trainingSummary },
     { title: RUN_CAPS_HEADING, body: runCaps(d.runLoad).text },
@@ -221,12 +242,50 @@ export function buildPlanPrompt(d) {
     { title: "Previous plan", body: prev, maxBytes: B.previousPlan },
     { title: "Current draft to revise (JSON)", body: revise ? planJsonForPrompt(d.draft, B.draft) : "", maxBytes: B.draft },
     { title: "Owner's instruction", body: clip(d.instruction ?? "", 1500) || (revise ? "(none: fix anything that looks off)" : "(none)"), maxBytes: B.instruction },
-    { title: "Running paces (computed by the app)", body: d.pacesText ?? "", maxBytes: 2000 },
+    { title: runLogged ? "Running paces from the onboarding profile (fallback only: the digest's logged paces win)" : "Running paces (computed by the app)", body: d.pacesText ?? "", maxBytes: 2000 },
     { title: `${ALLOWED_HEADING}: the provided exercise list (the only exerciseIds you may use, by location and movement pattern)`, body: formatAllowedExercises(d.allowedLocations) },
     { title: "Plan JSON spec (output format)", body: `${PLAN_JSON_SPEC}\n\nExample of the shape (not the content):\n${PLAN_EXAMPLE}` },
   ];
   const room = B.total - utf8Bytes(header) - 4;
   return `${header}\n\n${joinSections(sections, room, "# ")}`;
+}
+
+/**
+ * The digest as prompt text: one JSON line plus a reading key, so the model can follow the adjustments.
+ * @param {object} digest progress.progressionDigest result
+ * @returns {string}
+ */
+export function formatDigest(digest) {
+  if (!isPlainObject(digest)) return "";
+  const key = digest.basis === "history"
+    ? "basis \"history\": plan from these numbers. week = last week's completion; strength[].next = the app's next target (kg/reps); adjustments = what to do per scope (follow them; kg/kmMax/longMax are limits); baselines = profile fallbacks only for items without history."
+    : "basis \"profile\": no logged sessions yet. Calibration week from profile baselines (see adjustments and baselines).";
+  return `${key}\n\`\`\`json\n${JSON.stringify(digest)}\n\`\`\``;
+}
+
+/**
+ * Profile copy for the plan prompt. With logged history (digest.basis "history"), onboarding baselines that
+ * the history supersedes are removed: knownLifts for exercises with logged sets, and running baselines when
+ * runs are logged. Constraints (equipment, schedule, injuries, goals, preferences) are untouched.
+ * @param {object} profile
+ * @param {object} [digest]
+ * @returns {object}
+ */
+export function profileForPlan(profile, digest) {
+  if (!isPlainObject(profile) || !isPlainObject(digest) || digest.basis !== "history") return profile;
+  const exp = isPlainObject(profile.experience) ? { ...profile.experience } : null;
+  if (!exp) return profile;
+  const keep = new Set((digest.baselines?.lifts ?? []).map((l) => l?.id));
+  if (Array.isArray(exp.knownLifts)) {
+    const kept = exp.knownLifts.filter((l) => keep.has(l?.exerciseId));
+    if (kept.length !== exp.knownLifts.length) exp.knownLiftsNote = "baselines for lifts with logged history removed: use the digest";
+    exp.knownLifts = kept;
+  }
+  if (digest.run?.logged === true && isPlainObject(exp.running)) {
+    const { currentWeeklyKm, longestRecentRunKm, ...rest } = exp.running;
+    exp.running = { ...rest, note: "weekly/longest km from onboarding superseded by logged runs (digest.run)" };
+  }
+  return { ...profile, experience: exp };
 }
 
 /**
