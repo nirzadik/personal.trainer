@@ -65,6 +65,8 @@ const ICONS = {
   plan: [["rect", { x: "3.5", y: "5", width: "17", height: "15.5", rx: "1.5" }], ["path", { d: "M3.5 10h17M8 3v4M16 3v4" }], ["path", { d: "M7.5 14h3v3h-3z" }]],
   settings: [["path", { d: "M4 7h9M17 7h3M4 17h3M11 17h9" }], ["circle", { cx: "15", cy: "7", r: "2.2" }], ["circle", { cx: "9", cy: "17", r: "2.2" }]],
   plus: [["path", { d: "M12 5v14M5 12h14" }]],
+  minus: [["path", { d: "M5 12h14" }]],
+  copy: [["rect", { x: "8.5", y: "8.5", width: "11", height: "11", rx: "1.5" }], ["path", { d: "M15.5 8.5V5.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" }]],
   close: [["path", { d: "M6 6l12 12M18 6 6 18" }]],
   chevron: [["path", { d: "m6 9 6 6 6-6" }]],
   check: [["path", { d: "m5 12.5 4.5 4.5L19.5 7" }]],
@@ -271,17 +273,18 @@ let sheetCount = 0;
 
 /**
  * Open a modal bottom sheet. `build(api)` returns the body content.
- * @param {{ title: string, build: (api: SheetApi) => Node | Node[], onClose?: Function, wide?: boolean, id?: string }} opts
+ * `backdropClose: false` keeps the sheet open on a tap outside it (for sheets you fill in over time).
+ * @param {{ title: string, build: (api: SheetApi) => Node | Node[], onClose?: Function, wide?: boolean, id?: string, backdropClose?: boolean, class?: string }} opts
  * @returns {SheetApi}
  * @typedef {{ close: () => void, setTitle: (t: string) => void, body: HTMLElement, dialog: HTMLDialogElement, footer: HTMLElement }} SheetApi
  */
-export function openSheet({ title, build, onClose, id }) {
+export function openSheet({ title, build, onClose, id, backdropClose = true, class: cls = "" }) {
   sheetCount += 1;
   const titleId = `sheet-title-${sheetCount}`;
   const titleEl = h("h2", { class: "sheet-title", id: titleId }, title);
   const body = h("div", { class: "sheet-body" });
   const footer = h("div", { class: "sheet-footer", hidden: true });
-  const dialog = h("dialog", { class: "sheet", "aria-labelledby": titleId, id });
+  const dialog = h("dialog", { class: ["sheet", cls], "aria-labelledby": titleId, id });
   const closeBtn = button({ icon: "close", kind: "ghost", ariaLabel: "Close", onClick: () => api.close(), class: "sheet-close" });
   append(dialog, [h("div", { class: "sheet-panel" },
     h("div", { class: "sheet-grip", "aria-hidden": "true" }),
@@ -305,7 +308,7 @@ export function openSheet({ title, build, onClose, id }) {
     },
   };
   dialog.addEventListener("cancel", (e) => { e.preventDefault(); api.close(); });
-  dialog.addEventListener("click", (e) => { if (e.target === dialog) api.close(); });
+  dialog.addEventListener("click", (e) => { if (backdropClose && e.target === dialog) api.close(); });
   const content = build(api);
   append(body, [content]);
   if (footer.childNodes.length) footer.hidden = false;

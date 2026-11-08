@@ -1516,3 +1516,97 @@ export function markWorkoutDone(state, plan, workoutId) {
   if ((plan?.workouts || []).some((w) => w?.id === workoutId) && !done.includes(workoutId)) done.push(workoutId);
   return { planId: plan?.id ?? null, done };
 }
+
+// ================================================================== live (in-progress) workout
+/**
+ * Step a number field (load, reps, RIR, RPE) by `delta`, clamped to [min, max] and rounded to 2 decimals.
+ * An empty value steps from `min` (so "+2.5" on a bodyweight set gives 2.5 kg added load).
+ * @param {number|string|null} value
+ * @param {number} delta
+ * @param {{ min?: number, max?: number }} [opts]
+ * @returns {number}
+ */
+export function stepValue(value, delta, { min = 0, max = Infinity } = {}) {
+  const base = num(value) ?? min;
+  return Math.min(max, Math.max(min, r2(base + (num(delta) || 0))));
+}
+
+/**
+ * Progress of a live workout draft: done units over total, where a unit is a strength set, the run, or a
+ * conditioning block.
+ * @param {object} live { strength: [{ sets: [{ done }] }], run: { done } | null, conditioning: [{ done }] }
+ * @returns {{ done: number, total: number, sets: number, setsDone: number }}
+ */
+export function liveProgress(live) {
+  const ex = Array.isArray(live?.strength) ? live.strength : [];
+  const sets = ex.reduce((a, e) => a + (Array.isArray(e?.sets) ? e.sets.length : 0), 0);
+  const setsDone = ex.reduce((a, e) => a + (Array.isArray(e?.sets) ? e.sets.filter((s) => s?.done).length : 0), 0);
+  const blocks = [live?.run, ...(Array.isArray(live?.conditioning) ? live.conditioning : [])].filter((b) => b && typeof b === "object");
+  return { done: setsDone + blocks.filter((b) => b.done).length, total: sets + blocks.length, sets, setsDone };
+}
+
+/**
+ * Session input (normalizeSession shape) from a live workout draft. Only ticked work is logged: done sets,
+ * and the run / conditioning blocks marked done. Status is "done" when everything was ticked, else "partial".
+ * Duration: the explicit `durationMin`, else the elapsed time since `startedAt` (when 5-300 min), else the
+ * planned estimate.
+ * @param {object} live
+ * @param {{ now?: number }} [opts] now in ms (defaults to Date.now())
+ * @returns {object}
+ */
+export function liveSessionInput(live, { now } = {}) {
+  const l = live && typeof live === "object" ? live : {};
+  const p = liveProgress(l);
+  const elapsedMin = num(l.startedAt) != null ? Math.round(((num(now) ?? Date.now()) - num(l.startedAt)) / 60000) : null;
+  const durationMin = num(l.durationMin) ?? (elapsedMin != null && elapsedMin >= 5 && elapsedMin <= 300 ? elapsedMin : num(l.plannedMin));
+  const strength = (Array.isArray(l.strength) ? l.strength : []).map((e) => ({
+    exerciseId: e?.exerciseId ?? null,
+    name: String(e?.name || ""),
+    sets: (Array.isArray(e?.sets) ? e.sets : []).filter((s) => s?.done && num(s.reps) != null).map((s) => {
+      const loadKg = num(s.loadKg);
+      return { type: "work", loadKg, bodyweight: loadKg == null || Boolean(s.bodyweight), reps: Math.trunc(num(s.reps)), rir: num(s.rir) };
+    }),
+    feedback: normalizeFeedback(e?.feedback),
+  })).filter((e) => e.sets.length);
+  const r = l.run && l.run.done ? l.run : null;
+  const run = r ? {
+    runType: r.runType || "easy",
+    distanceKm: num(r.distanceKm),
+    durationSec: num(r.durationSec),
+    avgPaceSecPerKm: num(r.distanceKm) && num(r.durationSec) ? paceSecPerKm(num(r.distanceKm), num(r.durationSec)) : null,
+    avgHr: num(r.avgHr),
+    elevationM: null,
+    rpe: num(r.rpe),
+    splits: [],
+  } : null;
+  const conditioning = (Array.isArray(l.conditioning) ? l.conditioning : []).filter((c) => c?.done).map((c) => ({
+    format: c.format ?? null,
+    description: String(c.description || ""),
+    result: {
+      rounds: num(c.result?.rounds), reps: num(c.result?.reps), timeSec: num(c.result?.timeSec),
+      calories: num(c.result?.calories), completed: c.result?.completed !== false,
+    },
+    scaled: Boolean(c.scaled),
+    rpe: num(c.rpe),
+    notes: String(c.notes || ""),
+    feedback: normalizeFeedback(c.feedback),
+  }));
+  return {
+    date: l.date,
+    planId: l.planId ?? null,
+    workoutId: l.workoutId ?? null,
+    title: String(l.title || "").trim() || "Workout",
+    type: l.type,
+    status: p.total > 0 && p.done >= p.total ? "done" : "partial",
+    durationMin: durationMin != null && durationMin > 0 ? durationMin : null,
+    readiness: num(l.readiness),
+    sessionRpe: num(l.sessionRpe),
+    notes: String(l.notes || "").trim(),
+    pain: (Array.isArray(l.pain) ? l.pain : []).filter((x) => String(x?.area || "").trim())
+      .map((x) => ({ area: String(x.area).trim().toLowerCase(), score: num(x.score) ?? 0, when: x.when || "during" })),
+    strength,
+    run,
+    conditioning,
+    createdBy: "manual",
+  };
+}

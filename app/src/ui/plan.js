@@ -13,6 +13,7 @@ import { exerciseName, prettifyId, equipmentSet } from "./ops.js";
 import { swapOptions, applySwap, swappableItems } from "../swap.js";
 import { openWorkoutLog } from "./history.js";
 import { MISSED_REASONS, findLoggedSession, logAsPlanned, missingForDirectSave, skipWorkout, workoutDraft } from "./quicklog.js";
+import { LIVE_EVENT, liveDraftFor, liveElapsedText, discardLiveDraft } from "./workout.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -93,6 +94,18 @@ export function mountPlan(el, ctx) {
   append(el, [head, jobEl, draftEl, agreedEl]);
 
   unsubs.push(ctx.on(["plans", "state", "sessions", "profile"], () => render()));
+  // live (in-progress) workouts: re-render when a draft changes; keep the "Resume · 12 min" labels current
+  const onLive = () => render();
+  window.addEventListener(LIVE_EVENT, onLive);
+  unsubs.push(() => window.removeEventListener(LIVE_EVENT, onLive));
+  const liveTimer = setInterval(() => {
+    for (const elx of el.querySelectorAll("[data-live-key]")) {
+      const [p, w] = elx.dataset.liveKey.split("|");
+      const d = liveDraftFor(p, w);
+      if (d) elx.textContent = liveElapsedText(d);
+    }
+  }, 30000);
+  unsubs.push(() => clearInterval(liveTimer));
 
   function coachReady() {
     return Boolean(coach) && ctx.coachStatus().available !== false;
@@ -313,7 +326,7 @@ export function mountPlan(el, ctx) {
       : status === "later" ? pill("Later", "neutral") : null;
     // Logging actions (agreed plan only): visible under the head for Up next / Done / Skipped, inside the body for Later.
     const canLog = withTargets && Boolean(store) && plan.status === "agreed";
-    const actionsInBody = canLog && status === "later" && !skipping.has(key);
+    const actionsInBody = canLog && status === "later" && !skipping.has(key) && !liveDraftFor(plan.id, w.id);
     const actions = () => (canLog ? workoutActions(plan, w, idx, status, logged) : null);
     const loc = (ctx.data.profile?.equipment?.locations || []).find((l) => l.id === w.locationId)?.name;
     const meta = [TYPE_LABEL[w.type] || prettifyId(w.type), w.estMinutes ? `${w.estMinutes} min` : null, loc].filter(Boolean).join(" · ");
@@ -578,6 +591,37 @@ export function mountPlan(el, ctx) {
       );
     }
     const isBusy = busy.has(key);
+    const live = liveDraftFor(plan.id, w.id);
+    if (live) {
+      const host = h("div", { class: ["w-actions", "w-live", status === "next" && "is-next"] });
+      const p = safe(() => ctx.core.liveProgress(live), null);
+      replaceChildren(host,
+        h("p", { class: "w-live-status num" },
+          h("span", { class: "ws-dot", "aria-hidden": "true" }),
+          "In progress · ",
+          h("span", { "data-live-key": `${plan.id}|${w.id}` }, liveElapsedText(live)),
+          p?.total ? ` · ${p.done}/${p.total} done` : null),
+        h("div", { class: "btn-row" },
+          button({ id: `w${slug}-resume`, label: "Resume", icon: "play", kind: "primary", small: true, onClick: () => openWorkoutLog(ctx, plan, w) }),
+          button({
+            id: `w${slug}-discard`,
+            label: "Discard",
+            kind: "ghost",
+            small: true,
+            onClick: () => inlineConfirm(host, {
+              text: `Discard ${w.title || w.id}? The sets you entered are deleted and nothing is logged.`,
+              confirmLabel: "Discard workout",
+              idPrefix: `w${slug}-discard`,
+              onConfirm: () => {
+                discardLiveDraft(plan.id, w.id);
+                toast({ text: `Discarded · ${w.title || w.id}` });
+              },
+            }),
+          }),
+        ),
+      );
+      return host;
+    }
     return h("div", { class: ["w-actions", status === "next" && "is-next"] },
       button({ id: `w${slug}-done`, label: "Start", icon: "play", kind: status === "next" ? "primary" : "secondary", small: true, disabled: isBusy, onClick: () => openWorkoutLog(ctx, plan, w) }),
       button({ id: `w${slug}-asplanned`, label: "As planned", ariaLabel: `Done exactly as planned: log ${w.title || w.id} with the planned values`, kind: "secondary", small: true, disabled: isBusy, onClick: () => doneAsPlanned(plan, w, key) }),

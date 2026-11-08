@@ -756,3 +756,51 @@ test("rotation: nextWorkout / markWorkoutDone", () => {
   assert.equal(core.nextWorkout(plan, { rotation: rot }), null, "week complete");
   assert.ok(Object.isFrozen(plan) === false && state.rotation.done.length === 1, "inputs not mutated");
 });
+
+// ------------------------------------------------------------------ live (in-progress) workout
+test("live workout: stepValue clamps, rounds and steps from empty", () => {
+  assert.equal(core.stepValue(100, 2.5), 102.5);
+  assert.equal(core.stepValue("100", -2.5), 97.5);
+  assert.equal(core.stepValue(null, 2.5), 2.5, "bodyweight + 2.5 kg");
+  assert.equal(core.stepValue("", -2.5), 0, "never below min");
+  assert.equal(core.stepValue(1, -1, { min: 1 }), 1);
+  assert.equal(core.stepValue(10, 1, { min: 1, max: 10 }), 10);
+  assert.equal(core.stepValue(0.1, 0.2), 0.3, "no float noise");
+});
+
+test("live workout: liveProgress and liveSessionInput log only ticked work", () => {
+  const live = {
+    planId: "p1", workoutId: "W1", title: "Lower A", type: "hybrid", date: "2026-11-07", startedAt: 0, plannedMin: 60,
+    readiness: 4, sessionRpe: "7", notes: " good ", pain: [{ area: " Knee ", score: 2, when: "during" }, { area: "", score: 5 }],
+    strength: [
+      { exerciseId: "back_squat", name: "Back squat", feedback: "Hard", sets: [
+        { loadKg: 100, reps: 5, rir: 2, done: true }, { loadKg: "97.5", reps: "5", rir: "", done: true }, { loadKg: 100, reps: 5, rir: 2, done: false },
+      ] },
+      { exerciseId: "pull_up", name: "Pull-up", sets: [{ loadKg: null, reps: 8, rir: null, bodyweight: true, done: true }] },
+      { exerciseId: "leg_press", name: "Leg press", sets: [{ loadKg: 160, reps: 12, done: false }] },
+    ],
+    run: { runType: "tempo", distanceKm: 5, durationSec: 1500, rpe: 7, done: false },
+    conditioning: [{ format: "AMRAP", description: "12 min", result: { rounds: 5, reps: 3 }, rpe: 8, feedback: "easy", done: true }],
+  };
+  assert.deepEqual(core.liveProgress(live), { done: 4, total: 7, sets: 5, setsDone: 3 });
+  const s = core.liveSessionInput(live, { now: 48 * 60000 });
+  assert.equal(s.status, "partial");
+  assert.equal(s.durationMin, 48, "elapsed minutes");
+  assert.deepEqual(s.strength.map((e) => [e.exerciseId, e.sets.length, e.feedback]), [["back_squat", 2, "hard"], ["pull_up", 1, null]]);
+  assert.deepEqual(s.strength[0].sets[1], { type: "work", loadKg: 97.5, bodyweight: false, reps: 5, rir: null });
+  assert.equal(s.strength[1].sets[0].bodyweight, true);
+  assert.equal(s.run, null, "unticked run left out");
+  assert.equal(s.conditioning.length, 1);
+  assert.deepEqual(s.conditioning[0].result, { rounds: 5, reps: 3, timeSec: null, calories: null, completed: true });
+  assert.deepEqual([s.sessionRpe, s.notes, s.pain], [7, "good", [{ area: "knee", score: 2, when: "during" }]]);
+  assert.equal(core.liveSessionInput(live, { now: 2 * 60000 }).durationMin, 60, "too short a timer falls back to the plan estimate");
+  assert.equal(core.liveSessionInput({ ...live, durationMin: "55" }, { now: 2 * 60000 }).durationMin, 55, "explicit minutes win");
+
+  const all = { ...live, strength: live.strength.map((e) => ({ ...e, sets: e.sets.map((x) => ({ ...x, done: true })) })), run: { ...live.run, done: true } };
+  const full = core.liveSessionInput(all, { now: 60 * 60000 });
+  assert.equal(full.status, "done");
+  assert.equal(full.run.avgPaceSecPerKm, 300);
+  const norm = core.normalizeSession(full, { today: "2026-11-07" });
+  assert.equal(norm.strength.length, 3);
+  assert.equal(norm.type, "hybrid");
+});

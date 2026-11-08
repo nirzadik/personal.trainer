@@ -9,6 +9,7 @@ import {
 import { renderMarkdown, plainText } from "./markdown.js";
 import { removeSession, markDone, exerciseName, equipmentSet, prettifyId } from "./ops.js";
 import { saveLoggedSession, workoutDraft, feedbackControl, feedbackLabel } from "./quicklog.js";
+import { openLiveWorkout } from "./workout.js";
 
 const FILTER_KEY = "pt.historyFilter";
 const FILTERS = [
@@ -581,16 +582,17 @@ function parseClock(ctx, str) {
 }
 
 /**
- * Open the quick-log sheet for a workout of the agreed plan: the add form prefilled from
- * core.sessionFromWorkout (planned sets × target reps at the nextTarget load, run distance / time / RPE,
- * metcon format), with every section the workout has. Saving logs it and advances the rotation.
+ * Open the log sheet for a workout of the agreed plan. This is the live, in-workout sheet (workout.js): every
+ * planned set prefilled from core.sessionFromWorkout, ticked set by set, with a draft that survives closing and
+ * reloads. Finishing logs it and advances the rotation. (The add form's `{ plan, workout }` mode below is the
+ * earlier one-shot version, kept for reference but no longer opened.)
  * @param {any} ctx
  * @param {any} plan
  * @param {any} workout
- * @param {{ note?: string }} [opts] note: a line shown above the form (e.g. why "Done as planned" needs input)
+ * @param {{ note?: string }} [opts] note: a line shown at the top (e.g. why "Done as planned" needs input)
  */
 export function openWorkoutLog(ctx, plan, workout, { note = "" } = {}) {
-  openForm(ctx, null, { plan, workout, note });
+  openLiveWorkout(ctx, plan, workout, { note });
 }
 
 function planDraft(ctx, plan, workout) {
