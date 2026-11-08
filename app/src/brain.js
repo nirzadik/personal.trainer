@@ -523,6 +523,281 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     return { patch, notes, changed };
   }
 
+  // ---------- plan changes (update_plan_workout) and wellness ----------
+
+  /** Workout ids of `plan` that are done or skipped: the rotation plus any session logged against it. */
+  function lockedWorkoutIds(plan, state, sessions) {
+    const ids = new Set(state?.rotation?.planId === plan?.id && Array.isArray(state.rotation.done) ? state.rotation.done : []);
+    for (const s of Array.isArray(sessions) ? sessions : []) {
+      if (!isPlainObject(s) || !s.workoutId) continue;
+      if (s.planId === plan.id || (!s.planId && plan.weekStart && String(s.date) >= String(plan.weekStart))) ids.add(s.workoutId);
+    }
+    return ids;
+  }
+  function validateAgainst(plan, profile, sessionsAsc, t) {
+    const v = attempt(() => C.validatePlan(plan, { profile, sessions: sessionsAsc, today: t }));
+    return isPlainObject(v) ? v : null;
+  }
+  const issueKey = (e) => `${e?.code}|${e?.workoutId ?? ""}|${e?.message ?? ""}`;
+  function resolveExercise(query) {
+    const q = String(query ?? "").trim();
+    if (!q) return null;
+    const ex = attempt(() => cat.getExercise?.(q)) ?? attempt(() => cat.findExercise?.(q));
+    return isPlainObject(ex) ? ex : null;
+  }
+  /** Flat list of a workout's strength and conditioning items, in block order. */
+  function workoutItems(w) {
+    const out = [];
+    (Array.isArray(w?.blocks) ? w.blocks : []).forEach((b, bi) => {
+      if (b?.kind !== "strength" && b?.kind !== "conditioning") return;
+      (Array.isArray(b.items) ? b.items : []).forEach((item, ii) => { if (isPlainObject(item)) out.push({ block: b, bi, item, ii }); });
+    });
+    return out;
+  }
+  function findItem(w, query) {
+    const items = workoutItems(w);
+    const q = String(query ?? "").trim();
+    const lower = q.toLowerCase();
+    return items.find((x) => x.item.exerciseId === q)
+      ?? (() => { const ex = resolveExercise(q); return ex ? items.find((x) => x.item.exerciseId === ex.id) : null; })()
+      ?? items.find((x) => String(x.item.name ?? "").toLowerCase() === lower) ?? null;
+  }
+  const numOr = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? undefined : Number(v));
+  const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const nameOf = (item) => clip(item?.name || exerciseName(item?.exerciseId) || String(item?.exerciseId ?? "item"), 28);
+
+  /**
+   * Apply update_plan_workout input to a clone of `plan`. Throws Error (message for Claude) on unusable input.
+   * @returns {{ plan: object, workout: object, before: object, fromIndex: number, toIndex: number, parts: string[] }}
+   */
+  function applyWorkoutChange(plan, input, profile) {
+    const next = cloneJson(plan);
+    const workouts = Array.isArray(next.workouts) ? next.workouts : [];
+    const wid = String(input.workoutId ?? "").trim();
+    const fromIndex = workouts.findIndex((w) => w?.id === wid);
+    if (fromIndex < 0) throw new Error(`No workout ${wid || "(missing workoutId)"} in the agreed plan (has ${workouts.map((w) => w.id).join(", ")})`);
+    const w = workouts[fromIndex];
+    const before = cloneJson(w);
+    const parts = [];
+    const eq = equipmentSet(profile, w.locationId || profile?.equipment?.defaultLocationId);
+    const drops = [];
+    for (const ch of (Array.isArray(input.changes) ? input.changes : []).filter(isPlainObject)) {
+      const hit = findItem(w, ch.exerciseId ?? ch.name);
+      if (!hit) {
+        throw new Error(`No item "${ch.exerciseId ?? ch.name ?? "?"}" in ${wid}; its items are ${workoutItems(w).map((x) => x.item.exerciseId).join(", ") || "none"}`);
+      }
+      const { item, block } = hit;
+      const isStrength = block.kind === "strength";
+      const label = nameOf(item);
+      if (ch.drop === true) { drops.push(hit); parts.push(`dropped ${label}`); continue; }
+      if (ch.swapTo) {
+        const ex = resolveExercise(ch.swapTo);
+        if (!ex) throw new Error(`Unknown exercise "${ch.swapTo}". Use get_exercise_info to find an allowed id.`);
+        if (ex.id !== item.exerciseId) {
+          if (eq.size && !exerciseOk(ex, eq)) {
+            const subs = attempt(() => C.findSubstitutes(item.exerciseId, eq, profile, { limit: 3 }), []);
+            throw new Error(`${ex.id} isn't possible with the equipment at ${w.locationId || "this location"}${Array.isArray(subs) && subs.length ? `; allowed swaps: ${subs.join(", ")}` : ""}`);
+          }
+          const old = item.exerciseId;
+          item.alternatives = [old, ...(Array.isArray(item.alternatives) ? item.alternatives : [])].filter((x, i, a) => x && x !== ex.id && a.indexOf(x) === i).slice(0, 4);
+          item.exerciseId = ex.id;
+          item.name = ex.name;
+          if (isStrength && numOr(ch.loadKg) === undefined) item.loadKg = null; // recalibrate on the new exercise
+          parts.push(`${label} → ${clip(ex.name, 28)}`);
+        }
+      }
+      const sets = numOr(ch.sets);
+      if (sets !== undefined && isStrength) {
+        const v = clampInt(sets, 1, 10, item.sets);
+        if (v !== item.sets) { parts.push(`${nameOf(item)} ${item.sets ?? "?"}→${v} sets`); item.sets = v; }
+      }
+      if (ch.reps !== undefined && ch.reps !== null && String(ch.reps).trim()) {
+        if (isStrength) {
+          const v = clip(String(ch.reps).trim(), 12);
+          if (v !== String(item.reps)) { parts.push(`${nameOf(item)} reps ${item.reps ?? "?"}→${v}`); item.reps = v; }
+        } else if (numOr(ch.reps) !== undefined) {
+          const v = clampInt(ch.reps, 1, 500, item.reps);
+          if (v !== item.reps) { parts.push(`${nameOf(item)} ${item.reps ?? "?"}→${v} reps`); item.reps = v; }
+        }
+      }
+      const rir = numOr(ch.targetRir);
+      if (rir !== undefined && isStrength) {
+        const v = clampNum(Math.round(rir), 0, 5);
+        if (v !== item.targetRir) { parts.push(`${nameOf(item)} RIR ${item.targetRir ?? "?"}→${v}`); item.targetRir = v; }
+      }
+      const load = numOr(ch.loadKg);
+      if (load !== undefined) {
+        const v = load > 0 ? Math.round(clampNum(load, 0, 500) * 4) / 4 : null;
+        if (v !== item.loadKg) { parts.push(`${nameOf(item)} ${v === null ? "load cleared" : `${fmtNum(v)} kg`}`); item.loadKg = v; }
+      }
+      const rest = numOr(ch.restSec);
+      if (rest !== undefined && isStrength) {
+        const v = clampInt(rest, 0, 600, item.restSec);
+        if (v !== item.restSec) { parts.push(`${nameOf(item)} rest ${v}s`); item.restSec = v; }
+      }
+      if (typeof ch.note === "string" && ch.note.trim()) item.notes = clip(ch.note.trim(), 120);
+    }
+    // drop items (highest index first so the others stay valid), then empty blocks
+    for (const { block, ii } of drops.sort((a, b) => b.bi - a.bi || b.ii - a.ii)) block.items.splice(ii, 1);
+    w.blocks = (w.blocks ?? []).filter((b) => !((b.kind === "strength" || b.kind === "conditioning") && Array.isArray(b.items) && !b.items.length));
+    const cond = (w.blocks ?? []).find((b) => b?.kind === "conditioning");
+    const condMin = numOr(input.conditioningMinutes);
+    const condRounds = numOr(input.conditioningRounds);
+    const rpe = numOr(input.targetRpe);
+    if ((condMin !== undefined || condRounds !== undefined || rpe !== undefined) && !cond) throw new Error(`${wid} has no conditioning block`);
+    if (cond && condMin !== undefined) {
+      const v = clampInt(condMin, 1, 90, cond.minutes);
+      if (v !== cond.minutes) { parts.push(`${cond.format || "metcon"} ${cond.minutes ?? "?"}→${v} min`); cond.minutes = v; if (cond.timeCapMin && cond.timeCapMin > v) cond.timeCapMin = v; }
+    }
+    if (cond && condRounds !== undefined) {
+      const v = clampInt(condRounds, 1, 50, cond.rounds);
+      if (v !== cond.rounds) { parts.push(`${cond.format || "metcon"} ${cond.rounds ?? "?"}→${v} rounds`); cond.rounds = v; }
+    }
+    if (cond && rpe !== undefined) {
+      const v = clampInt(rpe, 1, 10, cond.targetRpe);
+      if (v !== cond.targetRpe) { parts.push(`target RPE ${v}`); cond.targetRpe = v; }
+    }
+    const runKm = numOr(input.runKm);
+    if (runKm !== undefined) {
+      const run = (w.blocks ?? []).find((b) => b?.kind === "run");
+      if (!run) throw new Error(`${wid} has no run block`);
+      const v = Math.round(clampNum(runKm, 0.5, 60) * 10) / 10;
+      if (v !== run.totalKm) { parts.push(`run ${run.totalKm ? `${fmtNum(run.totalKm)}→` : ""}${fmtNum(v)} km`); run.totalKm = v; }
+    }
+    const est = numOr(input.estMinutes);
+    if (est !== undefined) w.estMinutes = clampInt(est, 10, 240, w.estMinutes);
+    else if (parts.length && w.estMinutes) {
+      const e = attempt(() => C.estimateWorkoutMinutes(w, { easyPaceSecPerKm: profile?.experience?.running?.easyPaceSecPerKm }));
+      if (Number.isFinite(e) && e > 0) w.estMinutes = Math.round(e);
+    }
+    let toIndex = fromIndex;
+    const move = numOr(input.moveTo);
+    if (move !== undefined) {
+      toIndex = clampInt(move, 1, workouts.length, fromIndex + 1) - 1;
+      if (toIndex !== fromIndex) {
+        workouts.splice(fromIndex, 1);
+        workouts.splice(toIndex, 0, w);
+        parts.push(`moved to #${toIndex + 1}`);
+      }
+    }
+    if (!w.blocks.length) throw new Error(`That would leave ${wid} empty. Keep at least one block, or tell the owner to skip it.`);
+    return { plan: next, workout: w, before, fromIndex, toIndex, parts };
+  }
+
+  async function changePlanWorkout(input, ctx, signal) {
+    if (typeof store.plans?.update !== "function") throw new Error("Plan editing isn't available in this app version. Describe the change instead.");
+    const t = ctx.today;
+    const [plan, state, sessionsDesc, profile] = await Promise.all([
+      store.plans.getAgreed(), soft(() => store.state.get(), {}), soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []), soft(() => store.profile.get(), {}),
+    ]);
+    if (!isPlainObject(plan)) throw new Error("There is no agreed plan to change.");
+    const wid = String(input.workoutId ?? "").trim();
+    const locked = lockedWorkoutIds(plan, state, sessionsDesc);
+    if (locked.has(wid)) throw new Error(`${wid} is already done or skipped, so it can't change. Only remaining workouts can: ${(plan.workouts ?? []).filter((w) => !locked.has(w.id)).map((w) => w.id).join(", ") || "none left"}.`);
+    const { plan: next, workout, before, fromIndex, toIndex, parts } = applyWorkoutChange(plan, input, profile ?? {});
+    if (!parts.length) throw new Error("Nothing changed: send at least one different value.");
+    const sessionsAsc = sortSessionsAsc(sessionsDesc);
+    const beforeV = validateAgainst(plan, profile, sessionsAsc, t);
+    const afterV = validateAgainst(next, profile, sessionsAsc, t);
+    const known = new Set((beforeV?.errors ?? []).map(issueKey));
+    const added = (afterV?.errors ?? []).filter((e) => !known.has(issueKey(e)));
+    if (added.length) {
+      return {
+        label: `Plan change rejected · ${wid}`,
+        result: { ok: false, rejected: true, workoutId: wid, issues: added.slice(0, 6).map((e) => `${e.code}: ${clip(e.message, 160)}`), hint: "Nothing was saved. Adjust the change (e.g. fewer items, an allowed exercise, less run distance) or explain it to the owner." },
+      };
+    }
+    const knownW = new Set((beforeV?.warnings ?? []).map(issueKey));
+    const newWarnings = (afterV?.warnings ?? []).filter((e) => !knownW.has(issueKey(e))).slice(0, 4).map((e) => `${e.code}: ${clip(e.message, 140)}`);
+    guard(signal);
+    const reason = clip(String(input.reason ?? "").trim(), 140);
+    const summary = clip(parts.join(", "), 120);
+    const entry = {
+      id: `c${clock().getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      at: nowIso(), workoutId: wid, before, fromIndex, toIndex, summary, reason,
+    };
+    const changeLog = [...(Array.isArray(plan.changeLog) ? plan.changeLog.filter(isPlainObject) : []), entry].slice(-PLAN_CHANGELOG_MAX);
+    const res = await store.plans.update(plan.id, { workouts: next.workouts, validation: afterV ?? plan.validation ?? null, changeLog });
+    const ref = `${plan.id}#${entry.id}`;
+    const label = clip(`${wid} ${clip(workout.title || "", 24)}: ${summary}`, 110);
+    ctx.actions.push({ type: "plan_change", label, ref, undo: () => undoPlanChange(ref) });
+    return {
+      label: `Plan updated · ${wid}`,
+      result: { ok: true, workoutId: wid, changed: parts, workout: formatWorkout(workout), ...(newWarnings.length ? { warnings: newWarnings } : {}) },
+    };
+  }
+
+  /** Is the plan change `ref` ("<planId>#<changeId>") still in its plan's change log (i.e. not undone)? */
+  function planChangeActive(ref, plans) {
+    const [planId, changeId] = String(ref ?? "").split("#");
+    const plan = (Array.isArray(plans) ? plans : []).find((p) => p?.id === planId);
+    return Boolean(plan && Array.isArray(plan.changeLog) && plan.changeLog.some((c) => c?.id === changeId));
+  }
+
+  /**
+   * Undo one update_plan_workout change: restores that workout as it was (and its rotation position). Later
+   * changes to the same workout are undone with it. Refused when the workout is done by now.
+   * @param {string} ref "<planId>#<changeId>"
+   * @returns {Promise<{ plan: object, undo?: Function, undone: number }>}
+   */
+  async function undoPlanChange(ref) {
+    try {
+      if (!store) throw { code: "no_user", message: "no store" };
+      if (typeof store.plans?.update !== "function") throw { code: "invalid_argument", message: "Plan editing isn't available in this app version." };
+      const [planId, changeId] = String(ref ?? "").split("#");
+      const plan = typeof store.plans.get === "function" ? await store.plans.get(planId) : await soft(() => store.plans.getAgreed());
+      if (!isPlainObject(plan) || plan.id !== planId) throw { code: "not_found", message: "That plan no longer exists." };
+      const log = Array.isArray(plan.changeLog) ? plan.changeLog.filter(isPlainObject) : [];
+      const at = log.findIndex((c) => c.id === changeId);
+      if (at < 0) throw { code: "not_found", message: "That change was already undone." };
+      const entry = log[at];
+      const [state, sessionsDesc, profile] = await Promise.all([
+        soft(() => store.state.get(), {}), soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []), soft(() => store.profile.get(), {}),
+      ]);
+      if (lockedWorkoutIds(plan, state, sessionsDesc).has(entry.workoutId)) {
+        throw { code: "invalid_argument", message: `${entry.workoutId} is already done, so its change can't be undone.` };
+      }
+      const workouts = cloneJson(plan.workouts ?? []);
+      const i = workouts.findIndex((w) => w?.id === entry.workoutId);
+      if (i < 0) throw { code: "not_found", message: `${entry.workoutId} is no longer in the plan.` };
+      workouts.splice(i, 1);
+      workouts.splice(Math.min(Math.max(0, Number(entry.fromIndex) || 0), workouts.length), 0, cloneJson(entry.before));
+      const removed = log.filter((c, k) => k >= at && c.workoutId === entry.workoutId);
+      const changeLog = log.filter((c) => !removed.includes(c));
+      const next = { ...plan, workouts };
+      const validation = validateAgainst(next, profile, sortSessionsAsc(sessionsDesc), today()) ?? plan.validation ?? null;
+      const res = await store.plans.update(planId, { workouts, changeLog, validation });
+      return { plan: res?.plan ?? { ...next, changeLog, validation }, undo: res?.undo, undone: removed.length };
+    } catch (e) {
+      const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
+      throw { code: err.code, message: String(err.message ?? err.code) };
+    }
+  }
+
+  function wellnessBands(e) {
+    const band = (v, cuts) => (v === null || v === undefined ? null : cuts.find(([lim]) => v < lim)?.[1] ?? cuts[cuts.length - 1][1]);
+    const out = {};
+    const r = band(e.trainingReadiness, [[25, "poor"], [50, "low"], [75, "moderate"], [95, "high"], [101, "prime"]]);
+    if (r) out.readiness = r;
+    const sl = band(e.sleepScore, [[60, "poor"], [80, "fair"], [90, "good"], [101, "excellent"]]);
+    if (sl) out.sleep = sl;
+    const bb = band(e.bodyBattery, [[25, "low"], [50, "moderate"], [101, "good"]]);
+    if (bb) out.bodyBattery = bb;
+    const flags = [];
+    if (e.trainingReadiness !== null && e.trainingReadiness !== undefined && e.trainingReadiness < 25) flags.push("readiness poor");
+    else if (e.trainingReadiness !== null && e.trainingReadiness !== undefined && e.trainingReadiness < 50) flags.push("readiness low");
+    if (e.sleepScore !== null && e.sleepScore !== undefined && e.sleepScore < 60) flags.push("sleep score poor");
+    if (e.sleepHours !== null && e.sleepHours !== undefined && e.sleepHours < 6) flags.push("under 6 h sleep");
+    if (["low", "poor"].includes(e.hrvStatus)) flags.push(`HRV ${e.hrvStatus}`);
+    if (e.bodyBattery !== null && e.bodyBattery !== undefined && e.bodyBattery < 25) flags.push("body battery low");
+    out.guidance = flags.includes("readiness poor") || flags.length >= 3
+      ? `Recovery day: easy aerobic or mobility only, or a much-reduced session (${flags.join(", ")}).`
+      : flags.length
+        ? `Trim today: about −1 set per exercise, 1 RIR easier, easy runs only, metcons RPE ≤7 (${flags.join(", ")}).`
+        : "No red flags: train as planned.";
+    return out;
+  }
+
   const IMPLS = {
     async update_profile(input, ctx, signal) {
       if (!isPlainObject(input.patch)) throw new Error("patch must be an object of Profile fields");
@@ -667,7 +942,16 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       if (!isPlainObject(existing)) throw new Error(`No session with id ${id}`);
       const clean = {};
       const ignored = [];
-      for (const [k, v] of Object.entries(input.patch)) (SESSION_PATCH_KEYS.includes(k) ? (clean[k] = cloneJson(v)) : ignored.push(k));
+      const { feedback: fbPatch, ...restPatch } = input.patch;
+      for (const [k, v] of Object.entries(restPatch)) (SESSION_PATCH_KEYS.includes(k) ? (clean[k] = cloneJson(v)) : ignored.push(k));
+      let fbNote = null;
+      if (fbPatch !== undefined) {
+        const r = applyFeedbackPatch({ ...existing, ...clean }, fbPatch);
+        if (!r.applied.length) throw new Error(`No exercise matched the feedback${r.unknown.length ? ` (${r.unknown.join(", ")})` : ""}. Exercises: ${(existing.strength ?? []).map((e) => e.exerciseId || e.name).join(", ") || "none"}`);
+        if (r.strength) clean.strength = r.strength;
+        if (r.conditioning) clean.conditioning = r.conditioning;
+        fbNote = { tagged: r.applied, ...(r.unknown.length ? { unmatched: r.unknown } : {}) };
+      }
       if (!Object.keys(clean).length) throw new Error(`Nothing to update (allowed: ${SESSION_PATCH_KEYS.join(", ")})`);
       if ("coachComment" in clean) clean.coachComment = clampWords(String(clean.coachComment ?? ""), 120);
       const merged = attempt(() => C.normalizeSession({ ...existing, ...clean }, { today: ctx.today }), { ...existing, ...clean });
@@ -683,11 +967,16 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       guard(signal);
       const res = await store.sessions.update(id, patch);
       const title = clip(existing.title || existing.type || "session", 30);
-      const label = Object.keys(clean).length === 1 && "coachComment" in clean ? `Comment saved · ${title}` : `Updated · ${title}`;
+      const label = Object.keys(clean).length === 1 && "coachComment" in clean ? `Comment saved · ${title}`
+        : fbNote && Object.keys(restPatch).length === 0 ? `Feedback · ${title} · ${clip(fbNote.tagged.join(", "), 50)}` : `Updated · ${title}`;
       ctx.actions.push({ type: "updated_session", label, ref: id, undo: res?.undo });
       return {
         label,
-        result: { id, updated: Object.keys(clean), session: formatSessionCompact({ ...existing, ...patch }, { notesChars: 80, commentChars: 80 }), ...(ignored.length ? { ignored } : {}) },
+        result: {
+          id, updated: Object.keys(clean), session: formatSessionCompact({ ...existing, ...patch }, { notesChars: 80, commentChars: 80 }),
+          ...(fbNote ? { feedback: fbNote } : {}), ...(ignored.length ? { ignored } : {}),
+          ...(fbNote ? { nextTargets: await feedbackTargets({ ...existing, ...patch, id }, ctx.today) } : {}),
+        },
       };
     },
 
@@ -718,6 +1007,43 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       const label = `Noted · ${clip(text, 40)}`;
       ctx.actions.push({ type: "coach_note", label, ref: res?.id ?? res?.note?.id ?? null, undo: res?.undo });
       return { label, result: { ok: true, kind } };
+    },
+
+    async update_plan_workout(input, ctx, signal) {
+      return changePlanWorkout(input, ctx, signal);
+    },
+
+    async log_wellness(input, ctx, signal) {
+      if (typeof store.wellness?.add !== "function") throw new Error("Wellness logging isn't available in this app version; acknowledge the numbers in your reply instead.");
+      const date = isIsoDate(input.date) ? input.date : ctx.today;
+      if (date > ctx.today) throw new Error(`date ${date} is in the future (today is ${ctx.today})`);
+      const entry = { date, source: "manual" };
+      const notes = [];
+      for (const [k, [lo, hi]] of Object.entries(WELLNESS_NUMBERS)) {
+        const v = numOr(input[k]);
+        if (v === undefined) continue;
+        if (v < lo || v > hi) { notes.push(`${k} ${v} ignored (expected ${lo}-${hi})`); continue; }
+        entry[k] = k === "sleepHours" ? Math.round(v * 10) / 10 : Math.round(v);
+      }
+      if (input.hrvStatus !== undefined && input.hrvStatus !== null) {
+        const hs = String(input.hrvStatus).toLowerCase().trim();
+        if (TOOL_ENUMS.HRV_STATUSES.includes(hs)) entry.hrvStatus = hs;
+        else notes.push(`hrvStatus "${input.hrvStatus}" ignored (use ${TOOL_ENUMS.HRV_STATUSES.join("|")})`);
+      }
+      if (typeof input.notes === "string" && input.notes.trim()) entry.notes = clip(input.notes.trim(), 300);
+      if (Object.keys(entry).length <= 2) throw new Error(`No usable wellness values${notes.length ? `: ${notes.join("; ")}` : ""}`);
+      guard(signal);
+      const res = await store.wellness.add(entry);
+      const saved = isPlainObject(res?.entry) ? res.entry : entry;
+      const short = [
+        saved.trainingReadiness != null ? `readiness ${saved.trainingReadiness}` : null,
+        saved.sleepScore != null ? `sleep ${saved.sleepScore}` : saved.sleepHours != null ? `sleep ${saved.sleepHours} h` : null,
+        saved.hrvStatus ? `HRV ${saved.hrvStatus}` : saved.hrvMs != null ? `HRV ${saved.hrvMs} ms` : null,
+        saved.bodyBattery != null ? `battery ${saved.bodyBattery}` : null,
+      ].filter(Boolean).slice(0, 3).join(" · ");
+      const label = `Wellness · ${date === ctx.today ? "today" : date}${short ? ` · ${short}` : ""}`;
+      ctx.actions.push({ type: "logged_wellness", label, ref: date, undo: res?.undo });
+      return { label, result: { ok: true, saved: formatWellnessEntry(saved), bands: wellnessBands(saved), ...(notes.length ? { notes } : {}) } };
     },
 
     async get_exercise_info(input) {
@@ -751,7 +1077,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
   };
 
   function makeTools(mode, ctx, maxCount) {
-    const order = mode === "onboarding" ? ONBOARDING_TOOL_ORDER : CHAT_TOOL_ORDER;
+    const order = mode === "onboarding" ? ONBOARDING_TOOL_ORDER : mode === "review" ? REVIEW_TOOL_ORDER : CHAT_TOOL_ORDER;
     return order.filter((name) => TOOL_SPECS[name] && IMPLS[name] && !checkToolSpec(TOOL_SPECS[name]).length)
       .slice(0, Math.max(0, maxCount)).map((name) => wrapTool(name, IMPLS[name], ctx));
   }
