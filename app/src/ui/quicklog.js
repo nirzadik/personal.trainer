@@ -145,6 +145,7 @@ export async function saveLoggedSession(ctx, input, { view = false, toastText } 
   session.createdAt = session.createdAt || now;
   session.updatedAt = now;
   const res = await store.sessions.add(session);
+  if (res?.id) session = { ...session, ...(res.session || {}), id: res.id }; // the store assigns the id
   const plan = session.planId ? (ctx.data.plans || []).find((p) => p.id === session.planId) : null;
   let undoRotation = null;
   try {
