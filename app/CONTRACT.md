@@ -280,8 +280,9 @@ export function validatePlan(plan, { profile, sessions = [], today } = {})
       // { ok, errors: [Issue], warnings: [Issue], stats: { setsPerMuscle, minutesByWorkout, runKm, longestRunKm, conditioningCount } }
       // Issue = { code, workoutId, path, message }
       // errors:   SCHEMA (missing or invalid fields), UNKNOWN_EXERCISE, EQUIPMENT_MISSING, DISLIKED_EXERCISE, WORKOUT_COUNT (≠ daysPerWeek),
-      //           TOO_LONG (est > minutesPerSession + 15), RUN_RAMP (planned km > max(recent avg × 1.15, recent avg + 5)), LONG_RUN_SPIKE (> longest recent × 1.3 and > +3 km)
-      // warnings: VOLUME_LOW / VOLUME_HIGH (vs 6 / 22 sets), INJURY_CONFLICT (jointStress vs injuries), HARD_DAYS_ADJACENT, NO_REST_RUN_EASY (< 70 % easy running), MISSING_ALTERNATIVES, COND_NO_STIMULUS (conditioning block without a stimulus note), COND_REPEAT (consecutive metcons with the same format + dominant M/G/W element), COND_TIME_DOMAIN (≥ 2 metcons all in one time domain)
+      //           TOO_LONG (est > minutesPerSession + 15), RUN_RAMP (planned km > max(base × 1.1, base + 3); base = max(4-week avg, last week's km)),
+      //           LONG_RUN_SPIKE (gross: a run > 30-day longest × 1.3 and > +3 km)
+      // warnings: LONG_RUN_SPIKE (a run > 30-day longest × 1.1 and > +1 km; Frandsen 2025), VOLUME_LOW / VOLUME_HIGH (vs 6 / 22 sets), INJURY_CONFLICT (jointStress vs injuries), HARD_DAYS_ADJACENT, NO_REST_RUN_EASY (< 70 % easy running), MISSING_ALTERNATIVES, COND_NO_STIMULUS (conditioning block without a stimulus note), COND_REPEAT (consecutive metcons with the same format + dominant M/G/W element), COND_TIME_DOMAIN (≥ 2 metcons all in one time domain)
 export function normalizeSession(input, { today } = {})           // fills defaults, maps names → exerciseIds via catalog.findExercise, computes run pace
 
 // rotation

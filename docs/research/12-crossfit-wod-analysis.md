@@ -63,7 +63,7 @@ Confidence tags:
 | "Original cycle runs M, G, W singles, then pairs, then triplets" | **Wrong** | Actual 2003 table above. A 2020 peer-reviewed systematic review ("CrossFit Training Strategies from the Perspective of Concurrent Training") gives yet another order (W, GW, GM, WGM, G, WG, M), so the error is common [CF] |
 | Mainsite "3 on, 1 off (or 5/2)" | **Outdated** | Current mainsite: fixed Mon-Wed / Fri-Sat, Thu and Sun off [D] |
 
-Not re-verified: Milanović 2015 (Springer blocked). Note for `07`/`programming.md` owners: from memory, that meta-analysis reports HIIT ≈ +5.5 ml/kg/min vs continuous ≈ +4.9, a difference of about 1 ml/kg/min, not "+5.5 more than" continuous as `07-conditioning.md` §2 states [K, check].
+Milanović 2015: corrected in `07` and `03` on 2026-11-08 from the abstract (HIIT +5.5 and continuous +4.9 ml/kg/min vs controls; HIIT vs continuous +1.2 ± 0.9). Original note: Note for `07`/`programming.md` owners: from memory, that meta-analysis reports HIIT ≈ +5.5 ml/kg/min vs continuous ≈ +4.9, a difference of about 1 ml/kg/min, not "+5.5 more than" continuous as `07-conditioning.md` §2 states [K, check].
 
 ## 5. What changed in `references/conditioning.md`
 

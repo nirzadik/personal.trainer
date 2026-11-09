@@ -1,8 +1,8 @@
 # Programming: Evidence, Numbers & Templates
 
-Starting points: the client's logged response overrides population averages (most studies: 6-12 weeks, young adults, small samples). Tags: **[MA]** systematic review/meta-analysis · **[PS]** position stand/textbook · **[RCT]** single trial · **[P]** practitioner heuristic. Sources and confidence: `docs/research/11-strength-sources.md` (earlier: `03-programming-science.md`).
+Starting points: the client's logged response overrides population averages (most studies: 6-12 weeks, young adults, small samples). Tags: **[MA]** meta-analysis/systematic review · **[RCT]** trial · **[OBS]** observational/survey · **[PS]** guideline, consensus or standard text · **[P]** practitioner heuristic. Sources and confidence: `docs/research/11-strength-sources.md` (earlier: `03-programming-science.md`).
 
-**ACSM 2026 position stand** (Currier 2026, overview of 137 reviews) [PS]: progressive training ≥2 days/week for all major muscles; ~80% 1RM × 2-3 sets/exercise for strength; ≈10+ sets/muscle/week for hypertrophy; 30-70% 1RM moved fast for power. Failure, periodization model, equipment and set structure didn't consistently change outcomes. **Adherence beats optimization.**
+**ACSM 2026 position stand** (Currier 2026, overview of 137 reviews) [PS]: progressive training ≥2 days/week for all major muscles; ~80% 1RM × 2-3 sets/exercise for strength; ≈10+ sets/muscle/week for hypertrophy; 30-70% 1RM moved fast for power. Failure, periodization model, equipment and set structure didn't consistently matter. **Adherence beats optimization.**
 
 ## Contents
 1. Hypertrophy variables
@@ -31,7 +31,7 @@ Starting points: the client's logged response overrides population averages (mos
 | **Proximity to failure** | 0-3 RIR, mostly 1-2. Growth rises as sets end closer to failure; ≥4-5 RIR is clearly less. Failure only on the last set of isolations/machines | Robinson 2024 [MA]; Refalo 2023 [MA], 2024 [RCT] |
 | **Rest** | >60 s helps; no detectable extra gain beyond ~90 s. Compounds 2-3 min, isolations 1-2 min. Save time with supersets, not shorter rest | Singer 2024 [MA] |
 | **ROM** | Longest safe ROM, loaded in the **stretched position** (RDL, deep squat, incline curl, overhead triceps, seated leg curl, deficit push-up, deep calf stretch). Lengthened partials = add-on; avoid short-range partials as main work | Wolf 2023 [MA]; Maeo 2021, 2022; Pedrosa 2022; Kassiano 2023 [RCTs] |
-| **Exercise choice** | 1-3/muscle/week, different joint actions. Hamstrings need a hinge *and* knee flexion; rectus femoris needs knee extension (squats grow neither). Machines ≈ free weights for size | Kassiano 2022 [SR]; Kubo 2019 [RCT]; Haugen 2023 [MA] |
+| **Exercise choice** | 1-3/muscle/week, different joint actions. Hamstrings need a hinge *and* knee flexion; rectus femoris needs knee extension (squats grow neither). Machines ≈ free weights for size | Kassiano 2022 [MA]; Kubo 2019 [RCT]; Haugen 2023 [MA] |
 | **Rep vs load progression** | Adding reps at a fixed load ≈ adding load at fixed reps for growth (and nearly for strength) | Plotkin 2022 [RCT] |
 
 **Volume landmarks** [P] (Israetel/RP; heuristics): maintenance ~4-6 sets/wk · MEV ~6-10 · productive ~10-20 · max recoverable ~20-26+, highly individual. Front delts, triceps and glutes get lots of indirect work.
@@ -76,7 +76,7 @@ Accuracy: people **underpredict reps left by ~1** (0.95; Halperin 2022 [MA]) at 
 ### Progression models
 - **Linear (novice main lifts):** fixed reps, add load every session/week: lower +2.5-5 kg, upper +1-2.5 kg (microplates for OHP and smaller lifters). Two misses at a load → reset ~10% or move the lift to double/weekly progression.
 - **Double progression (default for accessories and most intermediates):** range e.g. 3×8-12 @1-2 RIR; hold load until *all* sets hit the top at target RIR; add the smallest increment (~2-5%) and restart at the bottom. Adding reps is real progress (Plotkin 2022).
-- **NSCA "2-for-2" [PS]:** 2+ reps over target on the last set in 2 consecutive sessions → add load: upper +2.5-5 lb (1-2 kg) less-trained / +5-10 lb trained; lower +5-15 lb (2-7 kg) less-trained / +10-20 lb (4-9 kg) trained (secondary sources disagree on the exact lower-body figures).
+- **NSCA "2-for-2" [PS]:** 2+ reps over target on the last set in 2 consecutive sessions → add load: upper +2.5-5 lb (1-2 kg) less-trained / +5-10 lb trained; lower +5-15 lb (2-7 kg) less-trained / +10-20 lb (4-9 kg) trained (sources disagree on the lower-body figures).
 - **RPE / top-set + back-off (intermediate+):** "1×5 @RPE 8, then 3×5 at −8-10%". RPE under target → +2-4% per RPE point next time; over → hold or reduce. RPE loading ≥ %1RM loading (Helms 2018 [RCT]).
 - **Volume progression (hypertrophy blocks):** start near MEV, add ~1 set/muscle every 1-2 weeks while performance and recovery hold. Add a set if soreness is gone early and reps are up; hold or remove sets if still sore, joints achy or reps down.
 
@@ -104,7 +104,7 @@ DUP alternative for 3×/week strength: heavy 3-5 reps @RPE 8 · volume 8-10 @RPE
 
 ## 5. Stalls, deloads, layoffs
 
-**Stall** = no e1RM gain across 3-4 exposures, or missing the bottom of the range 2 sessions running, with adherence ≥80%. One bad session is noise. **Fatigue** = e1RM down ≥5% at equal or higher RPE plus poor sleep, mood, soreness or joint aches. Sustained performance decline is the only reliable overtraining marker (Grandou 2020 [SR]).
+**Stall** = no e1RM gain across 3-4 exposures, or missing the bottom of the range 2 sessions running, with adherence ≥80%. One bad session is noise. **Fatigue** = e1RM down ≥5% at equal or higher RPE plus poor sleep, mood, soreness or joint aches. Sustained performance decline is the only reliable overtraining marker (Grandou 2020 [MA]).
 
 **Stall ladder** (cheapest first, one change at a time):
 1. Basics: adherence, sleep ≥7 h, deficit (stalls expected), stress, illness, technique drift, honest RIR, too-big jumps. If one explains it, hold the program.
@@ -114,7 +114,7 @@ DUP alternative for 3×/week strength: heavy 3-5 reps @RPE 8 · volume 8-10 @RPE
 5. Close variant (pause squat, close-grip bench, other machine) after 2+ stalled blocks or with pain. Graduate novices to weekly progression.
 6. Re-evaluate the phase: in a deficit, holding strength may be the win.
 
-**Deloads.** Definition: a short period of reduced training stress to dissipate fatigue and prepare for the next block (Bell 2023 Delphi). Athletes deload ~every 5.6 ± 2.3 weeks for ~6-7 days, cutting volume and effort, keeping frequency and exercises (Rogerson 2024 survey). A full week *off* mid-block didn't help growth and slightly hurt lower-body strength (Coleman 2024 [RCT]).
+**Deloads.** Definition: a short period of reduced training stress to dissipate fatigue and prepare for the next block (Bell 2023 Delphi [PS]). Athletes deload ~every 5.6 ± 2.3 weeks for ~6-7 days, cutting volume and effort, keeping frequency and exercises (Rogerson 2024 [OBS]). A full week *off* mid-block didn't help growth and slightly hurt lower-body strength (Coleman 2024 [RCT]).
 - **When:** every 4-8 weeks (novices often not for the first 3-6 months), or reactively when ≥2 fatigue signs persist 1-2 weeks.
 - **How:** 5-7 days; sets −30-50% (≈half); load −10-20% *or* same load at 3-4 RIR; same exercises and frequency; no failure sets. A deload can also be "1 top set @RPE 7 per lift + light accessories" for busy weeks.
 - Planned overreaching (1-2 harder weeks then deload) is fine for intermediate/advanced lifters.
@@ -151,7 +151,7 @@ Order inside each day per §9. Rows = sets × reps @ RIR; rest 2-3 min compounds
 
 **5 days, U/L + PPL:** Upper 1 · Lower 1 (above) · Push (incline press 3×6-10, shoulder press 3×8-12, fly 3×10-15, lateral raise 3×15-20, triceps 3) · Pull (pulldown 3×6-10, row 3×8-12, rear delt 3, curl 3, back extension 2) · Legs (hack squat 3×8-12, RDL 3×8-10, leg curl 3, calf 3).
 
-**6 days, PPL ×2:** Day 1-3 heavier (compounds 4-8 reps), Day 4-6 lighter (8-15 reps, more isolation). Keep each muscle ≤8-10 sets/session. PPL ×1 (3 days) hits each muscle once a week: fine for maintenance, worse than full body ×3 for growth.
+**6 days, PPL ×2:** Day 1-3 heavier (compounds 4-8 reps), Day 4-6 lighter (8-15 reps, more isolation). Keep each muscle ≤8-10 sets/session. PPL ×1 (3 days) trains each muscle once a week: fine for maintenance; full body ×3 spreads volume better.
 
 **Home / dumbbell-only** (ACSM 2026: bands, bodyweight and home training are effective; bands ≈ conventional for strength, Lopes 2019 [MA]). Same templates with substitutions from `exercise-library.md` §1. When the heaviest dumbbell becomes too light (>20-30 reps at target RIR):
 1. Go unilateral (split squat, single-leg RDL, one-arm row, single-arm press).
@@ -161,7 +161,7 @@ Order inside each day per §9. Rows = sets × reps @ RIR; rest 2-3 min compounds
 5. Keep reps ≤30 and sets within ~0-2 RIR; very high-rep sets are hard to judge, so err toward failure on safe moves.
 Strength-specific goals (barbell 1RM) need heavier loading than most home gyms allow; say so.
 
-**Strength programs by level** [P]: novice: 3× full-body linear (Starting Strength/GZCLP-style). Intermediate: weekly progression (5/3/1, Texas Method, GZCL) or RPE blocks with heavy/volume/light days. Advanced: block periodization with RPE/e1RM autoregulation.
+**Strength programs by level** [P]: novice 3× full-body linear (GZCLP-style); intermediate weekly progression (5/3/1, Texas Method) or RPE blocks with heavy/volume/light days; advanced block periodization with RPE/e1RM autoregulation.
 
 ## 7. Periodization & frameworks
 
@@ -187,7 +187,7 @@ Strength-specific goals (barbell 1RM) need heavier loading than most home gyms a
 | 4 Max strength | 1-5 | 4-6 | explosive-controlled | 85-100% | 3-5 min |
 | 5 Power (heavy + explosive pair) | 1-5 + 8-10 | 3-5 | explosive | 85-100% + ~30-45% / med ball | 3-5 min |
 
-Takeaway: deconditioned beginners benefit from 2-6 weeks of controlled-tempo, moderate-rep, stability-rich work before heavy loading. NASM rest periods are a framework, not an optimum.
+Takeaway: deconditioned beginners benefit from 2-6 weeks of controlled-tempo, moderate-rep work before heavy loading; NASM rest periods are a framework, not an optimum.
 
 **Peaking for a test or meet** [P]: final 3-6 weeks more specific (85-95%+, low reps, volume falling); taper 1-2 weeks with volume −30-70%, intensity and frequency kept; last heavy single (~90%) 7-10 days out; last session 2-4 days out is light. Attempts: opener ≈ a load you could triple (~90-92% of goal), second ~95-98%, third = PR.
 
@@ -202,10 +202,10 @@ Details for running and HIIT: `running.md`, `conditioning.md`. Lifting-relevant 
 | Moderate | 40-59 | 64-76 | 12-13 | 4-6 | Talk, not sing |
 | Vigorous | 60-89 | 77-95 | 14-17 | 7-8 | A few words |
 
-- HRmax ≈ 208 − 0.7 × age (Tanaka); Karvonen target = HRrest + % × (HRmax − HRrest). On beta-blockers use RPE/talk test.
-- **Zone 2** = conversational, ~60-70% HRmax: valuable as low-fatigue volume, not magic. **VO2max:** Norwegian 4×4 (4 min at 85-95% HRmax, 3 min easy) 1-2×/week.
+- Karvonen target = HRrest + % × (HRmax − HRrest); HRmax and run zones: `running.md` §2. On beta-blockers use RPE/talk test.
+- **Zone 2** = easy, conversational: valuable as low-fatigue volume, not magic. **VO2max:** 4 × 4 min at 85-95% HRmax, 3 min easy, 1-2×/week (`conditioning.md` §4).
 - Lifter default: 2-3 × 30-60 min easy + 1 interval session/week. In fat loss, raise steps before adding hard cardio.
-- **Interference:** concurrent training does not meaningfully blunt hypertrophy or max strength; it can blunt explosive power, mostly in the same session (Schumann 2022 [MA]). Running interferes more than cycling (Wilson 2012). Separate hard cardio and heavy legs by ≥3-6 h or days; lift first when strength is the priority; no hard intervals right before leg day; eat enough.
+- **Interference:** concurrent training does not meaningfully blunt hypertrophy or max strength; same-session work can blunt explosive power and trained lifters' lower-body strength; cardio mode made no difference (Schumann 2022; Petré 2021 [MA]; details `running.md` §11). Hard cardio and heavy legs 3-6 h or a day apart; lift first when strength is the priority; eat enough. Weekly scheduling: `conditioning.md` §10.
 
 ## 9. Session design: order, warm-up, duration, stretching
 
@@ -228,7 +228,7 @@ Details for running and HIIT: `running.md`, `conditioning.md`. Lifting-relevant 
 | Moderate (6-10 reps) | bar or 40-50% × 8 → 65% × 5 → 80-85% × 2-3 |
 | Heavy (≤5 reps, ≥80% 1RM) | bar × 8-10 → 40% × 5 → 60% × 3 → 75% × 2 → 85-90% × 1 (→ 95% × 1 before a single) |
 
-Rest ~1 min early, 1.5-2 min before the last warm-up. Later exercises for warmed muscles: 0-1 set at ~60-70%. In a hurry, do 1-2 sets and keep the heavier one: ~5 reps at ~80% of the working load beat lighter warm-ups for later reps (crossover trials incl. Ribeiro et al.; SBS 2024 review). Warm-up sets never count as hard sets.
+Rest ~1 min early, 1.5-2 min before the last warm-up. Later exercises for warmed muscles: 0-1 set at ~60-70%. In a hurry, do 1-2 sets and keep the heavier one: ~5 reps at ~80% of the working load beat lighter warm-ups for later reps (Ribeiro et al. and other crossover trials). Warm-up sets never count as hard sets.
 
 **Session duration:** ≈ 2-3 min per compound working set and 1.5-2 min per isolation set (including rest) + 5-10 min warm-up. Supersets cut ~⅓.
 

@@ -354,19 +354,22 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     return out;
   }
   function runLoadOf(sessionsAsc, t) {
+    // longest run of the last 30 days (the single-run rule) and the last full week's km (the weekly base)
+    const from30 = addDaysISO(t, -29);
+    const recent = sessionsAsc.filter((s) => s.status !== "missed" && s.date >= from30 && s.date <= t && Number(s.run?.distanceKm) > 0);
+    const longestKm = Math.max(0, ...recent.map((s) => Number(s.run.distanceKm)));
     const weeks = attempt(() => C.runningLoad(sessionsAsc, { weeks: 4, today: t }));
     if (Array.isArray(weeks) && weeks.length) {
       const km = weeks.map((w) => Number(w?.km) || 0);
       return {
         avgWeeklyKm: Math.round((km.reduce((a, b) => a + b, 0) / weeks.length) * 10) / 10,
-        longestKm: Math.max(0, ...weeks.map((w) => Number(w?.longestKm) || 0)),
+        lastWeekKm: Math.max(0, ...km.slice(-2)), // mirrors core.validatePlan's base: the latest week (full or current)
+        longestKm,
         weeks: weeks.length,
       };
     }
-    const from = addDaysISO(t, -27);
-    const runs = sessionsAsc.filter((s) => s.date >= from && s.date <= t && Number(s.run?.distanceKm) > 0);
-    const total = runs.reduce((n, s) => n + Number(s.run.distanceKm), 0);
-    return { avgWeeklyKm: Math.round((total / 4) * 10) / 10, longestKm: Math.max(0, ...runs.map((s) => Number(s.run.distanceKm))), weeks: 4 };
+    const total = recent.filter((s) => s.date >= addDaysISO(t, -27)).reduce((n, s) => n + Number(s.run.distanceKm), 0);
+    return { avgWeeklyKm: Math.round((total / 4) * 10) / 10, longestKm, weeks: 4 };
   }
   async function loadSessionsAsc() {
     return sortSessionsAsc(await soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []));

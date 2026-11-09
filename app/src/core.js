@@ -1052,7 +1052,11 @@ function verbosePlan(plan) {
   return out;
 }
 
-/** Recent running baseline before a reference week (4 weeks, trimmed to weeks since the first log). */
+/**
+ * Recent running baseline before a reference week: 4-week average km (trimmed to weeks since the first log),
+ * the most recent week's km (max of the last two weekly rows), and the longest run of the 30 days before the week (Frandsen et al. 2025).
+ * Falls back to profile.experience.running when no runs are logged.
+ */
 function runBaseline(sessions, profile, refWeekStart) {
   const rl = runningLoad(sessions, { weeks: 4, today: addDays(refWeekStart, -1) });
   const first = (sessions || []).map((s) => s?.date).filter(isIso).sort()[0];
@@ -1062,18 +1066,37 @@ function runBaseline(sessions, profile, refWeekStart) {
   const anyRun = weeks.some((w) => w.runs);
   if (!weeks.length || !anyRun) {
     if (profKm == null && profLong == null && !weeks.length) return null;
-    return { avgKm: profKm ?? 0, longestKm: profLong ?? 0 };
+    return { avgKm: profKm ?? 0, lastWeekKm: profKm ?? 0, longestKm: profLong }; // longestKm null = unknown: no single-run check
   }
+  const from30 = addDays(refWeekStart, -30);
+  const longest30 = Math.max(0, ...activeSessions(sessions)
+    .filter((s) => isIso(s.date) && s.date >= from30 && s.date < refWeekStart)
+    .map((s) => num(s.run?.distanceKm) || 0));
   const avgKm = weeks.reduce((a, w) => a + w.km, 0) / weeks.length;
-  const longest = Math.max(...weeks.map((w) => w.longestKm));
-  return { avgKm: weeks.length < 2 && profKm != null ? Math.max(avgKm, profKm) : avgKm, longestKm: weeks.length < 2 && profLong != null ? Math.max(longest, profLong) : longest };
+  const short = weeks.length < 2;
+  return {
+    avgKm: short && profKm != null ? Math.max(avgKm, profKm) : avgKm,
+    lastWeekKm: Math.max(...weeks.slice(-2).map((w) => w.km)), // the latest full week (or the current one when planning ahead)
+    longestKm: short && profLong != null ? Math.max(longest30, profLong) : longest30,
+  };
 }
+
+/** Running-load limits shared by validatePlan and the plan prompt (weekly ≈ +10 %, single run vs the 30-day longest). */
+export const RUN_LIMITS = Object.freeze({
+  weeklyRampPct: 0.10,   // planned weekly km ≤ base × 1.1 …
+  weeklyRampMinKm: 3,    // … or base + 3 km at low volume (base = max(4-week average, last week))
+  longRunWarnPct: 0.10,  // warn: any run > 30-day longest × 1.1 …
+  longRunWarnMinKm: 1,   // … ignoring steps ≤ 1 km
+  longRunErrorPct: 0.30, // error: > 30-day longest × 1.3 and > +3 km
+  longRunErrorMinKm: 3,
+});
 
 /**
  * Validate a Plan against the schema, catalog, owner profile and recent history.
  * errors: SCHEMA, UNKNOWN_EXERCISE, EQUIPMENT_MISSING, DISLIKED_EXERCISE, WORKOUT_COUNT, TOO_LONG,
- *   RUN_RAMP (planned km > max(avg × 1.15, avg + 5)), LONG_RUN_SPIKE (> longest × 1.3 and > longest + 3 km).
- * warnings: VOLUME_LOW (< 6 sets, major muscles), VOLUME_HIGH (> 22), INJURY_CONFLICT, HARD_DAYS_ADJACENT,
+ *   RUN_RAMP (planned km > max(base × 1.1, base + 3), base = max(4-week average, last week's km)),
+ *   LONG_RUN_SPIKE as an error for gross spikes (a run > 30-day longest × 1.3 and > +3 km).
+ * warnings: LONG_RUN_SPIKE (a run > 30-day longest × 1.1 and > +1 km), VOLUME_LOW (< 6 sets, major muscles), VOLUME_HIGH (> 22), INJURY_CONFLICT, HARD_DAYS_ADJACENT,
  *   NO_REST_RUN_EASY (< 70 % easy km), MISSING_ALTERNATIVES, COND_NO_STIMULUS (conditioning block without a
  *   stimulus note), COND_REPEAT (consecutive conditioning blocks with the same format and the same dominant modal
  *   element M/G/W; ties count as mixed), COND_TIME_DOMAIN (≥ 2 conditioning blocks, all in one time domain), TOO_VERBOSE (text over PLAN_TEXT_LIMITS: at most one
@@ -1214,10 +1237,15 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
     const ref = isIso(plan.weekStart) ? weekStartOf(plan.weekStart) : weekStartOf(today || todayISO());
     const base = runBaseline(sessions, profile, ref);
     if (base) {
-      const cap = Math.max(base.avgKm * 1.15, base.avgKm + 5);
-      if (totalRunKm > cap + 1e-9) err("RUN_RAMP", null, "workouts", `Planned ${r1(totalRunKm)} km/week vs recent ~${r1(base.avgKm)} km/week (max ${r1(cap)}).`);
-      if (stats.longestRunKm > base.longestKm * 1.3 && stats.longestRunKm > base.longestKm + 3) {
-        err("LONG_RUN_SPIKE", null, "workouts", `Longest planned run ${stats.longestRunKm} km vs recent longest ${r1(base.longestKm)} km (max ${r1(Math.max(base.longestKm * 1.3, base.longestKm + 3))}).`);
+      const L = RUN_LIMITS;
+      const kmBase = Math.max(base.avgKm, base.lastWeekKm ?? 0);
+      const cap = Math.max(kmBase * (1 + L.weeklyRampPct), kmBase + L.weeklyRampMinKm);
+      if (totalRunKm > cap + 0.05) err("RUN_RAMP", null, "workouts", `Planned ${r1(totalRunKm)} km/week vs recent ~${r1(kmBase)} km/week (max ${r1(cap)}: +10%, or +3 km at low volume).`);
+      const lg = base.longestKm, run = stats.longestRunKm;
+      if (lg == null) { /* no single-run baseline */ } else if (run > lg * (1 + L.longRunErrorPct) && run > lg + L.longRunErrorMinKm) {
+        err("LONG_RUN_SPIKE", null, "workouts", `Longest planned run ${run} km vs ${r1(lg)} km longest in the last 30 days (hard max ${r1(Math.max(lg * (1 + L.longRunErrorPct), lg + L.longRunErrorMinKm))}; aim ≤ ${r1(lg * (1 + L.longRunWarnPct))}).`);
+      } else if (run > lg * (1 + L.longRunWarnPct) + 0.05 && run > lg + L.longRunWarnMinKm) {
+        warn("LONG_RUN_SPIKE", null, "workouts", `Longest planned run ${run} km is more than 10% over the ${r1(lg)} km longest run of the last 30 days (aim ≤ ${r1(lg * (1 + L.longRunWarnPct))}).`);
       }
     }
     if (easyKm / totalRunKm < 0.7) warn("NO_REST_RUN_EASY", null, "workouts", `Only ${Math.round((100 * easyKm) / totalRunKm)}% of planned running is easy (aim ≥ 70%).`);

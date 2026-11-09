@@ -240,9 +240,7 @@ Wording: say "this is worth getting assessed by a physio", **not** "you have X".
 - Known vertebral or multiple fractures, or very low BMD: start under physio or clinical exercise supervision.
 
 **Returning after a long break (>3-4 weeks)**
-- Strength holds for about 3 weeks, then declines. It comes back faster than it was first built, but tendons and work capacity lag.
-- First 1-2 sessions: about 30-50% of the previous volume at RPE 5-7.
-- Rebuild to 70-85% of previous loads over 2-4 weeks, then progress.
+- Load and volume steps: `programming.md` §5 (lifting), `running.md` §8 (running), `conditioning.md` §8 (metcons). Tendons and work capacity lag behind strength, which returns faster than it was first built.
 - No early max tests. Re-screen if their health changed.
 - Rhabdo risk is highest in exactly these first sessions.
 

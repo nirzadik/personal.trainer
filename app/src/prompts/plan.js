@@ -34,7 +34,7 @@ export const ADAPT_INSTRUCTION = [
 /** Byte budgets of the plan prompt sections. */
 export const PLAN_BUDGETS = Object.freeze({
   digest: 7000,
-  rules: 42 * 1024,
+  rules: 40 * 1024,         // = the PLAN_RULES cap (knowledge/plan.js, ~36 KB)
   profile: 12000,
   memory: 6000,
   trainingSummary: 5000,
@@ -44,7 +44,7 @@ export const PLAN_BUDGETS = Object.freeze({
   draft: 24000,
   instruction: 2000,
   allowed: 26000,
-  total: 200 * 1024,
+  total: 176 * 1024,        // hard ceiling ≈ 45k tokens; a realistic prompt is ~65 KB (≈ 16k tokens)
 });
 
 /**
@@ -156,17 +156,21 @@ export function formatAllowedExercises(locations, maxBytes = PLAN_BUDGETS.allowe
 
 /**
  * Running-load caps line, computed in code so the model never does the arithmetic.
- * Mirrors validatePlan's rules: weekly km ≤ max(avg × 1.15, avg + 5); one run ≤ max(longest × 1.3, longest + 3).
- * @param {{ avgWeeklyKm?: number, longestKm?: number, weeks?: number }} load
+ * Mirrors core.RUN_LIMITS / validatePlan: weekly km ≤ max(base × 1.1, base + 3) with base = max(average, last week);
+ * any single run ≤ 30-day longest × 1.1 (warning above; error above × 1.3 and +3 km).
+ * @param {{ avgWeeklyKm?: number, lastWeekKm?: number, longestKm?: number, weeks?: number }} load
  * @returns {{ text: string, weeklyCapKm: number, longRunCapKm: number }}
  */
 export function runCaps(load) {
   const avg = Number(load?.avgWeeklyKm) || 0;
+  const base = Math.max(avg, Number(load?.lastWeekKm) || 0);
   const longest = Number(load?.longestKm) || 0;
-  const weeklyCapKm = Math.floor(Math.max(avg * 1.15, avg + 5) * 10) / 10;
-  const longRunCapKm = Math.floor(Math.max(longest * 1.3, longest + 3) * 10) / 10;
-  const text = `recent average ${fmtNum(avg)} km/week over the last ${load?.weeks ?? 4} weeks; longest recent run ${fmtNum(longest)} km. ` +
-    `Caps this week: weekly total ≤ ${fmtNum(weeklyCapKm)} km; any single run ≤ ${fmtNum(longRunCapKm)} km.`;
+  const weeklyCapKm = Math.floor(Math.max(base * 1.1, base + 3) * 10 + 1e-9) / 10;
+  const longRunCapKm = Math.floor(longest * 1.1 * 10 + 1e-9) / 10;
+  const text = `recent average ${fmtNum(avg)} km/week over the last ${load?.weeks ?? 4} weeks` +
+    `${base > avg ? `, last week ${fmtNum(base)} km` : ""}; longest run in the last 30 days ${fmtNum(longest)} km. ` +
+    `Caps this week: weekly total ≤ ${fmtNum(weeklyCapKm)} km; any single run ≤ ${fmtNum(longRunCapKm)} km` +
+    `${longest > 0 && longest < 10 ? " (short runs: round down)" : ""}. The digest's kmMax/longMax win when lower.`;
   return { text, weeklyCapKm, longRunCapKm };
 }
 
@@ -194,7 +198,7 @@ function planJsonForPrompt(plan, maxBytes) {
  * @param {object} [d.trainingSummary]
  * @param {object[]} [d.recentSessions] last 14 days, any order
  * @param {object[]} [d.targets] [{exerciseId, loadKg, reps, note}] app-computed next targets
- * @param {{ avgWeeklyKm: number, longestKm: number, weeks: number }} [d.runLoad]
+ * @param {{ avgWeeklyKm: number, lastWeekKm?: number, longestKm: number, weeks: number }} [d.runLoad]
  * @param {object} [d.previousPlan]
  * @param {string[]} [d.previousDone] workout ids done in the previous plan
  * @param {object} [d.draft] the draft to revise (revise mode)
@@ -296,7 +300,7 @@ export function profileForPlan(profile, digest) {
  * @param {Array<{ code: string, workoutId?: string, path?: string, message: string }>} d.errors
  * @param {number} d.workoutCount
  * @param {number} [d.minutesPerSession]
- * @param {{ avgWeeklyKm: number, longestKm: number, weeks: number }} [d.runLoad]
+ * @param {{ avgWeeklyKm: number, lastWeekKm?: number, longestKm: number, weeks: number }} [d.runLoad]
  * @param {object[]} d.allowedLocations
  * @param {string[]} [d.locationIds]
  * @returns {string}

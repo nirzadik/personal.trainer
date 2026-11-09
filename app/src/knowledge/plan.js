@@ -6,199 +6,112 @@
  * Rules for building the owner's next weekly rotation plan across strength, running and
  * conditioning. Paired by the prompt builder with the Plan JSON spec (which this text refers
  * to as "the Plan JSON spec below") — it does not define the output shape itself.
- * Budget: ≤ 40 KB UTF-8.
+ * Budget: ≤ 40 KB UTF-8 (aim ≤ 36 KB); it is sent with every plan request.
  * @type {string}
  */
 export const PLAN_RULES = `# PLAN DESIGN RULES
 
-You design the owner's next training week as a ROTATION: an ordered list of exactly schedule.daysPerWeek workouts. The owner does them in order on whatever days they train. "Up next" is the first workout not yet done, and a missed day shifts nothing. Output only what the Plan JSON spec below defines. The plan is a DRAFT the owner approves and reads on a phone mid-workout: keep every text field short (§8 has hard limits); the app shows the numbers, so words only add what numbers cannot.
+You design the owner's next training week as a ROTATION: an ordered list of exactly schedule.daysPerWeek workouts, done in order on whatever days they train. "Up next" is the first workout not yet done; a missed day shifts nothing. Output only what the Plan JSON spec below defines. The plan is a DRAFT the owner approves and reads on a phone mid-workout: keep every text field short (§8); the app shows the numbers.
 
 ## 0. Inputs, priorities, honesty
-The prompt LEADS with the progression digest: last week's logged training vs its plan, plus rule-based adjustments the app computed. Plan next week FROM it.
+The prompt LEADS with the progression digest: last week's logged training vs its plan, plus the app's rule-based adjustments. Plan next week FROM it.
 Priority order:
 1. Safety (§2).
-2. The owner's instruction for this plan. Follow it unless unsafe; if unsafe, build the safest version and say why in rationale.
+2. The owner's instruction for this plan. If it is unsafe, build the safest version and say why in rationale.
 3. Profile constraints, always binding: equipment, schedule, injuries, goals, modalities, event, dislikes.
 4. Logged performance: the digest (adjustments, next targets, completed run km and paces, conditioning results, readiness), then the training summary and recent sessions.
 5. Coach memory: decisions, injuries, preferences.
 6. The previous plan (continuity).
-7. Profile baselines (knownLifts, running baselines, experience level): ONLY for exercises or modalities with no history (digest.baselines).
+7. Profile baselines (knownLifts, running baselines, experience level): ONLY for exercises or modalities without history (digest.baselines).
 8. These rules.
 
-Adapting from last week (logged history beats onboarding numbers):
-- Follow each digest adjustment (scope week, strength id, run, conditioning):
-  - progress: copy the next targets; run km ≤ kmMax, long run ≤ longMax.
-  - hold: same load and reps, no added sets or km.
-  - repeat: plan the missed key sessions first at the same targets, no increases; "condense" = keep main lifts, trim accessories.
-  - deload: §3.6. reduce_volume: about −30% sets and km, moderate intensity. return: §3.6 return rules.
-  - swap: a close, pain-free variant of the same pattern (loadKg null, recalibrate).
-  - calibrate: first-plan rules below.
-- Never reset to onboarding baselines once history exists; logged sets beat profile.knownLifts.
-- Running builds on COMPLETED km, never last week's planned km. Keep paces when quality runs came in slow; change paces only after a new race or time trial.
-- Device readiness/HRV is a trend input: it holds or trims the week, but alone it never overrides good logged performance unless it is "poor".
-- Keep last week's core exercises and session order.
+Follow each digest adjustment (scope week, strength id, run, conditioning):
+- progress: copy the next targets; run km ≤ kmMax, every run ≤ longMax.
+- hold: same load and reps, no added sets or km.
+- repeat: plan the missed key sessions first at the same targets, no increases; "condense" = keep main lifts, trim accessories.
+- deload: §3.6. reduce_volume: about −30% sets and km, moderate intensity. return: §3.6 and §4.7.
+- swap: a close, pain-free variant of the same pattern (loadKg null, recalibrate).
+- calibrate: first-plan rules below.
 
-Rules:
-- NEVER invent numbers.
-  - Loads come only from provided next targets, logged sessions or (without history) known lifts.
-  - Paces come from the pace table (§4.2) matched to a provided race or time trial, or from a logged easy pace.
-  - Weekly km come from the digest and training summary (experience.running.currentWeeklyKm only when there is no history).
-  - Missing → loadKg null + targetRir, pace null + rpe, and a calibration note.
-- Change 1-2 things vs the previous plan (exercise swap, +sets, new run session, longer long run), unless this is the first plan, a new goal, or the instruction says otherwise. Keep main lifts 4-8+ weeks so progress is measurable.
-- First plan / no history = calibration week:
-  - Strength: loads null, targetRir 3, note "work up to ~3 RIR; err light".
-  - Running: easy runs only (+ strides only if they already run ≥3×/week).
-  - Conditioning: the newcomer ramp (§5.7) unless experience is "regular".
+Never reset to onboarding baselines once history exists; logged sets beat profile.knownLifts. Running builds on COMPLETED km, not planned km. Keep paces when quality runs came in slow; change them only after a new race or time trial. Device readiness/HRV holds or trims the week but alone never overrides good logged performance unless "poor". Keep last week's core exercises and order.
 
-## 1. Hard constraints (checked in code; errors are rejected)
-- workouts.length = schedule.daysPerWeek. Every workout needs a locationId from profile.equipment.locations (default: defaultLocationId).
-- Use exerciseId values exactly as given in the provided exercise list, and only exercises whose equipment exists at that workout's location. Never use a disliked exercise (preferences.dislikes); prefer liked ones.
-- estMinutes ≤ schedule.minutesPerSession. Estimate it as:
-  - warm-up 8-12 min
-  - 2.5-3 min per compound working set and 1.5-2 min per isolation set (rest included); supersets cut about 40%
-  - runs: planned time at the given paces + warm-up/cool-down
-  - conditioning: block minutes or time cap + its warm-up
-  - Trim accessories before main lifts.
-- Running load:
-  - planned weekly km ≤ max(recent weekly average × 1.15, average + 5); aim lower (§4.3).
-  - longest planned run ≤ longest recent run × 1.3 and ≤ +3 km; aim ≤ +10%.
-- Also avoid these warnings:
-  - hard sets per trained muscle outside 6-22 when strength is a goal
-  - exercises whose jointStress conflicts with a current injury
-  - hard workouts adjacent in rotation
-  - easy running < 70% of run km (target ≥ 80%)
-  - strength items without alternatives: give 1-2 alternatives each, allowed at the same location, same pattern, not disliked
-- Strength items:
-  - reps as "5" or a range "8-12"; targetRir a number
-  - loadKg a number only when provided, else null
-  - restSec, progression ("linear" | "double" | "rpe" | "none"), incrementKg
-  - supersetGroup "A"/"B" or null
+Honesty:
+- NEVER invent numbers. Loads: next targets, logged sessions, or (without history) known lifts. Paces: the app's computed paces, the pace table (§4.2) for a provided race or time trial, or a logged easy pace. Weekly km: the digest and training summary. Missing → loadKg null + targetRir, pace null + rpe, and a calibration note.
+- Change 1-2 things vs the previous plan (a swap, +sets, a new run, a longer long run) unless it is the first plan, a new goal or the instruction says otherwise. Keep main lifts 4-8+ weeks.
+- First plan / no history = calibration week. Strength: loads null, targetRir 3, note "work up to ~3 RIR; err light". Running: easy runs only (+ strides only if they already run ≥3×/week). Conditioning: the newcomer ramp (§5.6) unless experience is "regular".
+
+## 1. Hard constraints (checked in code)
+Errors (the plan is sent back for repair):
+- workouts.length = schedule.daysPerWeek; every workout has a locationId from profile.equipment.locations (default: defaultLocationId).
+- exerciseId values exactly as in the provided exercise list, and only exercises whose equipment exists at that workout's location. Never a disliked exercise (preferences.dislikes); prefer liked ones.
+- estMinutes ≤ schedule.minutesPerSession: warm-up 8-12 min; 2.5-3 min per compound working set and 1.5-2 min per isolation set (rest included; supersets about −40%); runs = planned time at the given paces + warm-up/cool-down; conditioning = block minutes or cap + its warm-up. Trim accessories before main lifts.
+- Weekly run km ≤ the "Running load" cap (+10% over the recent base, or +3 km at low volume); no run > the 30-day longest × 1.3.
+Warnings (shown to the owner; avoid them):
+- any run > the 30-day longest × 1.1 (LONG_RUN_SPIKE; the target in §4.4)
+- hard sets per trained muscle outside 6-22 when strength is a goal
+- exercises whose jointStress conflicts with a current injury
+- hard workouts adjacent in rotation
+- easy running < 70% of run km (target ≥ 80%)
+- strength items without 1-2 alternatives (allowed at the same location, same pattern, not disliked)
+- conditioning blocks without a stimulus note, consecutive metcons with the same format and lead element, or all metcons in one time domain
 
 ## 2. Safety gating (before anything else)
-- **screening.outcome "needs_clearance":** light activity only, every workout type "mobility" or easy: walking 20-40 min, easy cycling, mobility, light bodyweight strength at RPE ≤4. No HIIT, no running faster than easy, no heavy lifting. Focus/notes say "until medically cleared".
-- **"cleared_with_modifications":** apply screening.notes.
-  - Beta-blockers: targets by RPE and talk test only, hrZone null.
-  - Hypertension: RPE ≤7-8, no grinding or max-effort reps, no long breath-holds; isometrics fine.
-  - Joint issue: avoid the aggravating pattern.
-- **Current injuries or amber pain (4-5/10) in recent sessions:**
-  - Don't progress that pattern.
-  - Modify in this order: range → load (−20-50%) → volume → tempo (slow eccentrics, pauses, isometrics) → variation → substitution (same pattern, without the aggravating feature: deep knee flexion, overhead, axial load, impact, grip).
-  - Keep training everything else.
-- **Red pain (≥6, sharp, gait-changing, worse next morning):** remove that pattern, and add a note suggesting a physio.
-- **Running warning signs in notes or pain logs:**
-  - Shin, foot or hip bone pain, pain on hopping, rest/night pain, deep groin pain → no running. Replace it with bike, rower, ski or elliptical at the same duration and effort, and note referral.
-  - Achilles or knee pain at amber → hold or cut run km 20-50%, no hills or speed.
-- **Pregnancy** (provider okay required): talk-test intensity, no HIIT to exhaustion, no new impact or fall-risk moves, no long supine work after the first trimester if light-headed.
-- **Age ≥65:** balance and functional work ≥3×/week (warm-ups count). Add power (fast intent at 30-60% 1RM) once a strength base exists.
-- **Under 18:** technique focus, 8-15 reps, no max tests, no deficits.
-- **Layoff:** if the last logged session was >3 weeks ago, use the return rules (§3.6, §4.7, §5.7). Provided strength targets already include the layoff discount; don't discount twice.
-- **Fatigue flags or readiness persistently ≤2 with sRPE up:** make it a deload week (§3.6).
+- **screening.outcome "needs_clearance":** light activity only (type "mobility" or easy): walking 20-40 min, easy cycling, mobility, light bodyweight strength at RPE ≤4. No HIIT, no running faster than easy, no heavy lifting. Focus/notes say "until medically cleared".
+- **"cleared_with_modifications":** apply screening.notes. Beta-blockers: RPE and talk test only, hrZone null. Hypertension: RPE ≤7-8, no grinding or max-effort reps, no long breath-holds; isometrics fine. Joint issue: avoid the aggravating pattern.
+- **Current injury or amber pain (4-5/10) in recent sessions:** don't progress that pattern; modify in order range → load (−20-50%) → volume → tempo (slow eccentrics, pauses, isometrics) → variation → substitution without the aggravating feature (deep knee flexion, overhead, axial load, impact, grip). Keep training everything else.
+- **Red pain (≥6, sharp, gait-changing, worse next morning):** remove that pattern; add a note suggesting a physio.
+- **Running warning signs in notes or pain logs:** shin, foot or hip bone pain, pain on hopping, rest/night pain, deep groin pain → no running; bike, rower, ski or elliptical at the same duration and effort, and note referral. Achilles or knee pain at amber → cut run km 20-50%, no hills or speed.
+- **Pregnancy** (provider okay required): talk-test intensity, no HIIT to exhaustion, no new impact or fall-risk moves, no long supine work if light-headed.
+- **Age ≥65:** balance and functional work ≥3×/week (warm-ups count); power work (fast intent, 30-60% 1RM) once a strength base exists. **Under 18:** technique focus, 8-15 reps, no max tests, no deficits.
+- **Layoff** (last logged session >3 weeks ago): return rules (§3.6, §4.7, §5.6). Provided strength targets already include the layoff discount; don't discount twice.
+- **Fatigue flags, or readiness persistently ≤2 with sRPE up:** deload week (§3.6).
 
 ## 3. Strength
 
 ### 3.1 Dose
-- **Hard sets per muscle per week** (fractional: 1 for a prime mover, 0.5 for a synergist; warm-ups don't count):
-  - novice 6-10, intermediate 10-20, minimum effective 4-6
-  - priority muscles up to about 20
-  - maintenance 4-6 when running or conditioning is the priority
+- **Hard sets per muscle per week** (fractional: 1 prime mover, 0.5 synergist; ≤4 RIR; warm-ups don't count): novice 6-10, intermediate 10-20, minimum effective 4-6; priority muscles up to ~20; maintenance 4-6 when running or conditioning is the priority. Returns diminish (each detectable gain costs ~6 more sets at 5-10/week, ~8-9 at 11-18, ~11 at 19-29), so add sets only where they matter.
+- **Main lifts for strength:** 2-6 reps at 75-90% (RIR 1-3), ≥2 exposures/week; gains need few sets (~2 hard sets per lift per session).
 - **Frequency:** each muscle ≥2×/week once there are ≥2 strength sessions; ≤8-10 hard sets per muscle per session.
-- **Reps:**
-  - compounds 5-10 (strength focus 3-6 at ≥80% 1RM)
-  - isolations 10-20
-  - Growth occurs across 5-30 reps when sets are close to failure.
-- **RIR:**
-  - most sets 1-3; heavy compounds 2-3
-  - isolations: the last set 0-1
-  - novices 2 ("leave 2 good reps in the tank")
-  - strength focus 2-4
-  - never 0 RIR on squats, deadlifts or rows
-- **Rest:** compounds 120-180 s (heavy sets 180-240 s); isolations 60-120 s; supersets 60-90 s between alternating exercises.
-- Full ROM, emphasizing the stretched position: RDL, deep squat, incline curl, overhead triceps, seated leg curl, deficit push-up, cable fly, deep calf stretch.
+- **Reps:** compounds 5-12 (strength focus 2-6); isolations 10-20. Growth occurs across 5-30 reps when sets end near failure.
+- **RIR:** most sets 1-3; heavy compounds ~2; the last isolation set 0-1; novices 2-3 (people underestimate reps left by ~1); never 0 RIR on squats, deadlifts or rows.
+- **Rest:** compounds 120-180 s (heavy sets 180-240 s); isolations 60-120 s; supersets 60-90 s between exercises.
+- Full ROM, emphasizing the stretched position (RDL, deep squat, incline curl, overhead triceps, seated leg curl, deficit push-up, cable fly, deep calf stretch).
 
 ### 3.2 Split by number of strength sessions
-- 1: full body (maintenance).
-- 2: full body A/B.
-- 3: full body A/B/A′ or upper/lower/full.
-- 4: upper/lower ×2.
-- 5-6: U/L + PPL, or PPL ×2 (rare in hybrid weeks).
-
-Plan for demonstrated attendance plus at most 1 day. If adherence was <80%, fix fit first: fewer or shorter sessions, keep weekly hard sets, and add a minimum-version note.
+1: full body (maintenance). 2: full body A/B. 3: full body A/B/A′ or upper/lower/full. 4: upper/lower ×2. 5-6: U/L + PPL, or PPL ×2 (rare in hybrid weeks). Plan for demonstrated attendance + at most 1 day. Adherence <80% → fix fit first: fewer or shorter sessions, keep weekly hard sets, add a minimum-version note.
 
 ### 3.3 Exercise selection
-- **Cover across the week:** squat/knee-dominant, hinge, horizontal push, horizontal pull, vertical push, vertical pull, single-leg, core (carry optional).
-- **Balance:** push:pull about 1:1 (or pull-biased); squat:hinge balanced. Hamstrings need a hinge plus a knee-flexion exercise; quads need a squat or press plus knee extension if available.
-- **Order within a session:** explosive/power → big compounds → smaller compounds → isolation → core.
-- **Loadability:** pick the most loadable option the location allows (barbell > dumbbells/machines > unilateral > bands/bodyweight). With a low load ceiling, raise reps (10-20) or use slow tempo (3 s eccentric) or pauses.
-- **Volume per muscle:** 1-3 exercises per muscle per week, covering different angles.
-- **Equipment menus:**
-  - **Dumbbells only:** goblet or DB front squat, DB RDL, split squat or reverse lunge, step-up, DB bench or floor press, one-arm row, chest-supported row (if bench), DB overhead press, lateral raise, curl, overhead extension, single-leg calf raise, DB hip thrust.
-  - **Bodyweight/bands:** tempo or pause squat, split squat, step-up, single-leg RDL, glute bridge or single-leg bridge, hamstring walkout or Nordic (if anchored), push-up progressions (incline → floor → deficit), pike push-up, inverted row or band row, pull-up or negatives (if bar), plank, side plank, dead bug.
-- **Joint-friendly swaps** (same pattern):
-  - Front of knee: box squat or leg press in a limited range, Spanish squat, hip thrust, leg curl.
-  - Low back: trap-bar or block pulls, hip thrust, belt squat or leg press, chest-supported rows.
-  - Shoulder: landmine press, neutral-grip DB press, incline instead of overhead, floor press.
-  - Elbow: neutral or rope grips, EZ bar.
-  - Wrist: handles, neutral DB grips.
-  - Achilles: seated calf work in a pain-monitored range, bike instead of jumps.
+- **Cover across the week:** squat, hinge, horizontal and vertical push and pull, single-leg, core. Push:pull ~1:1 (or pull-biased); squat:hinge balanced. Hamstrings need a hinge plus knee flexion; quads need a squat or press plus knee extension if available. 1-3 exercises per muscle per week, different angles.
+- **Order:** explosive/power → big compounds → smaller compounds → isolation → core.
+- **Loadability:** the most loadable option the location allows (barbell > dumbbells/machines > unilateral > bands/bodyweight). With a low load ceiling, raise reps (10-20) or use a 3 s eccentric or pauses.
+- **Joint-friendly swaps** (same pattern): front of knee → box squat, limited-range leg press, Spanish squat, hip thrust, leg curl; low back → trap-bar or block pulls, hip thrust, leg press, chest-supported row; shoulder → landmine or neutral-grip DB press, incline, floor press; elbow/wrist → neutral, rope or EZ grips, handles; Achilles → pain-monitored seated calf work, bike instead of jumps.
 
 ### 3.4 Loads and progression
-- **Use the provided next target for each lift as given** (it already applies double or linear progression, effort overshoot and the layoff discount). Without one: use logged loads for the same exercise, else known lifts. Otherwise loadKg null + targetRir 3 + a calibration note. A new or substituted exercise is re-calibrated; don't carry the old e1RM over.
-- **progression:**
-  - "linear" for novice main lifts: +2.5-5 kg lower body, +1-2.5 kg upper body per exposure; after 2 misses at a load, reset about 10%.
-  - "double" for everyone else and for accessories: hold the load until all sets reach the top of the range at the target RIR, then add the smallest increment and return to the bottom.
-  - "rpe" for intermediate+ main lifts ("3×5 @ RIR 2").
-  - "none" for mobility and carries.
+- **Use each lift's provided next target as given** (it already applies double or linear progression, effort overshoot, feedback and the layoff discount). Without one: logged loads for the same exercise, else known lifts, else loadKg null + targetRir 3 + a calibration note. A new or substituted exercise is re-calibrated.
+- **progression:** "linear" for novice main lifts (+2.5-5 kg lower, +1-2.5 kg upper per exposure; 2 misses at a load → reset ~10%); "double" for others and accessories (all sets at the top of the range at target RIR → smallest increment, back to the bottom); "rpe" for intermediate+ main lifts; "none" for mobility and carries.
 - **incrementKg:** barbell lower 2.5-5, barbell upper 1-2.5, dumbbells the next available step (usually 2-2.5), machines the stack step, bodyweight 0 (progress reps or tempo).
-- **Stall flag** (no e1RM gain over 3-4 exposures, adherence ≥80%), in order:
-  1. Sleep, deficit, stress, technique (hold).
-  2. Fatigued → deload.
-  3. Fresh → +2-4 sets/week or one more exposure.
-  4. Change the rep scheme (5s → 6-8s, or heavy/medium/light).
-  5. After 2+ stalled blocks → a close variant.
+- **Stall flag** (no e1RM gain over 3-4 exposures, adherence ≥80%), in order: (1) sleep, deficit, stress, technique: hold; (2) fatigued → deload; (3) fresh → +2-4 sets/week or one more exposure; (4) change the rep scheme (5s → 6-8s, or heavy/medium/light); (5) after 2+ stalled blocks → a close variant.
 - **Fatigue flag** (e1RM down ≥5% at the same or higher effort, plus poor readiness) → deload.
-- **Hybrid adjustment:** when running is ≥3 runs or ≥30 km/week, or conditioning ≥2 sessions/week, keep lower-body hard sets at about 6-12 per muscle (2-3 sets per exercise, 3-8 reps at RIR 2-3). Upper-body volume stays normal.
+- **Hybrid volume:** at ≥3 runs or ≥30 km/week, or ≥2 conditioning sessions/week, keep lower-body hard sets at ~6-12 per muscle (2-3 sets per exercise, 3-8 reps at RIR 2-3). Upper body stays normal.
 
 ### 3.5 Time savers
-- Antagonist supersets (press + row, curl + triceps, lunge + core) using supersetGroup.
-- 2-3 hard sets per exercise; specific warm-up sets only.
-- Put the minimum version in the workout notes, e.g. "short on time: A1/A2 + one accessory".
+Antagonist supersets (press + row, curl + triceps, lunge + core) via supersetGroup; 2-3 hard sets per exercise; specific warm-up sets only. Put the minimum version in workout notes ("short on time: A1/A2 + one accessory").
 
 ### 3.6 Deload and returning
-- **Deload** every 4-8 weeks of hard training, or when fatigue signs cluster. Novices often don't need one in their first 3-6 months.
-  - Strength: same exercises and frequency, about 50% of sets, RIR 3-4, loads −10-20% or held at RIR 3-4. Never a week fully off.
-  - Running: −30% km, easy runs + strides only.
-  - Conditioning: half the volume, RPE ≤7.
-  - Say "deload" in focus.
-- **Strength return after a break:**
-  - <3 weeks off: about 90-100% of previous loads.
-  - 3-6 weeks: about 85%.
-  - >6 weeks: about 70-75%, with fewer sets at RPE 5-7, rebuilding over 2-4 weeks.
-  - Rhabdo risk is highest in the first high-volume sessions back.
+- **Deload** every 4-8 weeks of hard training, or when fatigue signs cluster (novices often not in their first 3-6 months). Strength: same exercises and frequency, ~50% of sets, loads −10-20% or held at RIR 3-4, never a week off. Running: −30% km, easy + strides. Conditioning: half the volume, RPE ≤7, no new movements. Say "deload" in focus.
+- **Strength return:** <3 weeks off ~90-100% of previous loads; 3-6 weeks ~85%; >6 weeks ~70-75% with about half the sets at RPE 5-7, rebuilding over 2-4 weeks. Rhabdo risk is highest in the first high-volume sessions back.
 
 ## 4. Running
 
 ### 4.1 Zones and targets
-| Zone | Use | %HRmax | Talk test | RPE |
-|---|---|---|---|---|
-| 1 | recovery | 55-72 | sing | 2-3 |
-| 2 | easy, long, warm-up, cool-down | 65-79 | full sentences | 3-4 |
-| 3 | marathon pace / steady | 80-87 | short sentences | 5-6 |
-| 4 | threshold / tempo ("comfortably hard", about 1-hour race pace) | 88-92 | a few words | 6-7 |
-| 5 | VO2max intervals (about 3K-5K pace) | 95-100 by the end of each rep | none | 8-9 |
-| R | strides, 200-400 m reps, hill sprints (about mile pace, relaxed and fast) | n/a | n/a | 8 |
-
-- target.paceSecPerKm = [faster, slower] in whole seconds per km, from the table.
-- hrZone = the zone number (1-5) as a label. Never give bpm unless HRmax or LTHR is provided. Beta-blockers → hrZone null and use rpe.
-- When no race or time trial is known: paceSecPerKm null, set rpe, describe the talk test in notes, and plan a time trial once they run ≥3×/week (a 5K time trial, or 3K / 30 min, counts as that week's quality session).
-- Easy pace is a ceiling. Slower is always fine, and heat, hills, wind and fatigue justify slower. Say it once, in the first easy run's notes.
+hrZone · use · %HRmax · talk test · RPE: 1 recovery, 55-72, sing, 2-3 · 2 easy/long/warm-up/cool-down, 65-79, full sentences, 3-4 · 3 marathon/steady, 80-87, short sentences, 5-6 · 4 threshold/tempo ("comfortably hard", ~1-hour race pace), 88-92, a few words, 6-7 · 5 VO2max intervals (~3K-5K pace), 95-100 by rep end, none, 8-9 · R strides, 200-400 m, hill sprints (~mile pace, relaxed), rpe 8.
+- target.paceSecPerKm = [faster, slower] whole s/km; hrZone = the zone number. Never give bpm unless HRmax or LTHR is provided. Beta-blockers → hrZone null, use rpe.
+- No race or time trial known: paceSecPerKm null, set rpe, talk test in notes; once they run ≥3×/week, plan a time trial (5K, or 3K) as that week's quality session.
+- Easy pace is a ceiling: slower is always fine (heat, hills, wind, fatigue). Say it once, in the first easy run's notes.
 
 ### 4.2 Pace table (look up, don't calculate)
-Use a race or time trial from the last 8-12 weeks, run all-out on a flat course.
-- Match the race's timeSec in the column for its distance (5K s, 10K s, HM s, M s; distances are 5, 10, 21.1 and 42.2 km).
-- Between rows, use the SLOWER row (the row with the larger time).
-- All paces are seconds per km. E = easy/long range. Mp, HMp, 10Kp, 5Kp = race paces. T, I and R are given as [fast-slow] ranges.
-
-The table comes from the Daniels VDOT equations. In recreational runners the marathon prediction is optimistic: for marathon pace, use the row one step slower unless the owner averages ≥60 km/week and has done long runs ≥30 km. Slower than a 35-min 5K, or walkers: prescribe by RPE, and treat paces as loose guides.
+Prefer the app-computed paces when given. Otherwise use a race or time trial from the last 8-12 weeks, all-out on a flat course: match its timeSec in the column for its distance (5K, 10K, HM, M = 5, 10, 21.1, 42.2 km); between rows use the SLOWER row. All values are s/km; E = easy/long range; Mp, HMp, 10Kp, 5Kp = race paces; T, I, R = [fast-slow].
+Marathon predictions are optimistic for recreational runners: for Mp use the row one step slower unless they average ≥60 km/week with long runs ≥30 km. Slower than a 35-min 5K, or walkers: prescribe by RPE; paces are loose guides.
 \`\`\`
 5K|10K s|HM s|M s|E|Mp|HMp|10Kp|5Kp|T|I|R
 16:00=960|1993|4399|9206|250-275|218|209|199|192|206-210|187-191|177-181
@@ -222,264 +135,171 @@ The table comes from the Daniels VDOT equations. In recreational runners the mar
 38:00=2280|4751|10470|21301|559-610|505|496|475|456|468-477|426-435|405-414
 40:00=2400|5002|11007|22353|585-639|530|522|500|480|492-500|448-457|425-435
 \`\`\`
-- Only a logged easy pace known: the easy range = that pace and up to about 30 s/km slower. No quality paces until a race or time trial exists (use RPE).
-- Goal pace for an event: find the row whose time for that distance is nearest event.goalTimeSec, and use its race-pace column for race-pace segments. If that row is more than 2 rows faster than current fitness, train at current-fitness paces and say the goal looks ambitious in rationale.
+- Only a logged easy pace known: easy range = that pace to ~30 s/km slower; no quality paces until a race or time trial exists (use RPE).
+- Event goal pace: the row whose time for that distance is nearest event.goalTimeSec gives the race-pace column for race-pace segments. More than 2 rows faster than current fitness → train at current paces and say the goal looks ambitious in rationale.
 - Returning runners: 1 row slower after 2-4 weeks off, 2 rows after 4-8 weeks; re-test after >8 weeks.
 
 ### 4.3 Weekly volume and frequency
-- **Base:** the recent 3-4 week average of run km, not the best week.
-  - Building: increase ≤10% over that average (≤ +3-5 km when it's under 30 km).
-  - Hold volume in the week a new quality session is added.
-- **Cutback** every 3rd-4th week: −20-30% km, keeping one short quality touch (strides or a short threshold set).
-- **Runs per week:**
-  - beginners 3 (non-consecutive in the rotation)
-  - recreational 3-4
-  - racing 4-6
-  - Add frequency before making single runs longer.
-- **Intensity mix:** ≥80% of weekly run km easy (zone 1-2). Warm-ups, cool-downs, recovery jogs and long runs count as easy. Quality is ≤20%.
+- **Weekly km:** build from the digest (kmMax); without one, ≤10% over the recent 3-4-week average of completed km (≤ +3 km below 30 km/week). Hold volume in a week that adds a quality session. One change per week: a longer long run, OR more km, OR more/faster quality.
+- **Cutback** every 3rd-4th build week: −20-30% km, long run back to ~80%, one short quality touch (strides or a short threshold set).
+- **Runs per week:** beginners 3 (non-consecutive in the rotation); recreational 3-4; racing 4-6. Add frequency before lengthening single runs.
+- **Intensity mix:** ≥80% of run km easy (zone 1-2); warm-ups, cool-downs, recovery jogs and long runs count as easy.
 
-### 4.4 Long run
-- **Share of weekly km:** ≤30% (≤40% when weekly km <20 on 2-3 runs).
-  - At ≥60 km/week: ≤25% and ≤150 min.
-  - Marathon builds cap at about 2.5-3 h.
-- **Progression (the strongest injury-risk evidence):** the new long run is ≤10% longer than the longest run of the last 30 days. Under 8 km, a +1 km step is acceptable.
-- Easy pace. Add fuelling notes (30-60 g carbs/h) for runs >75-90 min.
-- Late in a race build: the final 10-20 min at M or HM pace.
+### 4.4 Long run and the single-run limit
+- **No run longer than the longest run of the last 30 days × 1.1** (the best-supported injury rule; bigger spikes raised injury rates 52-128%). At most one new longest run per week; on short runs round down (5 → 5.5 km, 30 → 33 min). Speed and hills load bone and tendon more than easy km: add them after volume, drop them first.
+- **Share of weekly km:** ≤30% (≤40% at 1-2 runs/week or <20 km/week); at ≥60 km/week ≤25% and ≤150 min. Peaks: HM ≤2.5 h, marathon ~3 h.
+- Easy pace; fuelling note (30-60 g carbs/h) for runs >75-90 min. Late in a race build: the final 10-20 min at M or HM effort.
 
 ### 4.5 Quality sessions
-- **How many:**
-  - 0 for the first 4-8 weeks of running; strides allowed after about week 3-4 of continuous running.
-  - 1/week for most recreational and hybrid runners.
-  - 2/week only with ≥4 runs/week and a stable base.
-  - Never consecutive in the rotation; the long run counts as a hard day. Default to threshold work first; add VO2max work in race-specific phases (pyramidal distribution).
-- **Per-session caps** (Daniels): time at T ≤10% of weekly km; at I ≤8% of weekly km and ≤10 km; at R ≤5% and ≤8 km.
-- **Every quality run:** warmupMin 10-15 (easy, + 2-4 strides before I/R work) and cooldownMin 5-10. Count both as easy km in totalKm.
+- **How many:** 0 in the first 4-8 weeks of running (strides after ~week 3-4 of continuous running); 1/week for most recreational and hybrid runners; 2 only with ≥4 runs/week, a stable base and ≤1 HIIT. With ≥2 HIIT/week, 0-1 quality runs. Never consecutive in the rotation; the long run counts as a hard day. Threshold first; VO2max work in race-specific phases.
+- **Per-session caps** (Daniels): time at T ≤10% of weekly km, at I ≤8% (≤10 km), at R ≤5% (≤8 km); below ~25-30 km/week use the session minimums.
+- **Every quality run:** warmupMin 10-15 (easy, + 2-4 strides before I/R) and cooldownMin 5-10, counted as easy km in totalKm.
 
 Session menu (runType → segments):
-- **easy:** one segment, 20-60 min (durationSec) or a distance, pace E, hrZone 2, rpe 3-4.
-- **recovery:** 20-30 min, slower than E, hrZone 1. Use it after hard days, or swap for an easy bike.
-- **long:** as §4.4, pace E.
-- **strides:** add to an easy run, segment reps 4-8, durationSec 15-20 (or distanceM 80-100), target R pace or rpe 8 "relaxed fast", recoverySec 60-90 walk or jog. Not a hard day.
-- **hills:**
-  - repeats: reps 6-10 × 30-90 s uphill at about 5K effort (rpe 8), jog-down recovery. A quality day.
-  - sprints: 6-10 × 8-12 s steep, full walk-back. For experienced runners.
-- **tempo:** 1 × 15-25 min at T (start at 2 × 8-10 min, 90 s jog).
-- **threshold (cruise intervals):** 3-6 × 5-10 min at T, 60-90 s jog, totalling 20-40 min at T. The most forgiving quality session for hybrid athletes.
-- **intervals (VO2max):** 4-6 × 3-4 min or 5-6 × 1000 m at I, jog recovery about equal to the rep time; 12-20 min at I in total. Beginners start with 6-8 × 1 min / 1 min.
-- **Repetitions** (runType "intervals"): 6-10 × 200-400 m at R, recovery 2-3× the rep time.
-- **fartlek:** 30-45 min easy with 6-10 surges of 30 s-3 min at T-I effort, by feel. Use it when paces are unknown.
-- **race / time trial:** 5K all-out after a 15 min warm-up with strides. Counts as the quality session.
-- **HM/M race-pace:** 2-3 × 10-15 min at HMp, or 8-16 km at Mp inside the long run. Race-specific phase only.
+- **easy:** 20-60 min or a distance, pace E, hrZone 2, rpe 3-4. **recovery:** 20-30 min slower than E, hrZone 1. **long:** §4.4, pace E.
+- **strides:** on an easy run, 4-8 × 15-20 s (or 80-100 m) at R or rpe 8 "relaxed fast", 60-90 s walk/jog. Not a hard day.
+- **hills:** repeats 6-10 × 30-90 s uphill at ~5K effort (rpe 8), jog down: a quality day. Sprints 6-10 × 8-12 s steep, walk back: experienced runners, easy-day add-on.
+- **tempo:** 15-25 min at T (start 2 × 8-10 min, 90 s jog). **threshold** (cruise intervals): 3-6 × 5-10 min at T, 60-90 s jog, 20-40 min at T: the most forgiving quality for hybrid athletes.
+- **intervals:** VO2max 6-8 × 1 min/1 min → 5 × 2-3 min → 4-5 × 4 min or 5 × 1000 m at I, jog ≈ rep time, 10-20 min at I. Repetitions: 6-10 × 200-400 m at R, recovery 2-3× rep time.
+- **fartlek:** 30-45 min easy with 6-10 surges of 30 s-3 min at rpe 6-8. The best first quality; no paces needed.
+- **race / time trial:** 3K or 5K all-out after a 15 min warm-up with strides; the week's quality. **Race-pace:** HM 2-3 × 10-15 min at HMp; M 8-16 km at Mp inside the long run (race-specific phase).
 
 ### 4.6 Beginners (run/walk)
-Use this if the owner can't run 20-30 min continuously, or weekly km is 0 or null. Do 3 sessions, non-consecutive in the rotation. Each starts with a 5 min brisk walk (warmup), all running conversational (rpe ≤5), with recoveryType "walk":
-- W1: 8 × (60 s run / 90 s walk).
-- W2: 6 × (90 s / 2 min).
-- W3: 2 × (90 s run, 90 s walk, 3 min run, 3 min walk).
-- W4: run 3, walk 1.5, run 5, walk 2.5, run 3, walk 1.5, run 5 min.
-- W5: 3 × (5 run / 3 walk); then 8-5-8; then 20 min continuous.
-- W6: 5-3-8-3-5; then 10-3-10; then 25 min.
-- W7: 25 min. W8: 28 min. W9: 30 min.
+Use if the owner can't run 20-30 min continuously, or weekly km is 0 or null: 3 sessions, non-consecutive in the rotation, each after a 5 min brisk walk (warmup), running conversational (rpe ≤5), recoveryType "walk".
+W1 8 × (60 s run / 90 s walk). W2 6 × (90 s / 2 min). W3 2 × (90 s run, 90 s walk, 3 min run, 3 min walk). W4 run 3, walk 1.5, run 5, walk 2.5, run 3, walk 1.5, run 5 min. W5 3 × (5 run / 3 walk); then 8-5-8; then 20 min continuous. W6 5-3-8-3-5; then 10-3-10; then 25 min. W7 25 min, W8 28, W9 30.
+Pick the stage from history; repeat it after an RPE ≥8 session, amber pain or a miss. Heavier, older or recently injured owners: 2 weeks per stage, or 4-6 weeks of 30-45 min brisk walks first. Graduation (30 min continuous at RPE ≤5, 3×/week, pain-free) → build per §4.3 and add strides before any quality.
 
-Pick the stage from history: repeat the stage after an RPE ≥8 session, amber pain or a miss. Heavier, older or recently injured owners: 2 weeks per stage, or 4-6 weeks of 30-45 min brisk walks first. Graduation (30 min continuous at RPE ≤5, 3×/week, pain-free) → build per §4.3 and add strides before any quality session.
-
-### 4.7 Returning runners (first week back vs the previous normal weekly km)
+### 4.7 Returning runners (first week vs the previous normal weekly km)
 | Time off | First week back | Rebuild | Quality |
 |---|---|---|---|
 | <1 week | resume | none | skip the missed session |
-| 1-2 weeks | 75-90% | over 1-2 weeks | normal |
-| 2-4 weeks | 50-75% | to the previous level over 2-3 weeks | from week 2 |
-| 4-8 weeks | 40-50% | over 4-6 weeks | after 2 easy weeks |
-| >8 weeks, or after injury | 30-50% (run/walk from stage W3-W5 after injury) | over 6-12 weeks | after a re-test |
-
-Injury return also needs pain-free 30 min walking and pain-free single-leg hops first.
+| 1-2 weeks | 75-90% | 1-2 weeks | normal |
+| 2-4 weeks | 50-75% | 2-3 weeks | from week 2 |
+| 4-8 weeks | 40-50% | 4-6 weeks | after 2 easy weeks |
+| >8 weeks, or after injury | 30-50% (run/walk from stage W3-W5 after injury) | 6-12 weeks | after a re-test |
+Injury return also needs 30 min pain-free walking and pain-free single-leg hops.
 
 ### 4.8 Race builds and taper
-- **Minimum build lengths** (from a 3-4 run/week base): 5K 6-8 weeks; 10K 8-10; half marathon 10-14; marathon 16-20.
-  - First marathon: ≥30 km/week for 8+ weeks and a 13-16 km long run before starting.
-  - Too short a timeline → say so in rationale and offer a run/walk or finish-only goal, or a shorter race.
-- **Peak long run:** 5K 8-12 km; 10K 12-16; HM 16-21 (≤2-2.5 h); marathon 28-32 km or about 2.5-3 h, whichever comes first.
-- **Key sessions:** 5K → I intervals + T. 10K → T + I. HM → T, then HMp segments + long run. Marathon → long run with Mp segments + T.
-- **Phases:** base (easy + strides) → build (add threshold, then I) → race-specific (race pace, long-run peak) → taper.
-- **Taper:** keep intensity and frequency, cut volume (meta-analysis: about 2 weeks, −41-60%).
-  - 5K/10K: 7-10 days at −30-50%, with 1 short I session 4-5 days out plus strides.
-  - HM: 10-14 days at about −40%, last long run (≤16 km) 10-14 days out.
-  - Marathon: 3 weeks at −20-30%, −40-50%, −60%; the last 28-32 km run 3 weeks out.
-  - Last heavy lower-body lift 7-10 days out; one light session 4-6 days out.
-  - Race week: nothing new; race-day fuelling practiced in long runs.
-- Use event.date to place the plan in its phase.
+- **Minimum builds** (from 3 runs/week): 5K 6-8 weeks, 10K 8-10, HM 10-14, marathon 16-20. First marathon: ≥30 km/week for 8+ weeks and a 13-16 km long run first. Too short a timeline → say so in rationale; offer run/walk, a finish-only goal or a shorter race.
+- **Peak long run:** 5K 8-12 km; 10K 12-16; HM 16-21 (≤2.5 h); marathon 28-32 km or ~3 h, whichever comes first.
+- **Key sessions:** 5K I + T; 10K T + I; HM T then HMp + long run; marathon long run with Mp + T. Phases: base (easy + strides) → build (threshold, then I) → race-specific (race pace, long-run peak) → taper. Use event.date to place the week.
+- **Taper:** volume cut, intensity and frequency kept. 5K/10K 7-10 days at −30-50%, one short I session 4-5 days out + strides. HM 10-14 days at ~−40%, last long run (≤16 km) 10-14 days out. Marathon 3 weeks at −20-30%, −40%, −60%, last 28-32 km run 3 weeks out. Last heavy lower-body lift 7-10 days out, one light session 4-6 days out. Race week: nothing new.
 
 ### 4.9 Run blocks
-- **Fields:** runType; warmupMin and cooldownMin (0 for plain easy/long runs); totalKm (planned total including warm-up/cool-down; estimate warm-up at E pace, about 1.5-2 km per 10 min); segments with reps, distanceM or durationSec (use one, the other null), target {paceSecPerKm, hrZone, rpe}, recoverySec, recoveryType ("jog" | "walk" | "stand").
-- **Notes:** one practical line: surface, the talk test, "slower is fine", fuelling, or a substitution ("treadmill 1% incline ok"; "no route: 30 min easy bike").
-- **Location:** runs need outdoor_route, treadmill or track at that location. Track sessions only if "track" is listed. Hills only if the notes mention hills; otherwise use a treadmill incline or fartlek.
+- **Fields:** runType; warmupMin and cooldownMin (0 for plain easy/long runs); totalKm (whole run incl. warm-up/cool-down; ~1.5-2 km per 10 min at E); segments with reps, distanceM or durationSec (one, the other null), target {paceSecPerKm, hrZone, rpe}, recoverySec, recoveryType ("jog" | "walk" | "stand").
+- **Notes:** one practical line: surface, talk test, "slower is fine", fuelling, or a substitution ("treadmill 1% incline ok"; "no route: 30 min easy bike").
+- **Location:** runs need outdoor_route, treadmill or track; track sessions only if "track" is listed; hills only if the notes mention hills, else treadmill incline or fartlek.
 
 ## 5. Conditioning (HIIT / metcons)
 
-### 5.1 Formats (Block fields: format, minutes, rounds, timeCapMin, workSec, restSec, items, targetRpe, scaling, notes)
-- **AMRAP:** fixed minutes (5-30, mostly 8-20); score in rounds + reps.
-- **EMOM:** minutes = total; work takes about 30-40 s of each minute (≥20 s rest). E2MOM/E3MOM (say so in notes) for heavier or longer work.
-- **FOR_TIME / RFT:** always set timeCapMin at about 1.25-1.5× the expected finish.
-- **TABATA:** 8 × 20 s / 10 s (4 min), cyclical or simple moves only (erg, air squat, push-up), ≤2-3 blocks. Never barbells or skill moves.
-- **CHIPPER:** long, high-rep; experience "regular" only, never in the ramp.
-- **INTERVALS:** workSec/restSec × rounds: one energy system; best for runners.
-
-### 5.2 Energy systems and work:rest
-| Target | Work | Effort | Work:rest | Volume |
-|---|---|---|---|---|
-| Sprint / alactic | 6-10 s | all-out | 1:10-1:20 (≥60-120 s rest) | 6-10 reps |
-| Anaerobic capacity | 20-60 s | rpe 9 | 1:3-1:5 | 4-10 reps, ≤6-8 min of work |
-| Aerobic power (VO2max) | 2-5 min, or 30/30s | rpe 8 | 1:1-1:0.5 | 12-24 min of work (4 × 4 min / 3 min; 2-3 × (10 × 30/30)) |
-| Threshold | 5-20 min | rpe 6-7 | 1:0.2-1:0.5 | 20-40 min of work |
-| Aerobic base | 20-60 min continuous | rpe 3-4 | n/a | n/a |
-
-Metcon time domains: sprint ≤5 min, short 5-10, medium 10-20, long 20-40 (INTERVALS count by the work bout).
-
-### 5.3 Frequency
-Sessions/week by conditioning experience: "none" or >4 weeks off → 1 in the first 2 weeks, then 2; "some" → 2; "regular" → 2-3 (more only if some are moderate with strength built in).
-- ≥48 h (or one non-hard workout in the rotation) between conditioning sessions that hit the same patterns, and between HIIT and a quality run.
-- Total time above about 90% HRmax: ≤30-40 min/week.
-- For fat loss: steps and easy cardio before extra HIIT.
-
-### 5.4 Designing a metcon
-- **Modal elements:** M = monostructural (row, bike, ski, run, rope); G = bodyweight (pull-up, push-up, burpee, air squat, sit-up, box jump, toes-to-bar, dip); W = loaded (KB, DB, barbell, wall ball, sandbag, carry).
-- **Mix patterns:** lower + upper + cyclical, or push + pull. Never stack the same pattern or tissue: hinge + hinge + grip (swings + deadlifts + rowing); pull + pull + grip (pull-ups + rowing + toes-to-bar); quads ×3 (thrusters + wall balls + box jumps); overhead ×2+ (push press + wall balls + HSPU).
-- **Respect the same workout's strength block:** after heavy squats, upper-body + cyclical work; after heavy deadlifts, no swings, cleans or high-rep hinging; after heavy pressing, no dips, HSPU or burpee-press combos.
+### 5.1 Design recipe (every metcon)
+1. **Stimulus → time domain:** sprint ≤5 min (1-2 movements, near-unbroken); short 5-10 (couplet, 3-5 rounds, first round hard but possible); medium 11-20, the default (2-3 movements, hard and steady); long >20 (3-5 movements, moderate); intervals (the work bout sets the domain, §5.3).
+2. **Priority:** task (fixed work, FOR_TIME/RFT, timeCapMin 1.25-1.5× expected) or time (AMRAP/EMOM, self-limiting, best for newcomers).
+3. **Estimate the time:** per-movement time per round (400 m run ≈ 2 min, 10 KB swings ≈ 20-25 s, 10 burpees ≈ 35-45 s) × rounds + 10-15 s per transition + 10-20% for fatigue. Over the band → cut rounds or reps.
+4. **Movements by function** (squat, hinge, push, pull, trunk, cyclical): lower + upper, push + pull, plus a cyclical piece. Modal elements: M = monostructural (row, bike, ski, run, rope); G = bodyweight (pull-up, push-up, burpee, air squat, sit-up, box jump, toes-to-bar, dip); W = loaded (KB, DB, barbell, wall ball, sandbag, carry). No unplanned stacks: hinge + hinge + grip (swings + deadlifts + rowing), pull + pull + grip (pull-ups + rowing + toes-to-bar), quads ×3 (thrusters + wall balls + box jumps), overhead ×2+ (push press + HSPU).
+5. **Load = unbroken-set size when fresh:** light ≥20 reps (default; sprint, medium, long), moderate 6-19 (short couplets), heavy ≤5 (rare: short couplets or EMOM; ≤1 heavy metcon per week, never on a heavy strength day for that pattern). Barbell sets of ≥10 reps ≈ 30-50% 1RM; sets ≤5 ≈ 50-70%. loadKg only if provided or derivable from a known lift, else null + a set-size cue in notes ("moderate: 2-3 sets per round").
+6. **Scaling line** (§5.4) keeping the same clock and feel.
+- **Respect the same workout's strength block:** after heavy squats → upper + cyclical; after heavy deadlifts → no swings, cleans or high-rep hinging; after heavy pressing → no dips, HSPU or burpee-press stacks.
 - **Runners** (≥3 runs or ≥30 km/week, or shin/Achilles issues): bike, row and ski instead of running and jumping.
-- **Set sizes** must be doable unbroken when fresh (about ≤50-60% of their max reps) so fatigue stays metabolic, not failure-driven.
-- **Technique-safe under fatigue:** cyclical machines, KB swings, dumbbells, bodyweight. Heavy or complex lifts and max-effort gymnastics go in the strength block, done fresh.
-- **Hinge cap:** deadlift-pattern reps in a metcon ≤30-50 at moderate load for non-experts. No high-rep loaded spinal flexion.
-- **CondItem:** exerciseId, name and one of reps, calories (ergs), distanceM (run, row), durationSec (holds, Tabata); others null. loadKg only if provided or derivable from a known lift, else null + "moderate: unbroken sets" in notes.
+- Fatigue goes on simple moves (ergs, KB, DBs, bodyweight); heavy or complex lifts go in the strength block, fresh. Non-experts: ≤30-50 deadlift-pattern reps per metcon at moderate load; no high-rep loaded spinal flexion.
+- **CondItem:** exerciseId, name and one of reps, calories (ergs), distanceM (run, row), durationSec (holds, Tabata); others null.
 - **targetRpe:** sprint 9-10, short 8-9, medium 7-8, long 6-7.
 
-### 5.5 Scaling (the scaling field: concrete, one short line)
-Preserve the stimulus (same time domain and intensity). Scale in order: load → reps or rounds (−25-50%) → movement (simpler, same pattern) → range or standard (box height, incline push-ups) → time cap.
+### 5.2 Formats (Block fields: format, minutes, rounds, timeCapMin, workSec, restSec, items, targetRpe, scaling, notes)
+- **AMRAP:** fixed minutes (mostly 8-20); score rounds + reps.
+- **EMOM:** minutes = total; work ≤40 s of each minute. E2MOM/E3MOM (say so in notes) for heavier or longer work.
+- **FOR_TIME / RFT:** always a timeCapMin.
+- **TABATA:** 8 × 20 s / 10 s, ergs or simple moves only, ≤2-3 blocks; never barbells or skill moves.
+- **CHIPPER:** long, high-rep; experience "regular" only, never in the ramp.
+- **INTERVALS:** workSec/restSec × rounds, one energy system; best for runners.
 
-Metcon loads:
-- Barbell sets of ≥10 reps: about 30-50% 1RM. Sets of ≤5: about 50-70%.
-- DB/KB: a weight they could lift for about 2× the set reps unbroken when fresh.
-- "Rx" benchmark loads (24/16 kg KB, 9/6 kg wall ball, 43/30 kg thruster, 22.5/15 kg DB) are for experienced athletes. Most people use one-half to two-thirds.
+### 5.3 Energy systems and work:rest
+| Target | Work | Effort | Work:rest | Volume |
+|---|---|---|---|---|
+| Sprint / alactic | 6-10 s | all-out | 1:10-1:20 | 6-10 reps |
+| Glycolytic | 15-60 s | rpe 9 | 1:3-1:5 | ≤6-8 min of work |
+| VO2max | 2-5 min, or 30/30s | rpe 8 | 1:1-1:0.5 | 12-24 min (4 × 4 min / 3 min; 2 × (10 × 30/30)) |
+| Threshold | 5-20 min | rpe 6-7 | 1:0.2-1:0.5 | 20-40 min |
+| Aerobic base | 20-60 min continuous | rpe 3-4 | n/a | 1-3/week |
 
-Substitutions (same pattern, location equipment only): pull-up → banded pull-up, ring/TRX row, band row (jumping pull-ups only at low reps: eccentric-heavy); toes-to-bar → knee raise, V-up, sit-up; muscle-up → 2-3 pull-ups + 2-3 dips; HSPU → box pike push-up, pike push-up, DB push press; ring dip → bar dip, push-up; double unders → 2-3× singles or the same time; box jump → step-up (step down each rep); wall ball → DB or med-ball thruster, goblet squat + push press; thruster → DB thruster; clean or snatch → DB hang clean, DB snatch, KB swing; KB swing → DB swing, band pull-through; run → row, ski, bike or treadmill by equal time (400 m run ≈ 2 min ≈ 500 m row/ski ≈ 1000 m BikeErg); burpee → step-back burpee; GHD sit-up → sit-up.
+### 5.4 Scaling (the scaling field: one concrete line)
+Preserve the stimulus: same time domain and feel. Order: load → reps or rounds (−25-50%) → movement (same function, range and plane) → range or standard (box height, incline push-ups) → time cap.
+- Load so the first round finishes without failure or broken form; unsure → scale more. Newcomers: <50% of Rx, half the volume for ≥2 weeks. Typical: intermediate ≈60-70% of Rx load, beginner ≈35-45% with ~30-70% of the volume. Rx (24/16 kg KB, 9/6 kg wall ball, 43/30 kg barbell, 22.5/15 kg DB) is for experienced athletes.
+- No progressive scaling (lowering the weight mid-workout so an exhausted athlete keeps going): rest instead. Stop or scale when form breaks.
+- Write it as change + target ("2 rounds, 12 kg KB: still ≤10 min").
+Substitutions (location equipment only; cyclical work by equal time): pull-up → banded pull-up, ring/TRX row, band row (jumping pull-ups only at low reps); toes-to-bar → knee raise, V-up, sit-up; muscle-up → 2-3 pull-ups + 2-3 dips; HSPU → box pike push-up, DB push press; ring dip → bar dip, push-up; double unders → singles ×2-3 or the same time; box jump → step-up; wall ball → DB thruster, goblet squat + push press; barbell thruster, clean or snatch → DB versions, KB swing; KB swing → DB swing, band pull-through; run 400 m ≈ 2 min ≈ 500 m row/ski ≈ 1 km BikeErg ≈ 2 min rope; GHD sit-up → sit-up.
 
-### 5.6 Skill gates (otherwise substitute)
-- Kipping pull-ups and kipping toes-to-bar: ≥5 strict pull-ups plus pain-free shoulders.
-- Butterfly pull-ups and muscle-ups: proficient kipping plus ≥8-10 strict pull-ups.
-- Olympic lifts (clean, snatch, jerk) at speed: only with self-reported coached competence, ≤60% 1RM under fatigue; else DB/KB variants.
-- Double unders: only if they can string about 10-20.
-- HSPU: 10 good pike push-ups and comfortable upside down.
-- High-rep box jumps: step down every rep; no rebounds unless experienced; none with Achilles or calf issues.
-- Ring dips: ≥10 strict bar dips.
-- GHD sit-ups: never in the first 4 weeks; then ≤10-15/session.
+### 5.5 Skill gates (otherwise substitute; without evidence of a skill, assume it's absent)
+Kipping pull-ups/T2B: ≥5 strict pull-ups, pain-free shoulders. Butterfly and muscle-ups: proficient kip + ≥8-10 strict pull-ups. Olympic lifts at speed: self-reported coached competence, ≤60% 1RM under fatigue, else DB/KB. Double unders: strings of 10-20. HSPU: 10 good pike push-ups, comfortable inverted. High-rep box jumps: step down every rep, rebounds only if experienced, none with Achilles/calf issues. Ring dips: ≥10 strict bar dips. GHD sit-ups: none in the first 4 weeks, then partial range, ≤10-15.
 
-Without evidence of a skill (experience or history), assume it's absent.
+### 5.6 Newcomer ramp-in (rhabdomyolysis-safe)
+Applies when conditioning experience is "none" or null, after >4 weeks without conditioning or an illness, or for any brand-new high-rep movement (fit people new to metcons and returners are the highest-risk groups).
+- **Weeks 1-2:** 1-2 sessions, 8-12 min of work, targetRpe ≤7. Per session ≤30-50 reps of any one movement, ≤20-30 for eccentric-heavy moves (pull-ups incl. jumping, push-ups, lunges, box jumps, wall balls). No CHIPPER, GHD sit-ups, to-failure or "death by" formats, negatives or heat.
+- **Weeks 3-4:** 2 sessions, 12-20 min, rpe ≤8, ≤75 reps per movement (≤40-50 eccentric-heavy); still no chippers or GHD.
+- **After that:** session volume +≤20-30% per week; new movements start at ≤20-30 reps. Count weeks from conditioning sessions in history.
+- Plan notes, once: "Stop if form breaks. Dark urine, swelling or weakness after = see a doctor today."
 
-### 5.7 Newcomer ramp-in (rhabdomyolysis-safe)
-Applies when conditioning experience is "none" or null, after >4 weeks without conditioning, after an illness, or for any brand-new high-rep movement.
-- **Weeks 1-2:** 1-2 sessions, 8-12 min of metcon work, targetRpe ≤7. Per session ≤30-50 reps of any one movement; ≤20-30 for eccentric-heavy moves (pull-ups incl. jumping, push-ups, lunges, box jumps, wall balls). No CHIPPER, GHD sit-ups, to-failure or "death by" formats, or high-rep negatives.
-- **Weeks 3-4:** 2 sessions, 12-20 min, rpe ≤8, ≤75 reps per movement (≤40-50 eccentric-heavy). Still no chippers or GHD sit-ups.
-- **After that:** session volume +≤20-30% per week; new movements start at ≤20-30 reps.
-- Count weeks from conditioning sessions in history.
-- Add to plan notes once: "Stop if form breaks. Dark urine, swelling or weakness after = see a doctor today."
-
-### 5.8 Equipment menus for metcons (only what the location lists)
-- **Gym:** erg calories, KB swing, DB snatch, thruster, wall ball, box, pull-up/ring row, sled, carries.
-- **Dumbbells:** DB thruster, snatch, push press, lunge, man maker or devil press (experienced), farmer carry + bodyweight + runs.
-- **Bodyweight + outdoors:** run intervals, hill sprints, air squats, lunges, push-ups, burpees, sit-ups, jumping jacks; pull-ups if a bar.
-
-### 5.9 Weekly metcon design (CrossFit mainsite logic)
-- **Stimulus first:** set the intended feel (time domain, pace, set sizes), then pick moves and loads to hit it. Block notes = that stimulus, never "" ("Sprint: unbroken, done by 7 min"; "Steady pace every round").
-- **Vary on purpose, not randomly:** the week's metcons differ in format and time domain (sprint/short vs medium/long); consecutive metcons never share format + lead element; each changes ≥1 of format, time domain or lead element vs the previous plan's.
-- **Structure:** rotate single-element pieces (erg intervals, a light W EMOM), couplets (3-5 fast rounds) and triplets (AMRAP 12-20, moderate load). Lead elements differ; with ≥3 metcons M, G and W each lead once.
-- **Load:** mostly light and fast (unbroken sets); sometimes a heavier short couplet (sets ≤5, about 50-70%) if the strength work allows (§5.4).
-- **scaling** keeps the stimulus: how to stay in the time domain ("2 rounds, 12 kg KB, still <10 min").
-- **Benchmark** every 6-12 weeks (not in the ramp): repeat a logged metcon exactly (moves, loads, cap); notes "Benchmark: beat <last score>". Owned kit only.
-- **Rest:** CrossFit's 3-on/1-off or 5-on/2-off rhythm is §6.2 here.
+### 5.7 Frequency and weekly rotation
+- Sessions/week by conditioning experience: "none" or >4 weeks off → 1 in weeks 1-2, then 2; "some" → 2; "regular" → 2-3 (4 only if running ≤2/week, most medium and light). For fat loss, steps and easy cardio before extra HIIT.
+- ≥48 h (or one non-hard workout in the rotation) between hard sessions loading the same tissues or system, metcon ↔ quality run included. Time above ~90% HRmax ≤30-40 min/week.
+- Strength days are the week's heavy day and the long run/easy cardio its long day, so metcon slots carry short, medium and interval work: 1/week → rotate weekly medium triplet 12-15 → short couplet 6-8 → intervals 15-20; 2 → a short/medium couplet For Time 6-12 + a medium/long AMRAP 15-20 or intervals; 3 → short couplet ≤10 + medium triplet 11-15 + intervals or long aerobic 20-30 (bike/row if running ≥3/week).
+- **Vary on purpose:** consecutive metcons never share format + lead element + time domain; each slot changes ≥1 of format, time domain or lead element vs the previous plan; ≥2 metcons → ≥2 time domains; ≥3 → M, G and W each lead once; rotate the lead M → G → W across weeks.
+- **Block notes = the stimulus** ("Sprint: unbroken, done by 7 min"; "Steady pace every round"), never "".
+- **Benchmark** every 6-12 weeks (not in the ramp): repeat a logged metcon exactly (moves, loads, standards, cap); notes "Benchmark: beat <last score>". Owned kit only.
 
 ## 6. Hybrid weekly scheduling
 
 ### 6.1 Classify every workout
-- **H (hard):** heavy lower-body or full-body strength; quality run (tempo, threshold, intervals, hills, time trial, race-pace); long run; metcon/HIIT at targetRpe ≥8.
+- **H (hard):** heavy lower-body or full-body strength; quality run (tempo, threshold, intervals, hills, time trial, race-pace); long run; metcon/HIIT at targetRpe ≥8. The newcomer ramp counts its metcons as H.
 - **M (moderate):** upper-body strength; moderate full body; aerobic intervals at rpe 6-7; a short low-impact metcon at rpe ≤7.
 - **E (easy):** easy or recovery run; zone 2 cardio; mobility; skill practice; run/walk.
 
 ### 6.2 Rules
-1. **H budget per week:** novice ≤2, intermediate ≤3, advanced ≤4. The newcomer ramp counts its metcons as H.
-2. **Rotation order is execution order.** Never put two H workouts adjacent when they load the same tissues or system (legs + legs, run quality + metcon). Never put 3 H in a row. The last workout of this plan is followed by the first of the next, so check the wrap-around too. Alternate H with M or E.
-3. **Heavy lower-body strength** never directly precedes a quality run or long run. Separate them by ≥1 workout (≥24-48 h). The exception is stacking for intermediate+, in one hybrid workout with "≥6 h apart" in notes.
-4. The workout after the long run is E or upper-body M. The long run usually goes last, or before an E/upper day.
-5. **Combinations in one workout (type "hybrid"):**
-   - OK: upper strength + any run; lower strength + an easy run (priority first; "3-6 h apart if possible" in notes); strength + a short metcon of 8-15 min (strength first, avoiding the patterns just trained heavy); easy run + core, mobility or strides.
-   - NOT OK: quality run + metcon; long run + anything hard; heavy legs + intervals (except the stacking in rule 3).
+1. **H budget per week:** novice ≤2, intermediate ≤3, advanced ≤4.
+2. **Rotation order is execution order.** No two H workouts adjacent when they load the same tissues or system (legs + legs, quality run + metcon); never 3 H in a row; check the wrap-around (the last workout is followed by next week's first). With ≤3 workouts/week on non-consecutive days, ≥48 h already separates them.
+3. **Heavy lower-body strength never directly precedes a quality or long run** (≥1 workout, ≥24-48 h, between). Exception for intermediate+: stacked in one hybrid workout, priority first, with "3-6 h apart" in notes.
+4. The workout after the long run is E or upper-body M; plan a rest day after it where possible.
+5. **One workout (type "hybrid"):** OK: upper strength + any run; lower strength + an easy run (priority first, "3-6 h apart if possible"); strength + a short metcon of 6-15 min (strength first, avoiding the patterns just trained heavy); easy run + core, mobility or strides. NOT OK: quality run + metcon; long run + anything hard; heavy legs + intervals (except rule 3's stacking).
 6. **Same-session order:** strength priority → lift first; running priority → run first.
-7. **Exposure:** each modality needs about 2 exposures/week to progress and 1 to maintain. Running progresses with ≥3 runs/week; strength with ≥2 sessions per muscle.
-8. Interference volume rule: §3.4.
+7. **Exposure:** about 2 per modality per week to progress, 1 to maintain; running progresses with ≥3 runs/week. Interference volume rule: §3.4.
 
-### 6.3 Modality mix by goal (adjust to modalities flags; omit unselected modalities)
-- **Strength/muscle:** 3-4 strength sessions, 1-2 easy runs or zone 2 sessions, 0-1 short metcons as finishers.
-- **Race:** 3-5 runs (1-2 quality + long), 2 strength sessions (maintenance, lower body at RIR 2-3), 0-1 low-impact conditioning sessions.
-- **General fitness / fat loss:** 2-3 strength, 1-2 runs, 1-2 HIIT; daily steps in notes.
-- **Conditioning/CrossFit-style:** 3-4 strength + metcon workouts (strength first), 1 easy aerobic session.
+### 6.3 Modality mix by goal (only selected modalities)
+- **Strength/muscle:** 3-4 strength, 1-2 easy runs or zone 2, 0-1 short metcons.
+- **Race:** 3-5 runs (1-2 quality + long), 2 strength (lower body at RIR 2-3), 0-1 low-impact metcons.
+- **General fitness / fat loss:** 2-3 strength, 1-2 runs, 1-2 metcons; daily steps in notes.
+- **Conditioning/CrossFit-style:** 2-3 strength + metcon workouts (strength first), 1 interval session, 1 easy aerobic.
 - Running selected but the owner is a beginner → run/walk replaces "runs".
 
 ### 6.4 Template rotations (adapt; check §6.2)
-**3 days**
-- Balanced: full-body A + 10-min metcon (H) → run quality or run/walk (H/E) → full-body B + 20-30 min easy run (M).
-- Running: quality run + upper (H) → full-body + easy run (M) → long run (H).
-- Strength: full-body A → B → A′, each with an optional 10-min easy run or short metcon.
-- Conditioning: strength + metcon (H) → aerobic intervals on run or row (M) → strength + metcon (H).
-
-**4 days**
-- Balanced: full-body A (H) → easy run + core (E) → full-body B + 12-min metcon (H) → long or quality run (H).
-- Running: quality run (H) → full-body A + easy run (M) → long run (H) → full-body B + strides (M).
-- Strength: upper (M) → lower (H) → upper + easy run (M) → lower (H).
-- Conditioning: squat + press + metcon (H) → aerobic intervals + skill (M) → hinge + pull + metcon (H) → long easy aerobic (E).
-
-**5 days**
-- Balanced: upper + easy run (M) → lower (H) → easy run + strides (E) → quality run (H) → full-body + short low-impact metcon (M/H). Or replace the easy run with the long run when running matters.
-- Running: quality run (H) → full-body A (M) → easy + strides (E) → full-body B + easy (M) → long run (H).
-- Strength: upper → lower → easy run or zone 2 → upper + short metcon → lower.
-- Conditioning: strength + metcon (H) → easy aerobic (E) → interval run (H) → strength (upper-biased) + metcon (H) → long aerobic (E).
-
-**6 days**
-- Balanced: upper + easy run (M) → lower (H) → easy + strides (E) → quality run (H) → upper + low-impact metcon (M) → long run (H).
-- Running: quality → upper + easy → easy + strides → full-body (M) → easy → long.
-- Strength: U/L/U/L (or PPL ×2 for advanced) + 2 easy cardio sessions.
+- **3 days** (non-consecutive days): Balanced: full-body A + short metcon (H) → full-body B + easy run (M) → quality run or run/walk (H/E). Running: quality run + upper (H) → full-body + easy run (M) → long run (H). Strength: full-body A → B → A′, each with an optional 10-min easy run or short metcon. Conditioning: strength + short couplet (H) → aerobic intervals on bike/row (M) → strength + medium triplet (H).
+- **4 days:** Balanced: long or quality run (H) → upper + easy run (M) → lower/full-body + medium metcon (H) → easy run + core (E). Running: quality run (H) → full-body A + easy run (M) → long run (H) → full-body B + strides (M, after a rest day). Strength: upper (M) → lower (H) → upper + easy run (M) → lower (H). Conditioning: squat + press + short metcon (H) → aerobic intervals + skill (M) → hinge + pull + medium metcon (H) → long easy aerobic (E).
+- **5 days:** Balanced: quality run (H) → upper + easy run (M) → lower + short metcon (H) → easy run + strides (E) → long run (H). Running: quality run (H) → full-body A (M) → easy + strides (E) → full-body B + easy run (M) → long run (H). Strength: upper → lower → zone 2 → upper + short metcon → lower. Conditioning: strength + metcon (H) → easy aerobic (E) → interval run (H) → upper-biased strength + metcon (H) → long aerobic (E).
+- **6 days:** Balanced: upper + easy run (M) → lower (H) → easy + strides (E) → quality run (H) → upper + low-impact metcon (M) → long run (H). Running: quality → upper + easy → easy + strides → full-body (M) → easy → long. Strength: U/L/U/L (or PPL ×2 for advanced) + 2 easy cardio sessions.
 
 ## 7. Warm-ups and cool-downs (blocks)
-- **Strength:** 8-10 min.
-  - 3-5 min raise (bike, row, brisk walk or jog), then 3-5 min of dynamic mobility for today's joints.
-  - Ramp sets in the first main lift's notes, e.g. "ramp: bar×10, ~50%×5, ~70%×3, ~85%×1". Isolations need 1-2 warm-up sets.
-  - Older adults: add balance drills.
-- **Runs:** warm-up inside warmupMin (easy jog + 3-4 drills + strides before I/R); cool-down 5-10 min easy.
-- **Metcon:** 8-12 min: general raise → movement prep with the workout's movements at light load → 1-2 short build-ups to race pace.
-- **Cool-down block (optional):** 3-5 min easy plus 2-4 × 30 s stretches, if flexibility is a goal.
-- Items are { name, detail }: a short name and a detail of ≤ 6 words ("5 min easy row", "10/side"). 2-4 items per block.
+- **Strength:** 8-10 min: 3-5 min raise (bike, row, brisk walk or jog), then 3-5 min dynamic mobility for today's joints. Ramp sets in the first main lift's notes ("ramp: bar×10, ~50%×5, ~70%×3, ~85%×1"); isolations 1-2 warm-up sets. Older adults: balance drills.
+- **Runs:** inside warmupMin (easy jog + 3-4 drills + strides before I/R); cool-down 5-10 min easy.
+- **Metcon:** 8-12 min: general raise → the workout's movements at light load → 1-2 short build-ups.
+- **Cool-down block (optional):** 3-5 min easy + 2-4 × 30 s stretches if flexibility is a goal.
+- Items are { name, detail }: a short name and a detail of ≤ 6 words ("5 min easy row", "10/side"); 2-4 items per block.
 
 ## 8. Writing it (brevity limits, checked in code: TOO_VERBOSE)
-The owner reads this on a phone between sets. Say each thing once, in the fewest words; numbers and the app's computed targets carry the detail.
 - **focus:** ≤ 60 characters, the week's aim and phase ("Wk 3 build: squat volume, first threshold run").
-- **rationale:** ≤ 2 short sentences, ≤ 220 characters total. Cite 1-2 data points and what changed vs last week ("Squat e1RM +3%, RIR on target: loads up. Runs held at 12 km, no pain: long run +1 km."). Name a safety limit only if one applies.
+- **rationale:** ≤ 2 short sentences, ≤ 220 characters total, citing 1-2 data points and what changed vs last week ("Squat e1RM +3%, RIR on target: loads up. Runs held at 12 km, no pain: long run +1 km."). Name a safety limit only if one applies.
 - **Workout title:** ≤ 4 words ("Lower A + easy run", "Threshold 3×8").
 - **intent:** 1 sentence, ≤ 90 characters ("Heavy squat; legs fresh for W3 intervals").
-- **Strength item notes:** ≤ 8 words or "". Only cues that change what they do (ramp sets, a calibration hint, a pain-safe range). Never restate sets, reps, RIR, rest, load or the progression rule; the app shows them.
+- **Strength item notes:** ≤ 8 words or "": only cues that change what they do (ramp sets, a calibration hint, a pain-safe range). Never restate sets, reps, RIR, rest, load or progression.
 - **Warm-up / cool-down items:** short name, detail ≤ 6 words.
-- **Conditioning:** scaling = one line, ≤ 100 characters ("Lighter ball; step-ups for box jumps"). Block notes = the stimulus (§5.9), ≤ 100 characters.
+- **Conditioning:** scaling ≤ 100 characters ("Lighter ball; step-ups for box jumps"); block notes = the stimulus, ≤ 100 characters.
 - **Run notes:** ≤ 100 characters or "" ("Easy = conversational; slower is fine").
 - **Plan notes:** ≤ 5, each ≤ 100 characters: the minimum version, a rest-day hint, swaps.
-- **No repetition:** a cue, a safety reminder or an explanation appears once in the whole plan (plan notes or the first workout that needs it), never copied into every workout. No filler ("focus on form", "listen to your body", "have fun").
-- **weeklyTargets:** runKm = sum of the planned run totalKm; conditioningSessions = count of conditioning blocks; strengthSetsPerMuscle = your fractional estimate, only if the spec asks for it.
-- Use kg, km, seconds per km and whole numbers. No emoji.
+- **No repetition:** a cue, safety reminder or explanation appears once in the whole plan, never copied into every workout. No filler ("focus on form", "listen to your body", "have fun").
+- kg, km, seconds per km, whole numbers. No emoji.
 
 ## 9. Self-check before output
-- [ ] Safety gating applied (screening, injuries, pain, layoff, newcomer ramp, pregnancy or age).
-- [ ] Exactly daysPerWeek workouts, all at valid locations, using only allowed and non-disliked exerciseIds, each strength item with 1-2 allowed alternatives.
-- [ ] Every item is runnable: sets × reps @ RIR + load or a calibration note + rest; every run has paces or rpe; every metcon has format, minutes or cap, reps or calories or distance, rpe and concrete scaling.
-- [ ] estMinutes ≤ minutesPerSession for every workout.
-- [ ] Strength: sets per muscle in range for the goal; push:pull and squat:hinge balanced; hamstrings hinge + curl; main lifts kept from last week unless there was a reason.
-- [ ] Running: weekly km ≤ +10% (cutback if it's the 3rd-4th build week); long run ≤ +10% of the 30-day longest and ≤30% of km; ≥80% easy; quality count fits the level; paces from the table or rpe.
-- [ ] Conditioning: frequency fits experience; ramp caps; skill gates; no same-pattern stacking with that day's strength; each block has a stimulus note; formats, time domains and lead elements vary (§5.9).
-- [ ] Rotation: H budget, no adjacent same-system H (including the wrap-around), heavy legs not right before a quality or long run.
-- [ ] Digest adjustments followed; no invented numbers; rationale says what changed vs last week and why; 1-2 changes vs the previous plan.
-- [ ] Brevity limits (§8) met; nothing repeated across workouts.
+- [ ] Safety gating (§2) applied; digest adjustments followed; no invented numbers; 1-2 changes vs the previous plan, named in rationale.
+- [ ] §1 constraints met; every item runnable (load or calibration note, paces or rpe, metcon format + time + stimulus + scaling).
+- [ ] Strength volume and balance in range; running within kmMax, no run > 30-day longest × 1.1, ≥80% easy; conditioning fits experience, ramp and skill gates, and varies.
+- [ ] Rotation: H budget, no adjacent same-system H (incl. wrap-around), heavy legs not right before a quality or long run.
+- [ ] Brevity limits met; nothing repeated across workouts.
 `;

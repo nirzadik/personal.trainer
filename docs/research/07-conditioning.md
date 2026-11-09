@@ -39,7 +39,7 @@ Confidence tags:
 | Oxidative | >3 min | 20-30% max power | 1:1-1:3 |
 
 - These ratios target *performance-specific repeatability*. Formats like Tabata (2:1) and 30/30s deliberately use incomplete rest to emphasize aerobic power and lactate tolerance, so they don't fit the table [V].
-- **Norwegian 4×4** [K, already in `references/programming.md` §8]: 4 × 4 min at 85-95% HRmax with 3 min active recovery (Helgerud 2007). HIIT improves VO2max by about +5.5 ml/kg/min more than moderate continuous training (Milanović 2015) [K].
+- **Norwegian 4×4** [K, already in `references/programming.md` §8]: 4 × 4 min at 85-95% HRmax with 3 min active recovery (Helgerud 2007). Versus no-exercise controls, HIIT raised VO2max by about +5.5 ml/kg/min and continuous endurance training by about +4.9; head to head, HIIT added a possibly small +1.2 ± 0.9 ml/kg/min (Milanović 2015, 28 trials, 723 adults; abstract checked 2026-11-08) [V].
 
 **Skill rules:**
 - Pick the energy-system target, then use the matching work:rest.

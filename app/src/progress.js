@@ -32,7 +32,7 @@ export const DIGEST_RULES = Object.freeze({
   runHoldPct: 75,            // < this → rebuild from completed km, no increase
   paceSlowTolerance: 0.02,   // quality run slower than the slow end of its target by > 2 % → hold paces
   runRampPct: 0.10,          // weekly km ≤ +10 % of the completed base
-  longRunRampPct: 0.10,      // single run ≤ +10 % of the 30-day longest (Frandsen et al. 2025); +1 km allowed under 8 km
+  longRunRampPct: 0.10,      // single run ≤ +10 % of the 30-day longest (Frandsen et al. 2025); short runs round down (5 → 5.5 km)
 });
 
 const R = DIGEST_RULES;
@@ -314,7 +314,7 @@ function runDecision(run, weekAct) {
   if (!run) return null;
   if (!run.logged) return { act: "calibrate", why: "no logged runs: start from profile baseline km, easy runs only" };
   const base = Math.max(run.doneKm || 0, run.avg4 || 0);
-  const longCapProgress = run.longest30 < 8 ? r1(run.longest30 + 1) : r1(run.longest30 * (1 + R.longRunRampPct));
+  const longCapProgress = Math.floor(run.longest30 * (1 + R.longRunRampPct) * 10 + 1e-9) / 10;
   if ((run.pain ?? 0) >= R.painSignal) return { act: "reduce_volume", kmMax: r1(base * 0.7), longMax: run.longest30, why: `run pain ${run.pain}/10: −30% km, easy only` };
   const slowQ = (run.quality ?? []).filter((q) => q.slow || q.hard);
   const fastQ = (run.quality ?? []).filter((q) => q.fast && !q.hard);

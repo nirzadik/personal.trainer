@@ -532,9 +532,9 @@ test("validatePlan: every error code", () => {
   check((p) => { p.workouts.pop(); }, "WORKOUT_COUNT");
   // TOO_LONG (> 60 + 15)
   check((p) => { p.workouts[0].blocks[1].items.forEach((it) => { it.sets = 5; }); }, "TOO_LONG");
-  // RUN_RAMP: recent avg 20 km/wk → cap max(23, 25) = 25
+  // RUN_RAMP: base = max(4-week avg 19, last week 22) = 22 → cap max(24.2, 25) = 25
   check((p) => { p.workouts[1].blocks[0].totalKm = 15; }, "RUN_RAMP");
-  // LONG_RUN_SPIKE: recent longest 13 km → spike above max(16.9, 16)
+  // LONG_RUN_SPIKE as an error: 30-day longest 13 km → gross spike above max(16.9, 16)
   const spike = check((p) => { p.workouts[3].blocks[0].totalKm = 17.5; p.workouts[3].blocks[0].segments = []; p.workouts[1].blocks[0].totalKm = 4; }, "LONG_RUN_SPIKE");
   assert.ok(!spike.errors.some((e) => e.code === "RUN_RAMP"));
   // no history: baseline from the profile (15 km/wk, longest 10)
@@ -562,6 +562,33 @@ test("validatePlan: warnings", () => {
   const base = warns(() => {});
   assert.deepEqual(codes(base).filter((c) => c !== "VOLUME_LOW"), ["HARD_DAYS_ADJACENT"], JSON.stringify(base));
   assert.deepEqual(base.filter((w) => w.code === "HARD_DAYS_ADJACENT").map((w) => w.workoutId), ["W4"], "heavy legs then the long run");
+});
+
+test("validatePlan: single-run spike warning (> 30-day longest × 1.1, ignoring steps ≤ 1 km)", () => {
+  const spikeOf = (longKm, extra = {}) => {
+    const p = goodPlan();
+    p.workouts[3].blocks[0].totalKm = longKm;
+    p.workouts[3].blocks[0].segments = [];
+    const v = core.validatePlan(p, { profile: OK_PROFILE, sessions: history4w(), today: TODAY, ...extra });
+    return { warn: v.warnings.filter((w) => w.code === "LONG_RUN_SPIKE"), err: v.errors.filter((e) => e.code === "LONG_RUN_SPIKE") };
+  };
+  // history: longest run of the last 30 days = 13 km → aim ≤ 14.3
+  assert.equal(spikeOf(14.3).warn.length, 0, "exactly +10% is fine");
+  const w = spikeOf(15);
+  assert.equal(w.warn.length, 1, "15 km is +15%");
+  assert.equal(w.err.length, 0, "a warning, not an error");
+  assert.match(w.warn[0].message, /aim ≤ 14\.3/);
+  // no history: the profile's longest recent run (5 km) is the baseline; +1 km is ignored, +1.5 km warns
+  const prof = { ...OK_PROFILE, experience: { running: { currentWeeklyKm: 15, longestRecentRunKm: 5, easyPaceSecPerKm: 345 } } };
+  assert.equal(spikeOf(6, { sessions: [], profile: prof }).warn.length, 0, "a 1 km step is below the noise floor");
+  assert.equal(spikeOf(6.5, { sessions: [], profile: prof }).warn.length, 1);
+  // runs older than 30 days don't count toward the longest
+  const old = [core.normalizeSession({ id: "old", date: daysBefore(TODAY, 40), run: { runType: "long", distanceKm: 20, durationSec: 7200 } }, { today: TODAY }), ...history4w()];
+  assert.equal(spikeOf(15, { sessions: old }).warn.length, 1);
+  // unknown longest run (no logs, no profile value): no single-run check
+  const none = { ...OK_PROFILE, experience: { running: { currentWeeklyKm: 15, longestRecentRunKm: null } } };
+  const v = spikeOf(11, { sessions: [], profile: none });
+  assert.equal(v.warn.length + v.err.length, 0);
 });
 
 test("validatePlan: conditioning variety warnings (stimulus note, repeats, time domain)", () => {
