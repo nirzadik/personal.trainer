@@ -10,7 +10,7 @@ import {
   buildChatTurns, buildInstructionsTurn, historyToTurns, normalizeTurns, CHAT_BUDGETS, MODE_LINE, UNANSWERED_NOTE, INSTRUCTIONS_END,
 } from "../src/prompts/chat.js";
 import { buildContextSnapshot } from "../src/prompts/context.js";
-import { buildPlanPrompt, PLAN_PROMPT_MARKER, REPAIR_PROMPT_MARKER } from "../src/prompts/plan.js";
+import { buildPlanPrompt, expandPlan, PLAN_PROMPT_MARKER, REPAIR_PROMPT_MARKER } from "../src/prompts/plan.js";
 import { SUMMARY_PROMPT_MARKER, parseSummary } from "../src/prompts/summary.js";
 import { COMMENT_PROMPT_MARKER, clampWords } from "../src/prompts/comment.js";
 import {
@@ -721,7 +721,7 @@ test("mock: json() builds a plan with the requested workout count from a plan pr
     runLoad: { avgWeeklyKm: 10, longestKm: 6, weeks: 4 },
     allowedLocations: [{ id: "gym", name: "Gym", exercises: CATALOG.EXERCISES.filter((e) => e.id !== "leg_press") }],
   });
-  const plan = await sample.json(prompt, { modelTier: "complex", cache: false });
+  const plan = expandPlan(await sample.json(prompt, { modelTier: "complex", cache: false })); // the mock replies compactly
   assert.equal(plan.workouts.length, 4);
   assert.deepEqual(plan.workouts.map((w) => w.type), ["strength", "run", "strength", "run"]);
   const runKm = plan.workouts.flatMap((w) => w.blocks).filter((b) => b.kind === "run").reduce((n, b) => n + b.totalKm, 0);

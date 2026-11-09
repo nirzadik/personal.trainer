@@ -5,12 +5,16 @@
 // tools whose `execute` really runs (keyword-scripted), `.json()` returning a valid Plan for plan prompts,
 // `.limits()`, and input validation that rejects `invalid_request` like the platform does.
 //
-// Dev helpers: type "!fail <code>" in the chat to make the next reply fail with that sample error code.
+// Dev helpers: type "!fail <code>" in the chat (or a plan instruction) to make that reply fail with that sample error
+// code; `mock.failNext({ code, verb?, partial?, message? })` (or `?mockfail=<code>` in dev mode, see env.js) queues one
+// failure for the next matching call. "invalid_json" on a json call streams part of the answer first and rejects
+// like the platform's length/time cut-off: { code: "invalid_json", message: "…cut short…", text: <partial> };
+// "rate_limited" rejects before any text, like a reached usage limit.
 // `mock.calls` and `mock.toolCalls` record what was asked (for tests and debugging).
 
 import { EVENT_PREFIX, INSTRUCTIONS_END, MODE_LINE, UNANSWERED_NOTE } from "./prompts/chat.js";
 import { checkToolSpec } from "./prompts/tools.js";
-import { ALLOWED_HEADING, PLAN_PROMPT_MARKER, PROFILE_HEADING, REPAIR_PROMPT_MARKER, RUN_CAPS_HEADING } from "./prompts/plan.js";
+import { ALLOWED_HEADING, PLAN_PROMPT_MARKER, PROFILE_HEADING, REPAIR_PROMPT_MARKER, RUN_CAPS_HEADING, compactPlan } from "./prompts/plan.js";
 import { SUMMARY_PROMPT_MARKER } from "./prompts/summary.js";
 import { COMMENT_PROMPT_MARKER } from "./prompts/comment.js";
 
@@ -588,6 +592,11 @@ function onboardingPatch(step, answer) {
 export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null } = {}) {
   const calls = [];
   const toolCalls = [];
+  const failures = []; // queued by failNext: { code, verb?, partial?, message? }
+  const takeFailure = (verb) => {
+    const i = failures.findIndex((f) => !f.verb || f.verb === verb);
+    return i < 0 ? null : failures.splice(i, 1)[0];
+  };
 
   async function run(verb, input, options) {
     await Promise.resolve(); // never settle synchronously
@@ -637,8 +646,25 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
     try {
       await sleep(o.modelTier === "quick" ? Math.round(delayMs / 4) : delayMs, signal);
       const forced = parts.lastUser.match(/!fail\s+([a-z_]+)/);
-      if (forced) {
-        throw { code: forced[1], message: `Mock failure requested (${forced[1]}).`, ...(state.text ? { text: state.text } : {}) };
+      const failure = takeFailure(verb) ?? (forced ? { code: forced[1] } : null);
+      if (failure) {
+        const code = String(failure.code);
+        const partial = failure.partial ?? (code === "invalid_json" && verb === "json" ? 0.6 : 0);
+        if (verb === "json" && partial > 0) {
+          const raw = JSON.stringify(await jsonAnswer(parts, o));
+          const upTo = Math.max(1, Math.floor(raw.length * Math.min(0.99, partial)));
+          for (let i = 0; i < upTo; i += 400) {
+            await sleep(chunkMs, signal);
+            const delta = raw.slice(i, Math.min(upTo, i + 400));
+            state.text += delta;
+            if (typeof o.onText === "function" && !signal?.aborted) { try { o.onText({ text: state.text, delta }); } catch { /* ignored */ } }
+          }
+        }
+        const message = failure.message ?? ({
+          invalid_json: "The reply was cut short by the length limit before the JSON was complete (mock).",
+          rate_limited: "You have reached your usage limit (mock).",
+        })[code] ?? `Mock failure requested (${code}).`;
+        throw { code, message, ...(state.text ? { text: state.text } : {}) };
       }
       if (verb === "json") {
         const value = await jsonAnswer(parts, o);
@@ -674,13 +700,15 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
       const catalogPatterns = allowedBlocks.length ? null : await catalogAllowed(catalog, profile);
       const instruction = sectionBody(text, "# Owner's instruction").trim().replace(/^\((none)[^)]*\)$/, "");
       const repairProfile = profile ?? (() => {
-        const planJson = sectionBody(text, "# Plan to fix (JSON)").trim();
+        const planJson = sectionBody(text, "# Plan to fix (compact JSON)").trim();
         try { const p = JSON.parse(planJson); return { schedule: { daysPerWeek: count }, equipment: { defaultLocationId: p.workouts?.[0]?.locationId } }; } catch { return null; }
       })();
-      return buildMockPlan({
+      const plan = buildMockPlan({
         workoutCount: count, minutes, profile: profile ?? repairProfile ?? {}, allowedBlocks, catalogPatterns,
         weeklyCapKm: caps ? Number(caps[1]) : 5, longRunCapKm: caps ? Number(caps[2]) : 3, instruction,
       });
+      // reply in the compact format PLAN_JSON_SPEC asks for (defaults and nulls omitted); the app expands it
+      return compactPlan(plan, { defaultLocationId: (profile ?? repairProfile)?.equipment?.defaultLocationId });
     }
     void o;
     if (/JSON array/i.test(text)) return [];
@@ -867,5 +895,11 @@ export function createMockSample({ delayMs = 400, chunkMs = 25, catalog = null }
   mockSample.limits = async () => ({ maxPromptBytes: LIMITS.maxPromptBytes, tools: { maxCount: LIMITS.tools.maxCount }, modelTiers: [...LIMITS.modelTiers] });
   mockSample.calls = calls;
   mockSample.toolCalls = toolCalls;
+  /**
+   * Queue one failure for the next call of `verb` (any verb when omitted).
+   * @param {{ code: string, verb?: "sample"|"json", partial?: number, message?: string }} spec
+   *   partial: fraction of the json answer streamed before the rejection (default 0.6 for invalid_json, else 0)
+   */
+  mockSample.failNext = (spec) => { failures.push(typeof spec === "string" ? { code: spec } : { ...spec }); };
   return mockSample;
 }

@@ -83,6 +83,8 @@ async function mockRuntime() {
     sample = null; // B's mock is missing or still a skeleton
   }
   if (!sample) problems.push("sample_unavailable");
+  // ?mockfail=invalid_json (or rate_limited, upstream_error…; comma-separated for several): the next plan call(s) fail
+  for (const code of mockFailCodes()) sample?.failNext?.({ code, verb: "json" });
 
   const dev = {
     async reset() {
@@ -100,6 +102,15 @@ async function mockRuntime() {
   }
 
   return { mode: "mock", sample, db, user: createMockUser(uid), downloads: createMockDownloads(), uid, problems, dev };
+}
+
+function mockFailCodes() {
+  try {
+    const v = new URLSearchParams(globalThis.location?.search ?? "").get("mockfail");
+    return v ? v.split(",").map((c) => c.trim()).filter((c) => /^[a-z_]{1,40}$/.test(c)) : [];
+  } catch {
+    return [];
+  }
 }
 
 function wantsSeed() {

@@ -48,47 +48,30 @@ export const PLAN_BUDGETS = Object.freeze({
 });
 
 /**
- * The exact Plan JSON shape Claude must return (CONTRACT §4), minus the fields the app fills
- * (id, status, weekStart, createdAt, approvedAt, weeklyTargets, validation).
+ * The Plan JSON shape Claude must return (CONTRACT §4), minus the fields the app fills
+ * (id, status, weekStart, createdAt, approvedAt, weeklyTargets, validation), in the COMPACT form:
+ * one line, every null / "" / [] field and every field at its stated default omitted. `expandPlan`
+ * restores the full CONTRACT shape. Live failure 2026-11-09: a pretty-printed plan with every null
+ * field (~26 KB) on the complex tier was cut off; the compact form is ~45-55 % smaller.
  */
-export const PLAN_JSON_SPEC = `Reply with ONLY one JSON object, no prose before or after. Use null for unknown numbers and [] for empty lists. No other keys.
-{
-  "focus": string,              // one line, ≤ 60 chars
-  "rationale": string,          // ≤ 2 short sentences, ≤ 220 chars, citing 1-2 recent history numbers above
-  "workouts": [Workout],        // exactly the required number, in rotation order (the order they should be done)
-  "notes": [string]             // ≤ 5 notes, each ≤ 100 chars: deload hints, swaps, safety reminders
-}
-Workout = { "id": "W1" | "W2" | …, "title": string, "type": "strength" | "run" | "conditioning" | "hybrid" | "mobility",
-            "locationId": one of the owner's location ids, "estMinutes": number, "intent": string (1 sentence, ≤ 90 chars), "blocks": [Block] }
+export const PLAN_JSON_SPEC = `Reply with ONLY one JSON object, compact on ONE line (no indentation or line breaks), no prose, no code fence.
+OMIT every field that would be null, "" or [], and every field marked ? when at its default (=…): the app fills them in. Never write null.
+Plan = {"focus": ≤ 60 chars, "rationale": ≤ 2 short sentences ≤ 220 chars citing 1-2 history numbers, "workouts": [Workout] exactly the required number in rotation order, "notes"?: [≤ 5 strings ≤ 100 chars: deload hints, swaps, safety]}
+Workout = {"id"?="W1","W2"… by position, "title", "type"?="strength"|"run"|"conditioning" by its one main block kind, "hybrid" with 2+ kinds, else "mobility", "locationId"?=the default location, "estMinutes", "intent": 1 sentence ≤ 90 chars, "blocks": [Block]}
 Block is one of:
-  { "kind": "warmup" | "cooldown" | "mobility", "minutes": number, "items": [ { "name": short string, "detail": string ≤ 6 words } ] }
-  { "kind": "strength", "items": [StrengthItem] }
-  { "kind": "conditioning", "format": "AMRAP" | "EMOM" | "FOR_TIME" | "RFT" | "INTERVALS" | "TABATA" | "CHIPPER",
-    "minutes": number|null, "rounds": number|null, "timeCapMin": number|null, "workSec": number|null, "restSec": number|null,
-    "items": [CondItem], "targetRpe": number|null, "scaling": string (one line, keeps the stimulus, ≤ 100 chars), "notes": string (the intended stimulus, ≤ 100 chars) }
-  { "kind": "run", "runType": "easy" | "long" | "tempo" | "threshold" | "intervals" | "hills" | "fartlek" | "recovery" | "strides" | "race",
-    "warmupMin": number|null, "cooldownMin": number|null, "totalKm": number,
-    "segments": [ { "reps": number, "distanceM": number|null, "durationSec": number|null,
-                    "target": { "paceSecPerKm": [lo, hi] | null, "hrZone": number|null, "rpe": number|null },
-                    "recoverySec": number|null, "recoveryType": "jog" | "walk" | "stand" | null } ],
-    "notes": string (≤ 100 chars or "") }
-StrengthItem = { "exerciseId": allowed id, "name": string, "sets": number, "reps": string ("8-12" | "5" | "AMRAP"),
-                 "targetRir": number|null, "loadKg": number|null, "restSec": number, "progression": "linear" | "double" | "rpe" | "none",
-                 "incrementKg": number|null, "tempo": string|null, "notes": string (≤ 8 words or ""), "alternatives": [allowed ids], "supersetGroup": "A" | "B" | null }
-CondItem = { "exerciseId": allowed id, "name": string, "reps": number|null, "calories": number|null, "distanceM": number|null,
-             "durationSec": number|null, "loadKg": number|null, "notes": string (≤ 8 words or "") }   // unused fields null
-Rules for the JSON:
-- Every exerciseId and every alternatives entry MUST come from the provided exercise list for that workout's locationId. Never invent ids.
-- Paces are seconds per km (paceSecPerKm [lo, hi]); take them from the app-computed paces above, never convert yourself.
-- loadKg: copy the app-computed target when one is listed for that exercise; otherwise null (the app computes it from history). Never estimate.
-- Give each strength item 1-2 alternatives from the allowed list.
-- estMinutes must fit the session length; the app re-checks durations, equipment, run ramp and weekly volume.
-- totalKm is the run's whole distance including warm-up and cool-down.
-- Be brief (the app flags TOO_VERBOSE): the owner reads this on a phone. Never restate numbers the fields already hold
-  (sets, reps, RIR, rest, load, pace) in notes; say each cue or safety reminder once in the whole plan, not in every workout.`;
+ {"kind": "warmup"|"cooldown"|"mobility", "minutes", "items": [{"name", "detail"?: ≤ 6 words}]}
+ {"kind": "strength", "items": [StrengthItem]}
+ {"kind": "conditioning", "format": "AMRAP"|"EMOM"|"FOR_TIME"|"RFT"|"INTERVALS"|"TABATA"|"CHIPPER", "minutes"?, "rounds"?, "timeCapMin"?, "workSec"?, "restSec"?, "items": [CondItem], "targetRpe"?, "scaling": one line, keeps the stimulus, ≤ 100 chars, "notes": the stimulus, ≤ 100 chars}
+ {"kind": "run", "runType": "easy"|"long"|"tempo"|"threshold"|"intervals"|"hills"|"fartlek"|"recovery"|"strides"|"race", "warmupMin"?=0, "cooldownMin"?=0, "totalKm" (whole run), "segments": [Segment], "notes"?: ≤ 100 chars}
+Segment = {"reps"?=1, "distanceM" or "durationSec", "target"?: {"paceSecPerKm"?: [lo, hi], "hrZone"?, "rpe"?}, "recoverySec"?, "recoveryType"?: "jog"|"walk"|"stand"}
+StrengthItem = {"exerciseId", "name"?=catalog name (omit), "sets", "reps": string "8-12"|"5"|"AMRAP", "targetRir"?, "loadKg"?, "restSec", "progression"?="double" (|"linear"|"rpe"|"none"), "incrementKg"?, "tempo"?, "notes"?: ≤ 8 words, "alternatives": [1-2 ids], "supersetGroup"?: "A"|"B"}
+CondItem = {"exerciseId", "name"?=catalog name (omit), "reps"?, "calories"?, "distanceM"?, "durationSec"?, "loadKg"?, "notes"?: ≤ 8 words}
+- Every exerciseId and alternatives entry MUST come from the provided exercise list for that workout's locationId. Never invent ids.
+- loadKg: copy the app-computed target when one is listed, else omit it. paceSecPerKm: from the app-computed paces (s/km). Never estimate or convert.
+- Be brief (the app flags TOO_VERBOSE): never restate numbers the fields hold (sets, reps, RIR, rest, load, pace) in notes; each cue once per plan.`;
 
-/** A compact example showing the shape (not content to copy). */
-export const PLAN_EXAMPLE = JSON.stringify({
+/** The example plan in the full CONTRACT shape (tests round-trip it through compactPlan / expandPlan). */
+export const PLAN_EXAMPLE_FULL = Object.freeze({
   focus: "Wk 3 build: squat and bench up, runs easy",
   rationale: "Squat e1RM +3% with RIR on target: loads up. Runs held at 12 km, no pain: long run +1 km.",
   workouts: [
@@ -97,21 +80,150 @@ export const PLAN_EXAMPLE = JSON.stringify({
       blocks: [
         { kind: "warmup", minutes: 8, items: [{ name: "Bike", detail: "5 min easy" }, { name: "Leg swings", detail: "10/side" }] },
         { kind: "strength", items: [
-          { exerciseId: "back_squat", name: "Back squat", sets: 3, reps: "5", targetRir: 2, loadKg: 102.5, restSec: 180, progression: "linear", incrementKg: 2.5, tempo: null, notes: "ramp: bar×10, ~50%×5, ~75%×3", alternatives: ["goblet_squat"], supersetGroup: null },
+          { exerciseId: "back_squat", name: "Back Squat", sets: 3, reps: "5", targetRir: 2, loadKg: 102.5, restSec: 180, progression: "linear", incrementKg: 2.5, tempo: null, notes: "ramp: bar×10, ~50%×5, ~75%×3", alternatives: ["goblet_squat"], supersetGroup: null },
+          { exerciseId: "romanian_deadlift", name: "Romanian Deadlift", sets: 3, reps: "8-10", targetRir: 2, loadKg: null, restSec: 120, progression: "double", incrementKg: 2.5, tempo: null, notes: "", alternatives: ["good_morning"], supersetGroup: null },
         ] },
       ],
     },
     {
-      id: "W2", title: "Easy run + strides", type: "run", locationId: "gym", estMinutes: 40, intent: "Aerobic base",
+      id: "W2", title: "Easy run", type: "run", locationId: "gym", estMinutes: 40, intent: "Aerobic base",
       blocks: [
         { kind: "run", runType: "easy", warmupMin: 0, cooldownMin: 0, totalKm: 6, segments: [
-          { reps: 1, distanceM: 6000, durationSec: null, target: { paceSecPerKm: [360, 390], hrZone: 2, rpe: 3 }, recoverySec: null, recoveryType: null },
+          { reps: 1, distanceM: 6000, durationSec: null, target: { paceSecPerKm: [360, 390], hrZone: 2, rpe: null }, recoverySec: null, recoveryType: null },
         ], notes: "Conversational; slower is fine" },
       ],
     },
   ],
   notes: ["Swap W1 and W2 if legs are sore"],
 });
+
+const PLAN_KEYS = Object.freeze(["id", "status", "weekStart", "createdAt", "approvedAt", "weeklyTargets", "validation"]);
+const T_PLAN = [["focus", ""], ["rationale", ""], ["workouts", []], ["notes", []]];
+const T_WORKOUT = [["id", null], ["title", ""], ["type", null], ["locationId", null], ["estMinutes", null], ["intent", ""], ["blocks", []]];
+const T_PREP = [["kind", null], ["minutes", null], ["items", []]];
+const T_PREP_ITEM = [["name", ""], ["detail", ""]];
+const T_STRENGTH = [["kind", null], ["items", []]];
+const T_STRENGTH_ITEM = [["exerciseId", null], ["name", ""], ["sets", null], ["reps", ""], ["targetRir", null], ["loadKg", null], ["restSec", null],
+  ["progression", "double"], ["incrementKg", null], ["tempo", null], ["notes", ""], ["alternatives", []], ["supersetGroup", null]];
+const T_COND = [["kind", null], ["format", null], ["minutes", null], ["rounds", null], ["timeCapMin", null], ["workSec", null], ["restSec", null],
+  ["items", []], ["targetRpe", null], ["scaling", ""], ["notes", ""]];
+const T_COND_ITEM = [["exerciseId", null], ["name", ""], ["reps", null], ["calories", null], ["distanceM", null], ["durationSec", null], ["loadKg", null], ["notes", ""]];
+const T_RUN = [["kind", null], ["runType", null], ["warmupMin", 0], ["cooldownMin", 0], ["totalKm", null], ["segments", []], ["notes", ""]];
+const T_SEGMENT = [["reps", 1], ["distanceM", null], ["durationSec", null], ["target", null], ["recoverySec", null], ["recoveryType", null]];
+const T_TARGET = [["paceSecPerKm", null], ["hrZone", null], ["rpe", null]];
+
+/** Template keys in order with defaults; `null` / undefined input values take the default; unknown keys are kept after. */
+function fill(obj, template, map = {}) {
+  const src = isPlainObject(obj) ? obj : {};
+  const out = {};
+  for (const [k, def] of template) {
+    const v = src[k];
+    const val = v === undefined || v === null ? (Array.isArray(def) ? [] : def) : v;
+    out[k] = map[k] ? map[k](val, src) : val;
+  }
+  for (const [k, v] of Object.entries(src)) if (!(k in out)) out[k] = v;
+  return out;
+}
+const list = (v, fn) => (Array.isArray(v) ? v : []).map((x) => (isPlainObject(x) ? fn(x) : x));
+const BLOCK_TEMPLATES = { strength: T_STRENGTH, conditioning: T_COND, run: T_RUN, warmup: T_PREP, cooldown: T_PREP, mobility: T_PREP };
+
+function inferType(blocks) {
+  const kinds = new Set(blocks.map((b) => b?.kind));
+  const main = ["strength", "run", "conditioning"].filter((k) => kinds.has(k));
+  return main.length > 1 ? "hybrid" : main[0] ?? "mobility";
+}
+
+/**
+ * Restore a compact plan reply (fields omitted at their defaults, see PLAN_JSON_SPEC) to the full CONTRACT §4 shape:
+ * every Workout / Block / item field present (null, "", [] or the stated default), strength reps as strings,
+ * workout ids W1… by position, a missing type inferred from the block kinds, names from `nameOf`, missing locationIds from `defaultLocationId`. A full plan passes
+ * through unchanged (values kept, keys reordered). A `{ plan: {...} }` wrapper is unwrapped. App-owned keys are kept.
+ * @param {unknown} raw
+ * @param {{ nameOf?: (exerciseId: string) => string|null|undefined, defaultLocationId?: string }} [opts]
+ * @returns {object}
+ */
+export function expandPlan(raw, { nameOf, defaultLocationId } = {}) {
+  let p = raw;
+  if (isPlainObject(p?.plan) && Array.isArray(p.plan.workouts)) p = p.plan;
+  if (!isPlainObject(p)) p = {};
+  const named = (it) => (typeof it.name === "string" && it.name.trim() ? it.name : (typeof nameOf === "function" && it.exerciseId ? nameOf(String(it.exerciseId)) || String(it.exerciseId) : String(it.exerciseId ?? "")));
+  const block = (b) => {
+    const t = BLOCK_TEMPLATES[b.kind];
+    if (!t) return b;
+    if (b.kind === "strength") {
+      return fill(b, t, { items: (v) => list(v, (it) => fill({ ...it, name: named(it) }, T_STRENGTH_ITEM, {
+        reps: (r) => (typeof r === "number" ? String(r) : r),
+      })) });
+    }
+    if (b.kind === "conditioning") return fill(b, t, { items: (v) => list(v, (it) => fill({ ...it, name: named(it) }, T_COND_ITEM)) });
+    if (b.kind === "run") {
+      return fill(b, t, { segments: (v) => list(v, (sg) => fill(sg, T_SEGMENT, { target: (tg) => fill(tg, T_TARGET) })) });
+    }
+    return fill(b, t, { items: (v) => list(v, (it) => fill(it, T_PREP_ITEM)) });
+  };
+  const workouts = list(p.workouts, (w) => {
+    const blocks = list(w.blocks, block);
+    return fill(w, T_WORKOUT, {
+      blocks: () => blocks,
+      type: (v) => v ?? inferType(blocks),
+      locationId: (v) => v ?? defaultLocationId ?? null,
+    });
+  }).map((w, i) => (isPlainObject(w) && !(typeof w.id === "string" && w.id.trim()) ? { ...w, id: `W${i + 1}` } : w));
+  return fill(p, T_PLAN, { workouts: () => workouts });
+}
+
+/**
+ * The inverse of expandPlan: drop app-owned keys and every field at its default (null, "", [], progression
+ * "double", reps 1, warmupMin/cooldownMin 0, positional workout ids, a type the blocks imply, catalog names, the
+ * default location).
+ * Used for the example, the draft / plan-to-fix JSON in prompts, and the mock's replies.
+ * @param {object} plan
+ * @param {{ nameOf?: (exerciseId: string) => string|null|undefined, defaultLocationId?: string }} [opts]
+ * @returns {object}
+ */
+export function compactPlan(plan, { nameOf, defaultLocationId } = {}) {
+  if (!isPlainObject(plan)) return {};
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const strip = (obj, template, map = {}) => {
+    const out = {};
+    const defs = new Map(template);
+    for (const [k, v0] of Object.entries(obj)) {
+      if (v0 === undefined || v0 === null) continue;
+      const v = map[k] ? map[k](v0, obj) : v0;
+      if (v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length)) continue;
+      if (defs.has(k) && same(v, defs.get(k))) continue;
+      out[k] = v;
+    }
+    return out;
+  };
+  const catalogName = (it) => (typeof nameOf === "function" && it.exerciseId ? nameOf(String(it.exerciseId)) : undefined);
+  const nameMap = { name: (n, it) => (catalogName(it) && String(n).trim().toLowerCase() === String(catalogName(it)).trim().toLowerCase() ? undefined : n) };
+  const block = (b) => {
+    const t = BLOCK_TEMPLATES[b.kind];
+    if (!t) return b;
+    if (b.kind === "strength") return strip(b, t, { items: (v) => list(v, (it) => strip(it, T_STRENGTH_ITEM, nameMap)) });
+    if (b.kind === "conditioning") return strip(b, t, { items: (v) => list(v, (it) => strip(it, T_COND_ITEM, nameMap)) });
+    if (b.kind === "run") {
+      return strip(b, t, { segments: (v) => list(v, (sg) => strip(sg, T_SEGMENT, {
+        target: (tg) => { const c = isPlainObject(tg) ? strip(tg, T_TARGET) : undefined; return c && Object.keys(c).length ? c : undefined; },
+      })) });
+    }
+    return strip(b, t, { items: (v) => list(v, (it) => strip(it, T_PREP_ITEM)) });
+  };
+  const rest = Object.fromEntries(Object.entries(plan).filter(([k]) => !PLAN_KEYS.includes(k)));
+  return strip(rest, T_PLAN, {
+    workouts: (v) => list(v, (w) => strip(w, T_WORKOUT, {
+      blocks: (bs) => list(bs, block),
+      type: (ty) => (Array.isArray(w.blocks) && ty === inferType(w.blocks) ? undefined : ty),
+      locationId: (id) => (defaultLocationId && id === defaultLocationId ? undefined : id),
+    })).map((w, i) => (isPlainObject(w) && w.id === `W${i + 1}` ? (({ id, ...x }) => x)(w) : w)),
+  });
+}
+
+/** A compact example showing the shape (not content to copy): names, defaults and nulls omitted. */
+export const PLAN_EXAMPLE = JSON.stringify(compactPlan(PLAN_EXAMPLE_FULL, {
+  nameOf: (id) => ({ back_squat: "Back Squat", romanian_deadlift: "Romanian Deadlift" })[id],
+}));
 
 const PATTERN_ORDER = ["squat", "hinge", "lunge", "h_push", "v_push", "h_pull", "v_pull", "carry", "core", "isolation", "plyo", "olympic", "gymnastics", "cardio"];
 
@@ -174,15 +286,124 @@ export function runCaps(load) {
   return { text, weeklyCapKm, longRunCapKm };
 }
 
+/**
+ * App-computed next targets, one line per exercise with a load; exercises without one share a single line
+ * (their identical "calibrate" notes said the same thing for every lift).
+ */
 function formatTargets(targets) {
-  const list = (Array.isArray(targets) ? targets : []).filter(isPlainObject);
-  return list.map((t) => `- ${t.exerciseId}: ${t.loadKg !== null && t.loadKg !== undefined ? `${fmtNum(t.loadKg)} kg` : "no load yet"}${t.reps ? ` × ${t.reps}` : ""}${t.note ? ` (${clip(t.note, 100)})` : ""}`).join("\n");
+  const items = (Array.isArray(targets) ? targets : []).filter(isPlainObject);
+  const loaded = items.filter((t) => t.loadKg !== null && t.loadKg !== undefined);
+  const open = items.filter((t) => t.loadKg === null || t.loadKg === undefined);
+  const lines = loaded.map((t) => `- ${t.exerciseId}: ${fmtNum(t.loadKg)} kg${t.reps ? ` × ${t.reps}` : ""}${t.note ? ` (${clip(t.note, 100)})` : ""}`);
+  if (open.length) {
+    const calib = open.filter((t) => /^No history yet\b|calibrat/i.test(String(t.note ?? "")));
+    const other = open.filter((t) => !calib.includes(t));
+    if (calib.length) lines.push(`- no load yet, calibrate (work up to ~3 RIR at the bottom of the rep range; err light; loadKg omitted): ${calib.map((t) => `${t.exerciseId}${t.reps ? ` ×${t.reps}` : ""}`).join(", ")}`);
+    for (const t of other) lines.push(`- ${t.exerciseId}: no load yet${t.reps ? ` × ${t.reps}` : ""}${t.note ? ` (${clip(t.note, 100)})` : ""}`);
+  }
+  return lines.join("\n");
 }
 
-function planJsonForPrompt(plan, maxBytes) {
+function planJsonForPrompt(plan, maxBytes, opts) {
   if (!isPlainObject(plan)) return "";
-  const { validation, createdAt, approvedAt, ...rest } = plan;
-  return truncateBytes(JSON.stringify(compactValue(rest) ?? {}), maxBytes);
+  return truncateBytes(JSON.stringify(compactPlan(plan, opts)), maxBytes);
+}
+
+/** Profile copy for the prompt: drops bookkeeping keys and an all-"no" screening (outcome and notes kept). */
+function profileForPrompt(profile) {
+  if (!isPlainObject(profile)) return profile;
+  const { version, onboarded, updatedAt, ...rest } = profile;
+  const sc = rest.screening;
+  if (isPlainObject(sc) && isPlainObject(sc.answers) && Object.values(sc.answers).every((v) => v === false)) {
+    const { answers, ...scRest } = sc;
+    rest.screening = { ...scRest, answers: "all no" };
+  }
+  return rest;
+}
+
+/** True when a ### / ## section of the rules applies (see tailorPlanRules). */
+const RULE_SECTION_RE = /^(#{2,3}) (\d+(?:\.\d+)?)\b/;
+
+/**
+ * PLAN_RULES cut to what can apply to this owner this week, so the prompt stays small (live failure 2026-11-09:
+ * the complex-tier answer was cut off). Only sections that cannot apply are dropped, each replaced by nothing or
+ * a one-line pointer; every rule that could apply is sent verbatim:
+ * - §4 Running when running is not a selected modality; §5 Conditioning when conditioning is not;
+ * - §4.8 Race builds and taper without an event (goals.event);
+ * - §4.2's pace table when no race, time trial or event goal time is known, or app-computed pace zones already
+ *   cover it and there is no event goal time;
+ * - §6.4 template rotations for other day counts than schedule.daysPerWeek;
+ * - the §2 pregnancy line for a male or not-pregnant owner, the age line for an owner aged 18-64.
+ * @param {string} rules
+ * @param {{ profile?: object, daysPerWeek?: number, paceZonesGiven?: boolean, loggedRace?: boolean }} ctx
+ * @returns {string}
+ */
+export function tailorPlanRules(rules, { profile, daysPerWeek, paceZonesGiven = false, loggedRace = false } = {}) {
+  const text = String(rules ?? "");
+  if (!text.includes("## 4. Running")) return text; // custom / test rules: leave as they are
+  const mods = isPlainObject(profile?.goals?.modalities) ? profile.goals.modalities : {};
+  const event = isPlainObject(profile?.goals?.event) ? profile.goals.event : null;
+  const race = profile?.experience?.running?.recentRace;
+  const hasRace = isPlainObject(race) && Number(race.timeSec) > 0;
+  const eventGoal = Boolean(event && Number(event.goalTimeSec) > 0);
+  const paceTable = eventGoal || loggedRace || (hasRace && !paceZonesGiven);
+  const drop = new Set();
+  if (mods.running === false) drop.add("4");
+  if (mods.conditioning === false) drop.add("5");
+  if (!event) drop.add("4.8");
+  const lines = text.split("\n");
+  const out = [];
+  let skipLevel = 0; // heading depth being skipped (0 = none)
+  let inTable = false;
+  let section = "";
+  for (const line of lines) {
+    const m = RULE_SECTION_RE.exec(line);
+    if (m) {
+      const depth = m[1].length;
+      if (skipLevel && depth <= skipLevel) skipLevel = 0;
+      section = m[2];
+      if (!skipLevel && drop.has(section)) { skipLevel = depth; continue; }
+    }
+    if (skipLevel) continue;
+    if (section === "4.2" && !paceTable) {
+      if (line.startsWith("```")) {
+        if (!inTable) out.push("(Pace table omitted: no race, time trial or event goal time to look up, or the app already computed the zones above. Use the app-computed paces, else rpe and the talk test.)");
+        inTable = !inTable;
+        continue;
+      }
+      if (inTable || /^(Prefer the app-computed|Marathon predictions)/.test(line) || /^- (Event goal pace|Returning runners: 1 row)/.test(line)) continue;
+    }
+    if (section === "2") {
+      if (/^- \*\*Pregnancy\*\*/.test(line) && (profile?.sex === "male" || profile?.screening?.pregnant === false)) continue;
+      const age = Number(profile?.age);
+      if (/^- \*\*Age ≥65:\*\*/.test(line) && age >= 18 && age < 65) continue;
+    }
+    if (section === "6.4" && Number(daysPerWeek) >= 3 && Number(daysPerWeek) <= 6) {
+      const day = /^- \*\*(\d) days/.exec(line);
+      if (day && Number(day[1]) !== Number(daysPerWeek)) continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+/**
+ * A previous-plan workout trimmed for the plan prompt (continuity, not a template): warm-up / cool-down items,
+ * display names and strength cues are dropped, other notes clipped; exercises, doses, run and metcon shapes stay.
+ * @param {object} w
+ * @returns {object}
+ */
+function slimWorkout(w) {
+  if (!isPlainObject(w)) return w;
+  const blocks = (Array.isArray(w.blocks) ? w.blocks : []).map((b) => {
+    if (!isPlainObject(b)) return b;
+    if (["warmup", "cooldown", "mobility"].includes(b.kind)) return { kind: b.kind, minutes: b.minutes, items: [] };
+    if (b.kind === "strength") return { ...b, items: (b.items ?? []).map((it) => (isPlainObject(it) ? { ...it, name: "", notes: "" } : it)) };
+    if (b.kind === "conditioning") return { ...b, scaling: clip(b.scaling ?? "", 60) };
+    if (b.kind === "run") return { ...b, notes: clip(b.notes ?? "", 40) };
+    return b;
+  });
+  return { ...w, intent: clip(w.intent ?? "", 90), blocks };
 }
 
 /**
@@ -206,6 +427,7 @@ function planJsonForPrompt(plan, maxBytes) {
  * @param {string} [d.pacesText] formatted easy pace / race / pace zones (see formatPaces)
  * @param {object[]} d.allowedLocations see formatAllowedExercises
  * @param {object} [d.digest] progress.progressionDigest result; leads the prompt and overrides profile baselines
+ * @param {(exerciseId: string) => string|null} [d.nameOf] catalog names (omitted from the compact draft JSON)
  * @returns {string}
  */
 export function buildPlanPrompt(d) {
@@ -221,34 +443,40 @@ export function buildPlanPrompt(d) {
     `Today: ${d.today} (${weekdayName(d.today)}). Plan week starts: ${d.weekStart}.`,
     `Required: exactly ${d.workoutCount} workouts (schedule.daysPerWeek) in rotation order${minutes ? `, each estMinutes ≤ ${minutes} (session length ${minutes} min; the hard limit is ${minutes + 15})` : ""}.`,
     "The plan is a draft the owner approves. Use only numbers given here; the app computed them.",
-    ...(isPlainObject(d.digest) ? [ADAPT_INSTRUCTION] : []),
+    ...(isPlainObject(d.digest) && d.digest.basis === "history" ? [ADAPT_INSTRUCTION] : []),
   ].join("\n");
   const fromHistory = isPlainObject(d.digest) && d.digest.basis === "history";
+  const planOpts = { nameOf: d.nameOf, defaultLocationId: d.profile?.equipment?.defaultLocationId };
+  const recent = Array.isArray(d.recentSessions) ? d.recentSessions : [];
+  const rules = tailorPlanRules(String(d.rules ?? ""), {
+    profile: d.profile, daysPerWeek: d.workoutCount, paceZonesGiven: /pace zones:/.test(String(d.pacesText ?? "")),
+    loggedRace: recent.some((s) => s?.run?.runType === "race" || /time trial|\brace\b|parkrun/i.test(String(s?.title ?? ""))),
+  });
   const runLogged = fromHistory && d.digest.run?.logged === true;
 
-  const sessions = (Array.isArray(d.recentSessions) ? d.recentSessions : [])
+  const sessions = recent
     .map((s) => formatSessionCompact(s, { notesChars: 100, withId: false })).join("\n");
   const prev = isPlainObject(d.previousPlan)
     ? `${formatPlanOverview(d.previousPlan, { done: d.previousDone, label: "Previous plan" })}\n` +
-      (d.previousPlan.workouts || []).map(formatWorkout).join("\n\n")
+      (d.previousPlan.workouts || []).map((w) => formatWorkout(slimWorkout(w))).join("\n\n")
     : "";
 
   const sections = [
     { title: DIGEST_HEADING, body: isPlainObject(d.digest) ? formatDigest(d.digest) : "", maxBytes: B.digest },
-    { title: "Coaching rules", body: String(d.rules ?? "").trim() || "Plan evidence-based training across the owner's modalities: progressive overload, 10-20 hard sets per muscle per week for strength goals, ~80% easy running, hard/easy alternation, scale conditioning to experience.", maxBytes: B.rules },
+    { title: "Coaching rules", body: rules.trim() || "Plan evidence-based training across the owner's modalities: progressive overload, 10-20 hard sets per muscle per week for strength goals, ~80% easy running, hard/easy alternation, scale conditioning to experience.", maxBytes: B.rules },
     { title: PROFILE_HEADING, body: (fromHistory ? "Constraints and goals; onboarding baselines with logged history were removed (the digest wins).\n" : "") +
-      "```json\n" + JSON.stringify(compactValue(profileForPlan(d.profile, d.digest)) ?? {}) + "\n```", maxBytes: B.profile },
+      "```json\n" + JSON.stringify(compactValue(profileForPrompt(profileForPlan(d.profile, d.digest))) ?? {}) + "\n```", maxBytes: B.profile },
     { title: "Coach memory", body: d.memoryText ?? "", maxBytes: B.memory },
     { title: "Training summary (computed by the app)", body: d.trainingSummary ? compactJson(d.trainingSummary) : "No history yet.", maxBytes: B.trainingSummary },
     { title: RUN_CAPS_HEADING, body: runCaps(d.runLoad).text },
     { title: "Sessions, last 14 days (oldest first)", body: sessions || "None logged.", maxBytes: B.sessions },
     { title: "App-computed next targets (copy into loadKg)", body: formatTargets(d.targets), maxBytes: B.targets },
     { title: "Previous plan", body: prev, maxBytes: B.previousPlan },
-    { title: "Current draft to revise (JSON)", body: revise ? planJsonForPrompt(d.draft, B.draft) : "", maxBytes: B.draft },
+    { title: "Current draft to revise (JSON)", body: revise ? planJsonForPrompt(d.draft, B.draft, planOpts) : "", maxBytes: B.draft },
     { title: "Owner's instruction", body: clip(d.instruction ?? "", 1500) || (revise ? "(none: fix anything that looks off)" : "(none)"), maxBytes: B.instruction },
     { title: runLogged ? "Running paces from the onboarding profile (fallback only: the digest's logged paces win)" : "Running paces (computed by the app)", body: d.pacesText ?? "", maxBytes: 2000 },
     { title: `${ALLOWED_HEADING}: the provided exercise list (the only exerciseIds you may use, by location and movement pattern)`, body: formatAllowedExercises(d.allowedLocations) },
-    { title: "Plan JSON spec (output format)", body: `${PLAN_JSON_SPEC}\n\nExample of the shape (not the content):\n${PLAN_EXAMPLE}` },
+    { title: "Plan JSON spec (output format)", body: `${PLAN_JSON_SPEC}\n\nExample of the compact shape (not the content):\n${PLAN_EXAMPLE}` },
   ];
   const room = B.total - utf8Bytes(header) - 4;
   return `${header}\n\n${joinSections(sections, room, "# ")}`;
@@ -264,7 +492,29 @@ export function formatDigest(digest) {
   const key = digest.basis === "history"
     ? "basis \"history\": plan from these numbers. week = last week's completion; strength[].next = the app's next target (kg/reps); adjustments = what to do per scope (follow them; kg/kmMax/longMax are limits); baselines = profile fallbacks only for items without history."
     : "basis \"profile\": no logged sessions yet. Calibration week from profile baselines (see adjustments and baselines).";
-  return `${key}\n\`\`\`json\n${JSON.stringify(digest)}\n\`\`\``;
+  return `${key}\n\`\`\`json\n${JSON.stringify(groupAdjustments(digest))}\n\`\`\``;
+}
+
+/**
+ * Strength adjustments that say the same thing (same act, no kg, same why: typically "calibrate … ~3 RIR" for every
+ * lift in a first week) become one entry with `ids` (their reps are in digest.strength[].next). Others are unchanged.
+ * @param {object} digest
+ * @returns {object}
+ */
+function groupAdjustments(digest) {
+  const adj = Array.isArray(digest?.adjustments) ? digest.adjustments : null;
+  if (!adj) return digest;
+  const groups = new Map();
+  const out = [];
+  for (const a of adj) {
+    if (!isPlainObject(a) || a.scope !== "strength" || a.kg != null || !a.id) { out.push(a); continue; }
+    const key = `${a.act}|${a.why ?? ""}`;
+    if (!groups.has(key)) { const g = { scope: "strength", ids: [], act: a.act, why: a.why }; groups.set(key, g); out.push(g); }
+    groups.get(key).ids.push(a.id);
+  }
+  const flat = out.map((a) => (Array.isArray(a?.ids) && a.ids.length === 1
+    ? adj.find((x) => x?.scope === "strength" && x.id === a.ids[0] && x.act === a.act) ?? a : a));
+  return { ...digest, adjustments: flat };
 }
 
 /**
@@ -303,6 +553,8 @@ export function profileForPlan(profile, digest) {
  * @param {{ avgWeeklyKm: number, lastWeekKm?: number, longestKm: number, weeks: number }} [d.runLoad]
  * @param {object[]} d.allowedLocations
  * @param {string[]} [d.locationIds]
+ * @param {(exerciseId: string) => string|null} [d.nameOf] catalog names (omitted from the compact plan JSON)
+ * @param {string} [d.defaultLocationId]
  * @returns {string}
  */
 export function buildRepairPrompt(d) {
@@ -312,7 +564,7 @@ export function buildRepairPrompt(d) {
   const header = [
     REPAIR_PROMPT_MARKER,
     "The training plan JSON below failed the app's validator. Fix ONLY the listed problems and keep everything else the same.",
-    "Reply with ONLY the complete corrected plan as one JSON object of the same shape.",
+    "Reply with ONLY the complete corrected plan: one compact JSON object on one line, in the format of the spec below (omit defaults and nulls). No explanation.",
   ].join("\n");
   const sections = [
     { title: "Problems to fix", body: problems || "- (none listed)" },
@@ -325,7 +577,7 @@ export function buildRepairPrompt(d) {
     ].filter(Boolean).join("\n") },
     { title: `${ALLOWED_HEADING}: the provided exercise list (by location and movement pattern)`, body: formatAllowedExercises(d.allowedLocations) },
     { title: "Plan JSON spec (output format)", body: PLAN_JSON_SPEC },
-    { title: "Plan to fix (JSON)", body: planJsonForPrompt(d.plan, 60000) },
+    { title: "Plan to fix (compact JSON)", body: planJsonForPrompt(d.plan, 60000, { nameOf: d.nameOf, defaultLocationId: d.defaultLocationId }) },
   ];
   return `${header}\n\n${joinSections(sections, PLAN_BUDGETS.total, "# ")}`;
 }

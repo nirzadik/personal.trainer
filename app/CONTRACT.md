@@ -162,7 +162,9 @@ All writes go through `store.js`. Path parity: `data/users/<uid>` is a collectio
   settings: { theme: "system" /* | "light" | "dark" */, chatTier: "default" /* | "quick" */ },
   rotation: { planId: null, done: [] /* workoutIds completed in the current plan */ },
   onboarding: { status: "not_started" /* | "in_progress" | "done" */ },
-  pendingPlanRequest: null /* { kind: "generate" | "revise", instruction, createdAt } */ }
+  pendingPlanRequest: null /* { kind: "generate" | "revise", instruction, createdAt } */,
+  lastPlanError: null /* set by brain on a failed generate / revise (not on Stop), cleared on success:
+                         { code, message /* ≤ 300 chars */, elapsedMs, streamedChars, tier, phase, kind, at, cutOff?, dismissed? } */ }
 ```
 
 ### Plan
@@ -336,12 +338,16 @@ Coach = {
       // persists the assistant reply with actions[], resolves { text, actions, error }
       // onboarding mode while not onboarded: ONBOARDING_RULES + an update_profile-centred tool set; finishes by setting profile.onboarded = true
   startOnboarding({ signal, onText }),       // first coach message (called from a "Start" tap)
-  generatePlan({ instruction = "", signal, onProgress } = {}),
-      // sample.json, modelTier "complex", cache: false. Prompt = PLAN_RULES + profile + coach memory + trainingSummary
-      //   + last 14 days of sessions (compact) + previous plan + instruction + the Plan JSON spec.
-      // core.validatePlan → if errors: ONE repair call with the issues. Then store.plans.saveDraft(plan with validation).
-      // resolves { plan, validation }
-  reviseDraft(instruction, { signal, onProgress }),   // same as generatePlan with the current draft + instruction
+  generatePlan({ instruction = "", signal, onProgress, modelTier } = {}),
+      // sample.json, modelTier "complex" + effort "medium" (modelTier "default" = the UI's "Try with the faster
+      //   model", no effort), cache: false. Prompt = digest + PLAN_RULES (tailorPlanRules: sections that cannot apply
+      //   dropped) + profile + coach memory + trainingSummary + last 14 days of sessions (compact) + previous plan
+      //   + instruction + the Plan JSON spec. The reply is COMPACT JSON (one line, null/""/[]/default fields
+      //   omitted); prompts/plan.js expandPlan restores the §4 shape before validation (compactPlan is the inverse).
+      // core.validatePlan → if errors: ONE repair call with the issues (compact too). Then store.plans.saveDraft.
+      // resolves { plan, validation }; rejects { code, message, text?, detail, cutOff } and stores detail as
+      //   state.lastPlanError (never retried by code)
+  reviseDraft(instruction, { signal, onProgress, modelTier }),   // same as generatePlan with the current draft + instruction
   commentOnSession(sessionId, { signal }),            // quick tier, ≤ 80 words, saves session.coachComment, resolves text
   errorCopy(code),                                    // short user-facing message per sample/store error code
 }

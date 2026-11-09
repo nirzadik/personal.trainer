@@ -6,7 +6,7 @@
 // opens a sheet of swap options + an equipment-filtered catalog search; styles in "v2: swap".
 
 import {
-  h, icon, button, append, replaceChildren, pill, typePill, emptyState, errorLine, inlineConfirm, toast, openSheet,
+  h, icon, button, append, replaceChildren, pill, typePill, emptyState, inlineConfirm, toast, openSheet,
   createTicker, fmtElapsed, fmtWeekRange, fmtKg, fmtRest, fmtPace, fmtKm, fmtRelDay, plural, safe, errorText, TYPE_LABEL,
 } from "./components.js";
 import { exerciseName, prettifyId, equipmentSet } from "./ops.js";
@@ -70,6 +70,23 @@ const STAGE_COPY = {
 };
 
 /**
+ * One small line describing a failed plan call, for diagnosis: "invalid_json · 4:12 · 18,240 chars streamed ·
+ * complex · <platform message>".
+ * @param {{ code: string, message?: string, elapsedMs?: number, streamedChars?: number, tier?: string|null, at?: string }} d
+ * @returns {string}
+ */
+export function planErrorDetail(d) {
+  if (!d || typeof d !== "object") return "";
+  const parts = [d.code];
+  if (Number.isFinite(d.elapsedMs)) parts.push(fmtElapsed(d.elapsedMs));
+  if (Number.isFinite(d.streamedChars)) parts.push(d.streamedChars > 0 ? `${d.streamedChars.toLocaleString("en-US")} chars streamed` : "nothing streamed");
+  if (d.tier) parts.push(`${d.tier} model`);
+  const msg = String(d.message || "").trim();
+  if (msg && msg !== d.code) parts.push(msg.length > 300 ? `${msg.slice(0, 299)}…` : msg);
+  return parts.filter(Boolean).join(" · ");
+}
+
+/**
  * Mount the Plan tab.
  * @param {HTMLElement} el
  * @param {any} ctx
@@ -83,7 +100,8 @@ export function mountPlan(el, ctx) {
   const skipping = new Map(); // `${planId}:${workoutId}` → { reason, notes } while the Skip panel is open
   const busy = new Set(); // workouts with a one-tap save in flight
   let swapping = false; // a swap write is in flight
-  let job = null; // { kind, ctl, ticker, t0, progress, error, retry }
+  let job = null; // { kind, ctl, ticker, t0, progress, tier } while running; { kind, error, detail, cutOff, retry, retryFaster } after a failure
+  let dismissedErrorAt = null; // state.lastPlanError.at the owner dismissed in this view (the db record is kept)
   let showAllIssues = false;
 
   const sub = h("p", { class: "view-sub num" });
@@ -112,7 +130,7 @@ export function mountPlan(el, ctx) {
   }
 
   // ---- generation ----------------------------------------------------------------------------
-  async function generate({ kind = "generate", instruction = "", fromRequest = false } = {}) {
+  async function generate({ kind = "generate", instruction = "", fromRequest = false, modelTier } = {}) {
     if (job && !job.error) return;
     if (!coachReady()) {
       toast({ text: "The coach isn't available in this view.", kind: "error" });
@@ -121,7 +139,7 @@ export function mountPlan(el, ctx) {
     ctx.nav("plan");
     const ctl = new AbortController();
     const ticker = createTicker(() => renderJob());
-    job = { kind, ctl, ticker, t0: Date.now(), progress: "", error: null, retry: null };
+    job = { kind, ctl, ticker, t0: Date.now(), progress: "", error: null, retry: null, tier: modelTier || null };
     renderJob();
     render();
     ticker.start();
@@ -132,9 +150,10 @@ export function mountPlan(el, ctx) {
       renderJob();
     };
     try {
+      const opts = { signal: ctl.signal, onProgress, ...(modelTier ? { modelTier } : {}) };
       const res = kind === "revise" && ctx.draftPlan()
-        ? await coach.reviseDraft(instruction, { signal: ctl.signal, onProgress })
-        : await coach.generatePlan({ instruction, signal: ctl.signal, onProgress });
+        ? await coach.reviseDraft(instruction, opts)
+        : await coach.generatePlan({ instruction, ...opts });
       ticker.stop();
       job = null;
       if (fromRequest || ctx.data.state?.pendingPlanRequest) {
@@ -145,7 +164,14 @@ export function mountPlan(el, ctx) {
     } catch (err) {
       ticker.stop();
       if (err?.code === "cancelled") job = null;
-      else job = { kind, error: err?.code || "upstream_error", retry: () => { job = null; generate({ kind, instruction, fromRequest }); } };
+      else {
+        const again = (tier) => { job = null; generate({ kind, instruction, fromRequest, ...(tier ? { modelTier: tier } : {}) }); };
+        job = {
+          kind, error: err?.code || "upstream_error", detail: err?.detail || null, cutOff: Boolean(err?.cutOff ?? err?.detail?.cutOff),
+          tier: modelTier || null, retry: () => again(modelTier), retryFaster: () => again("default"),
+        };
+        dismissedErrorAt = err?.detail?.at ?? null; // this view shows it already; a reload shows the stored copy
+      }
     }
     renderJob();
     render();
@@ -153,15 +179,18 @@ export function mountPlan(el, ctx) {
 
   function renderJob() {
     if (!job) {
-      replaceChildren(jobEl);
+      const last = storedPlanError();
+      // after a reload: the stored failure (a revise needs its instruction again, so it only offers Dismiss)
+      const regen = last?.kind !== "revise";
+      replaceChildren(jobEl, last ? errorPanel({
+        kind: regen ? "generate" : "revise", error: last.code, detail: last, cutOff: Boolean(last.cutOff),
+        retry: regen ? () => generate({ kind: "generate" }) : null,
+        retryFaster: regen ? () => generate({ kind: "generate", modelTier: "default" }) : null,
+      }) : null);
       return;
     }
     if (job.error) {
-      replaceChildren(jobEl, h("div", { class: "gen-panel is-error" },
-        h("p", { class: "gen-title" }, job.kind === "revise" ? "The revision didn't finish" : "The plan didn't finish"),
-        errorLine({ text: errorText(coach, job.error), onRetry: job.retry }),
-        button({ id: "gen-dismiss", label: "Dismiss", kind: "ghost", small: true, onClick: () => { job = null; renderJob(); render(); } }),
-      ));
+      replaceChildren(jobEl, errorPanel(job));
       return;
     }
     const elapsed = Date.now() - job.t0;
@@ -174,9 +203,64 @@ export function mountPlan(el, ctx) {
         h("span", { class: "gen-timer num", "aria-label": `elapsed ${fmtElapsed(elapsed)}` }, fmtElapsed(elapsed)),
       ),
       h("div", { class: "gen-bar", "aria-hidden": "true" }, h("span", {})),
-      h("p", { class: "gen-note" }, "This uses the most capable model and can take 1–3 minutes. You can switch tabs while it works."),
+      h("p", { class: "gen-note" }, job.tier === "default"
+        ? "Using the faster model. This usually takes under a minute. You can switch tabs while it works."
+        : "This uses the most capable model and can take 1–3 minutes. You can switch tabs while it works."),
       button({ id: "gen-stop", label: "Stop", icon: "stop", kind: "stop", onClick: () => job?.ctl?.abort() }),
     ));
+  }
+
+  /** state.lastPlanError worth showing after a reload: not dismissed here, recent, and no draft saved since. */
+  function storedPlanError() {
+    const e = ctx.data.state?.lastPlanError;
+    if (!e || typeof e !== "object" || !e.code || e.dismissed || e.at === dismissedErrorAt) return null;
+    const at = Date.parse(e.at);
+    if (!Number.isFinite(at) || Date.now() - at > 24 * 3600 * 1000) return null;
+    const draft = ctx.draftPlan();
+    if (draft && Date.parse(draft.createdAt) > at) return null;
+    return e;
+  }
+
+  /** The failed-generation panel: code-specific copy and buttons, plus the platform detail in small text. */
+  function errorPanel(j) {
+    const code = j.error;
+    const d = j.detail;
+    const cutOff = j.cutOff || code === "invalid_json";
+    const fasterTried = (d?.tier || j.tier) === "default";
+    let text;
+    let actions;
+    if (code === "rate_limited") {
+      text = "You've hit your Claude usage limit. Try again after it resets.";
+      actions = [];
+    } else if (cutOff) {
+      text = "The plan was cut off before it finished.";
+      actions = [
+        j.retry ? button({ id: "gen-retry", label: "Try again", icon: "refresh", kind: "secondary", small: true, onClick: j.retry }) : null,
+        fasterTried || !j.retryFaster ? null : button({ id: "gen-retry-fast", label: "Try with the faster model", icon: "bolt", kind: "secondary", small: true, onClick: j.retryFaster }),
+      ];
+    } else {
+      text = errorText(coach, code);
+      actions = [j.retry ? button({ id: "gen-retry", label: "Try again", icon: "refresh", kind: "secondary", small: true, onClick: j.retry }) : null];
+    }
+    const dismiss = () => {
+      const stored = ctx.data.state?.lastPlanError;
+      dismissedErrorAt = stored?.at ?? dismissedErrorAt;
+      if (stored && !stored.dismissed) Promise.resolve(safe(() => store?.state?.update({ lastPlanError: { dismissed: true } }), null)).catch(() => {});
+      job = null;
+      renderJob();
+      render();
+    };
+    return h("div", { class: "gen-panel is-error", role: "alert" },
+      h("p", { class: "gen-title" }, j.kind === "revise" ? "The revision didn't finish" : "The plan didn't finish"),
+      h("div", { class: "error-block" },
+        h("div", { class: "error-line" }, icon("alert", { size: 18 }), h("span", { class: "error-text" }, text)),
+        d ? h("p", { class: "error-detail num", id: "gen-error-detail" }, planErrorDetail(d)) : null,
+      ),
+      h("div", { class: "gen-actions" },
+        ...actions.filter(Boolean),
+        button({ id: "gen-dismiss", label: "Dismiss", kind: "ghost", small: true, onClick: dismiss }),
+      ),
+    );
   }
 
   ctx.plan = {
@@ -186,6 +270,7 @@ export function mountPlan(el, ctx) {
 
   // ---- render --------------------------------------------------------------------------------
   function render() {
+    if (!job) renderJob(); // a stored state.lastPlanError (after a reload) appears once state has loaded
     if (!store) {
       sub.textContent = "";
       replaceChildren(draftEl);

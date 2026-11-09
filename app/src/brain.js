@@ -13,7 +13,7 @@ import { buildContextSnapshot, buildReviewSnapshot, formatPlanOverview, formatWe
 import {
   CHAT_BUDGETS, ONBOARDING_START_TURN, REVIEW_START_TURN, buildChatTurns, buildInstructionsTurn, isClearCommand, normalizeTurns,
 } from "./prompts/chat.js";
-import { buildPlanPrompt, buildRepairPrompt, formatPaces } from "./prompts/plan.js";
+import { buildPlanPrompt, buildRepairPrompt, expandPlan, formatPaces } from "./prompts/plan.js";
 import { progressionDigest } from "./progress.js";
 import { SUMMARY_STALE_AFTER, buildSummaryPrompt, composeSummary, parseSummary } from "./prompts/summary.js";
 import { buildCommentPrompt, clampWords } from "./prompts/comment.js";
@@ -54,7 +54,7 @@ const ERROR_COPY = Object.freeze({
   session_expired: "Your Claude session expired. Sign in again, then tap Retry.",
   refused: "The coach couldn't answer that. Try asking another way.",
   empty_completion: "The coach came back empty. Try asking a bit differently.",
-  invalid_json: "The plan came back garbled. Tap Generate to try again.",
+  invalid_json: "The plan was cut off before it finished. Try again, or try with the faster model.",
   upstream_error: "Connection problem. Your message is saved; tap Retry.",
   no_user: "You're not signed in, so nothing can be saved. Sign in to Claude and reload.",
   sample_unavailable: "The coach needs the Claude app. Open this page in Claude to chat.",
@@ -105,13 +105,16 @@ const ERROR_DETAIL_CHARS = 300;
  *   `undo` is only on the in-memory result (functions are never persisted).
  * @typedef {{ text: string, actions: CoachAction[], error: string|null }} SendResult
  * @typedef {{ phase: "preparing"|"generating"|"validating"|"repairing"|"saving"|"done", label: string, chars?: number, issues?: number }} PlanProgress
+ * @typedef {{ code: string, message: string, elapsedMs: number, streamedChars: number, tier: string|null, phase: string, kind: "generate"|"revise", at: string, cutOff?: boolean }} PlanError
+ *   kept as state.lastPlanError after a failed generate / revise (cleared on success); message ≤ 300 chars
  * @typedef {object} Coach
  * @property {() => { available: boolean, reason: "sample_unavailable"|"not_granted"|"no_user"|null, code: string|null }} status
  * @property {() => boolean} isOnboarding
  * @property {(text: string, opts?: { signal?: AbortSignal, onText?: (u: {text: string, delta?: string}) => void, onTool?: (e: {name: string, phase: "start"|"done"|"error", label: string}) => void }) => Promise<SendResult>} send
  * @property {(opts?: { signal?: AbortSignal, onText?: Function, onTool?: Function }) => Promise<SendResult>} startOnboarding
- * @property {(opts?: { instruction?: string, signal?: AbortSignal, onProgress?: (p: PlanProgress) => void }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} generatePlan
- * @property {(instruction: string, opts?: { signal?: AbortSignal, onProgress?: (p: PlanProgress) => void }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} reviseDraft
+ * @property {(opts?: { instruction?: string, signal?: AbortSignal, onProgress?: (p: PlanProgress) => void, modelTier?: "complex"|"default" }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} generatePlan
+ *   rejects { code, message, text?, detail: PlanError, cutOff: boolean }
+ * @property {(instruction: string, opts?: { signal?: AbortSignal, onProgress?: (p: PlanProgress) => void, modelTier?: "complex"|"default" }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} reviseDraft
  * @property {(sessionId: string, opts?: { signal?: AbortSignal }) => Promise<string>} commentOnSession
  * @property {(sessionId: string, opts?: { signal?: AbortSignal, onText?: Function, onTool?: Function }) => Promise<SendResult>} reviewWorkout
  * @property {(ref: string) => Promise<{ plan: object, undo?: Function }>} undoPlanChange
@@ -254,9 +257,11 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     const call = safeCall(input, options);
     try {
       if (typeof sample.json === "function") return await sample.json(call.input, call.options);
-      const { text } = await sample(call.input, call.options);
-      const parsed = parseJsonLoose(text);
-      if (parsed === undefined) throw { code: "invalid_json", message: "no JSON in reply", text };
+      const { text, truncated } = await sample(call.input, call.options);
+      const parsed = truncated ? undefined : parseJsonLoose(text);
+      if (parsed === undefined) {
+        throw { code: "invalid_json", message: truncated ? "reply cut short by the length or time limit before the JSON was complete" : "no JSON in reply", text };
+      }
       return parsed;
     } catch (e) {
       throw sampleError(e);
@@ -1334,10 +1339,9 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
   // ---------- plans ----------
 
   function normalizePlan(raw, { id, weekStart, profile }) {
-    let p = raw;
-    if (isPlainObject(p?.plan) && Array.isArray(p.plan.workouts)) p = p.plan;
-    if (!isPlainObject(p)) p = {};
     const defLoc = profile?.equipment?.defaultLocationId || profileLocations(profile)[0].id;
+    // the reply is compact (PLAN_JSON_SPEC: defaults and nulls omitted): restore the CONTRACT §4 shape first
+    const p = expandPlan(raw, { nameOf: exerciseName, defaultLocationId: defLoc });
     const seen = new Set();
     const fillName = (it) => (isPlainObject(it) ? { ...it, name: it.name || exerciseName(it.exerciseId) || String(it.exerciseId ?? "") } : it);
     const workouts = (Array.isArray(p.workouts) ? p.workouts : []).filter(isPlainObject).map((w, i) => {
@@ -1379,18 +1383,30 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     };
   }
 
-  async function runPlan({ instruction = "", signal, onProgress, revise = false }) {
+  /**
+   * Generate (or revise) a plan: one sample.json call, at most one repair call, never retried by code.
+   * `modelTier` "default" is the owner's "Try with the faster model" after a cut-off; otherwise the complex tier
+   * with effort "medium". Every failure except Stop is persisted as state.lastPlanError (cleared on success) and
+   * rejects { code, message, text?, detail: PlanError, cutOff }.
+   */
+  async function runPlan({ instruction = "", signal, onProgress, revise = false, modelTier: tierWanted = null }) {
     const progress = (phase, extra = {}) => emit(onProgress, { phase, label: PROGRESS_LABELS[phase], ...extra });
     const blocked = unavailableCode();
     if (blocked) throw { code: blocked, message: errorCopy(blocked) };
+    const t0 = clock().getTime();
+    let streamedChars = 0;
+    let tier = null;
+    let phaseNow = "preparing";
+    let state = {};
     try {
       progress("preparing");
       const t = today();
-      const [profile, coachMem, state, agreed, draft, sessionsDesc] = await Promise.all([
+      const [profile, coachMem, st, agreed, draft, sessionsDesc] = await Promise.all([
         store.profile.get(), soft(() => store.coach.get(), {}), soft(() => store.state.get(), {}),
         soft(() => store.plans.getAgreed()), soft(() => store.plans.getDraft()),
         soft(() => store.sessions.list({ limit: SESSIONS_FETCH_LIMIT }), []),
       ]);
+      state = isPlainObject(st) ? st : {};
       const sessionsAsc = sortSessionsAsc(sessionsDesc);
       const base = revise && isPlainObject(draft) ? draft : null;
       // Adaptive planning (Agent P): last week's logged progress leads the prompt and overrides onboarding baselines.
@@ -1403,7 +1419,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         sessions: sessionsAsc, plans: plansForDigest, wellness: Array.isArray(wellness) ? wellness : [], profile, today: today(), weeks: 2,
       }));
       const lim = await getLimits();
-      const tier = tierFor("complex", lim);
+      tier = tierFor(PLAN_TIERS.has(tierWanted) ? tierWanted : "complex", lim);
 
       const thisWeek = weekStartOf(t);
       const weekStart = base?.weekStart && isIsoDate(base.weekStart) ? base.weekStart
@@ -1421,7 +1437,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       ].filter(Boolean).join("\n");
       const from14 = addDaysISO(t, -13);
       const previousDone = state.rotation?.planId === agreed?.id ? state.rotation?.done : [];
-      const common = { workoutCount, minutesPerSession, runLoad, allowedLocations };
+      const defaultLocationId = profile?.equipment?.defaultLocationId || profileLocations(profile)[0].id;
+      const common = { workoutCount, minutesPerSession, runLoad, allowedLocations, nameOf: exerciseName };
       const prompt = buildPlanPrompt({
         ...common,
         rules: K.PLAN_RULES, today: t, weekStart, profile, memoryText,
@@ -1433,21 +1450,29 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       });
 
       progress("generating");
-      let phaseNow = "generating";
-      const jsonOpts = { modelTier: tier, cache: false, signal, onText: ({ text }) => progress(phaseNow, { chars: text.length }) };
+      phaseNow = "generating";
+      const jsonOpts = {
+        modelTier: tier, cache: false, signal,
+        // sample.d.ts: effort applies where the tier thinks and is ignored otherwise; "medium" shortens the
+        // complex tier's silent thinking so long plans finish inside the ~5 min round cap.
+        ...(tier === "complex" ? { effort: "medium" } : {}),
+        onText: ({ text }) => { streamedChars = text.length; progress(phaseNow, { chars: text.length }); },
+      };
       const raw = await callJson(prompt, jsonOpts);
       let plan = normalizePlan(raw, { id, weekStart, profile });
 
       progress("validating");
+      phaseNow = "validating";
       const validate = (p) => attempt(() => C.validatePlan(p, { profile, sessions: sessionsAsc, today: t }));
       let validation = validate(plan);
       const errorCount = (v) => (Array.isArray(v?.errors) ? v.errors.length : 0);
       if (errorCount(validation) > 0) {
         phaseNow = "repairing";
+        streamedChars = 0;
         progress("repairing", { issues: errorCount(validation) });
         try {
           const raw2 = await callJson(buildRepairPrompt({
-            ...common, plan, errors: validation.errors, locationIds: profileLocations(profile).map((l) => l.id),
+            ...common, plan, errors: validation.errors, locationIds: profileLocations(profile).map((l) => l.id), defaultLocationId,
           }), jsonOpts);
           const plan2 = normalizePlan(raw2, { id, weekStart, profile });
           const v2 = validate(plan2);
@@ -1457,7 +1482,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
           }
         } catch (e) {
           if (e?.code === "cancelled") throw e;
-          // Keep the first plan: its validation errors stay visible on the draft and the owner decides.
+          // Keep the first plan (no retry): its validation errors stay visible on the draft and the owner decides.
         }
       }
       if (signal?.aborted) throw { code: "cancelled", message: "Stopped" };
@@ -1465,17 +1490,34 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       plan.weeklyTargets = weeklyTargetsOf(plan, validation);
 
       progress("saving");
+      phaseNow = "saving";
       const res = await store.plans.saveDraft(plan);
       let saved = plan;
       if (isPlainObject(res?.plan)) saved = res.plan;
       else if (isPlainObject(res) && Array.isArray(res.workouts)) { const { undo, ...rest } = res; saved = rest; }
       else if (typeof res?.id === "string") saved = { ...plan, id: res.id };
-      if (state.pendingPlanRequest) await soft(() => store.state.update({ pendingPlanRequest: null }));
+      const clear = {
+        ...(state.pendingPlanRequest ? { pendingPlanRequest: null } : {}),
+        ...(state.lastPlanError ? { lastPlanError: null } : {}),
+      };
+      if (Object.keys(clear).length) await soft(() => store.state.update(clear));
       progress("done");
       return { plan: saved, validation: plan.validation, undo: res?.undo };
     } catch (e) {
       const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
-      throw { code: err.code, message: String(err.message ?? err.code), ...(typeof err.text === "string" ? { text: err.text } : {}) };
+      const code = String(err.code);
+      const message = String(err.message ?? err.code);
+      const text = typeof err.text === "string" ? err.text : "";
+      const detail = {
+        code, message: clip(message.replace(/\s+/g, " ").trim(), ERROR_DETAIL_CHARS),
+        elapsedMs: Math.max(0, clock().getTime() - t0), streamedChars: Math.max(streamedChars, text.length),
+        tier: tier ?? null, phase: phaseNow, kind: revise ? "revise" : "generate", at: nowIso(),
+      };
+      const cutOff = isCutOff(code, message, text, detail.streamedChars);
+      if (cutOff) detail.cutOff = true;
+      // Stop is the owner's own action, not a failure; everything else is kept for diagnosis (survives a reload).
+      if (code !== "cancelled" && store?.state?.update) await soft(() => store.state.update({ lastPlanError: detail }));
+      throw { code, message, ...(text ? { text } : {}), detail, cutOff };
     }
   }
 
@@ -1618,8 +1660,8 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     isOnboarding: () => !profileCache?.onboarded,
     send,
     startOnboarding,
-    generatePlan: ({ instruction = "", signal, onProgress } = {}) => runPlan({ instruction, signal, onProgress, revise: false }),
-    reviseDraft: (instruction, { signal, onProgress } = {}) => runPlan({ instruction: String(instruction ?? ""), signal, onProgress, revise: true }),
+    generatePlan: ({ instruction = "", signal, onProgress, modelTier } = {}) => runPlan({ instruction, signal, onProgress, revise: false, modelTier }),
+    reviseDraft: (instruction, { signal, onProgress, modelTier } = {}) => runPlan({ instruction: String(instruction ?? ""), signal, onProgress, revise: true, modelTier }),
     commentOnSession,
     reviewWorkout,
     undoPlanChange,
@@ -1629,6 +1671,27 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
 }
 
 // ---------- module-private helpers ----------
+
+/** modelTier values the plan UI may ask for ("Try with the faster model" = "default"). */
+const PLAN_TIERS = new Set(["complex", "default"]);
+
+/**
+ * True when a plan call ended because the answer was cut short (length / time limit, or the connection dropped
+ * mid-answer) rather than refused or malformed: the UI then offers "Try again" and "Try with the faster model".
+ * @param {string} code
+ * @param {string} message
+ * @param {string} text the partial reply, if any
+ * @param {number} streamedChars
+ * @returns {boolean}
+ */
+export function isCutOff(code, message, text, streamedChars) {
+  if (code === "invalid_json") {
+    if (/cut|short|length|limit|truncat|time|incomplete|max/i.test(String(message ?? ""))) return true;
+    const t = String(text ?? "").trim();
+    return !t || (/^[[{]|```/.test(t) && parseJsonLoose(t) === undefined);
+  }
+  return code === "upstream_error" && Number(streamedChars) > 0;
+}
 
 /** `ChatMessage.errorDetail`: the platform's developer message for a failed call (≤ 300 chars), for debugging. */
 function errorDetailOf(code, message) {

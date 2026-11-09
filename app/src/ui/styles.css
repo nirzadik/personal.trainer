@@ -1389,6 +1389,8 @@ details > summary::-webkit-details-marker { display: none; }
 .gen-progress { color: var(--ink-2); font-size: var(--fs-sm); margin-top: 4px; }
 .gen-timer { font-family: var(--font-display); font-stretch: var(--display-stretch); font-weight: 800; font-size: 3rem; line-height: 0.9; color: var(--accent-text); }
 .gen-note { font-size: var(--fs-sm); color: var(--ink-2); }
+.gen-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.gen-panel .gen-actions .btn { justify-self: auto; }
 .gen-bar { position: relative; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 22%, transparent); overflow: hidden; }
 .gen-bar span { position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--accent); border-radius: 2px; animation: indeterminate 1.6s ease-in-out infinite; }
 @keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }

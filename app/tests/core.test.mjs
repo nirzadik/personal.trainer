@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as core from "../src/core.js";
 import { getExercise } from "../src/catalog.js";
-import { PLAN_JSON_SPEC, PLAN_EXAMPLE } from "../src/prompts/plan.js";
+import { PLAN_JSON_SPEC, PLAN_EXAMPLE, expandPlan } from "../src/prompts/plan.js";
 import { PLAN_RULES } from "../src/knowledge/plan.js";
 import { FIXTURE, buildSessions, chronological, pythonAvailable, runPython, daysBefore } from "./fixtures/a-trainer-harness.mjs";
 
@@ -690,7 +690,7 @@ test("plan brevity: rules, JSON spec and example agree with PLAN_TEXT_LIMITS", (
     assert.ok(PLAN_JSON_SPEC.includes(t), `PLAN_JSON_SPEC mentions ${t}`);
   }
   assert.ok(!/2-5 sentences/.test(PLAN_RULES + PLAN_JSON_SPEC));
-  const example = { ...JSON.parse(PLAN_EXAMPLE), weekStart: "2026-11-08" };
+  const example = { ...expandPlan(JSON.parse(PLAN_EXAMPLE)), weekStart: "2026-11-08" }; // the example is compact
   const v = core.validatePlan(example, {});
   assert.deepEqual(v.warnings.filter((w) => w.code === "TOO_VERBOSE"), [], "the example obeys the limits");
 });
