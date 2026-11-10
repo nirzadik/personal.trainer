@@ -168,7 +168,7 @@ export function defaultWellnessEntry() {
 
 function defaultPlanFields() {
   return {
-    focus: "", rationale: "", workouts: [],
+    focus: "", rationale: "", block: null /* { week, phase } (Plan JSON spec); null on plans written before it */, workouts: [],
     weeklyTargets: { runKm: null, conditioningSessions: null, strengthSetsPerMuscle: {} },
     notes: [], validation: null,
   };

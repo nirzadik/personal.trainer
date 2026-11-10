@@ -152,6 +152,18 @@ test("plan prompt on the owner-like fixture stays ≤ 50 KB and asks for compact
   assert.doesNotMatch(prompt, /"screenedAt".*"heartCondition"/, "all-no screening answers are collapsed");
 });
 
+test("generatePlan: the plan keeps a block (the digest's count when the reply omits it) and the prompt shows digest.block", async () => {
+  const { coach, calls, store } = await ownerLike();
+  const { plan } = await coach.generatePlan();
+  const prompt = calls[0].input;
+  // the agreed calibration plan (no block, no deload words) is one build week: the new plan is Wk 2
+  assert.match(prompt, /"block":\{"week":2,"phase":"build","weeksSinceDeload":1,"deloadDue":false\}/);
+  assert.doesNotMatch(prompt, /deload hints/);
+  assert.deepEqual(plan.block, { week: 2, phase: "build" });
+  assert.deepEqual((await store.plans.getDraft()).block, { week: 2, phase: "build" });
+  assert.equal((await store.plans.getAgreed()).block, null, "the owner's older plan reads as block null (the focus fallback applies)");
+});
+
 test("tailorPlanRules drops only what cannot apply", () => {
   const base = { profile: PROFILE, daysPerWeek: 5 };
   const r = tailorPlanRules(PLAN_RULES, base);

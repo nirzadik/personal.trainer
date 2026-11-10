@@ -40,12 +40,12 @@ Honesty:
 - Change 1-2 things vs the previous plan (+sets, a new run, a longer long run, a swap) unless it is the first plan, a new block, a new goal or the instruction says otherwise.
 - First plan / no history = calibration week. Strength: loads null, targetRir 3, note "work up to ~3 RIR; err light". Running: easy runs only (+ strides only if they already run ≥3×/week). Conditioning: the newcomer ramp (§5.6) unless experience is "regular".
 
-Block rhythm (previous focus "Wk N" → now Wk N+1; the week after a deload is Wk 1 of a new block):
+Block rhythm (use digest.block: week and phase come from the app, never from old focus text; output block {week, phase} per the spec; the week after a deload is Wk 1 of a new block):
 - **Build weeks:** the targets progress loads. From Wk 3, +1 set on ≤2 priority lifts unless an adjustment says hold, repeat or reduce.
 - **digest.deloadDue** → this is the deload week (§3.6), unless a novice on linear progression has no hold or fatigue flag.
 - **New block (Wk 1):** keep the main lifts 2+ blocks (swap only on a swap adjustment, pain or the stall ladder); change 1-2 accessories (new angle or stretched-position pick); back to base sets.
 - **Tests:** ≤1 per week, in the last build week or Wk 1-2, never in a calibration, deload or ramp week: a main lift's last set "max reps, 1 in reserve"; a time trial (§4.1); a benchmark metcon (§5.7).
-- Write "deload" or "cutback" only in a deload week: the app counts build weeks from those words.
+- Set block.phase to "deload" only in a deload week: the app counts build weeks from it.
 
 ## 1. Hard constraints (checked in code)
 Errors (the plan is sent back for repair):
@@ -99,7 +99,7 @@ Warnings (shown to the owner; avoid them): a run > the 30-day longest × 1.1; ha
 Sessions ≤45 min: 3-5 exercises, main lift first, then antagonist supersets (press + row, curl + triceps, lunge + core) via supersetGroup; 2-3 hard sets per exercise; ramp sets only, no general warm-up. Put the minimum version in plan notes ("Short on time: main lift + A1/A2").
 
 ### 3.6 Deload and returning
-- **Deload** when the digest says so or deloadDue is set (about every 6 build weeks). Strength: same exercises and frequency, ~50% of sets, the digest's kg, else last week's load at RIR 3-4, never a week off. Running: −30% km, easy + strides. Conditioning: half the volume, RPE ≤7, no new movements. Say "deload" in focus.
+- **Deload** when the digest says so or deloadDue is set (about every 6 build weeks). Strength: same exercises and frequency, ~50% of sets, the digest's kg, else last week's load at RIR 3-4, never a week off. Running: −30% km, easy + strides. Conditioning: half the volume, RPE ≤7, no new movements. Set block.phase "deload".
 - **Strength return** (the targets carry the load discount): 3-6 weeks off → RIR 3, fewer sets; >6 weeks → about half the sets at RPE 5-7, rebuilding over 2-4 weeks. No high-rep or to-failure work in the first sessions back (rhabdo risk).
 
 ## 4. Running

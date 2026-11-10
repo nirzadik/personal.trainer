@@ -341,7 +341,8 @@ export function nextTarget(sessions, item, { today } = {}) {
   const last = ex[ex.length - 1];
   const loaded = last.sets.filter((s) => !s.bodyweight && num(s.loadKg) > 0);
   const reps = last.sets.map((s) => Math.trunc(num(s.reps) || 0));
-  const rirs = last.sets.map((s) => num(s.rir)).filter((x) => x != null);
+  // effort is judged on the regular sets: a rep test's last set ("max reps, 1 in reserve") is meant to be near failure
+  const rirs = withoutRepTest(last.sets).map((s) => num(s.rir)).filter((x) => x != null);
   const minRir = rirs.length ? Math.min(...rirs) : null;
   const daysAgo = daysBetween(last.date, day) ?? 0;
   const topLoad = loaded.length ? Math.max(...loaded.map((s) => num(s.loadKg))) : null;
@@ -489,6 +490,23 @@ function fmtSets(sets) {
   return out.join(" / ");
 }
 
+/**
+ * Work sets without a rep-test set: the last set when it has ≥ 3 more reps than every other work set (≥ 2 of them)
+ * at ≥ 90 % of their top load. Returns the sets unchanged when there is no such set.
+ * @param {object[]} sets work sets of one exposure
+ * @returns {object[]}
+ */
+export function withoutRepTest(sets) {
+  const work = (sets || []).filter((s) => !isWarmup(s));
+  if (work.length < 3) return sets || [];
+  const last = work[work.length - 1], rest = work.slice(0, -1);
+  const top = Math.max(0, ...rest.map((s) => (s.bodyweight ? 0 : num(s.loadKg) || 0)));
+  const maxReps = Math.max(...rest.map((s) => num(s.reps) || 0));
+  const lastLoad = last.bodyweight ? 0 : num(last.loadKg) || 0;
+  const isTest = (num(last.reps) || 0) >= maxReps + 3 && (top === 0 ? lastLoad === 0 : lastLoad >= 0.9 * top);
+  return isTest ? (sets || []).filter((s) => s !== last) : sets || [];
+}
+
 /** trainer.py report flags: compare like with like (same reliability tag as the latest exposure). */
 function stallFatigue(series) {
   const flags = [];
@@ -515,8 +533,10 @@ function stallFatigue(series) {
  */
 export function exerciseStats(sessions, exerciseId) {
   const ex = exposuresDetailed(sessions, exerciseId);
-  const series = ex.map((x) => sessionE1rmRaw(x.sets));
-  const reliable = series.filter((p) => !unreliable(p.tag)).map((p) => p.value);
+  // Trend and stall/fatigue flags compare like with like: a rep test (a last set taken to "max reps, 1 in reserve")
+  // is judged on its regular sets, or the normal sessions after it would read as fatigue. bestE1rm keeps the test.
+  const series = ex.map((x) => sessionE1rmRaw(withoutRepTest(x.sets)));
+  const reliable = ex.map((x) => sessionE1rmRaw(x.sets)).filter((p) => !unreliable(p.tag)).map((p) => p.value);
   const flags = stallFatigue(series);
   const last = ex.length ? ex[ex.length - 1] : null;
   return {
@@ -1111,7 +1131,11 @@ export const RUN_LIMITS = Object.freeze({
  * errors: SCHEMA, UNKNOWN_EXERCISE, EQUIPMENT_MISSING, DISLIKED_EXERCISE, WORKOUT_COUNT, TOO_LONG,
  *   RUN_RAMP (planned km > max(base × 1.1, base + 3), base = max(4-week average, last week's km)),
  *   LONG_RUN_SPIKE as an error for gross spikes (a run > 30-day longest × 1.3 and > +3 km).
- * warnings: LONG_RUN_SPIKE (a run > 30-day longest × 1.1 and > +1 km), VOLUME_LOW (< 6 sets, major muscles), VOLUME_HIGH (> 22), INJURY_CONFLICT, HARD_DAYS_ADJACENT,
+ * warnings: LONG_RUN_SPIKE (a run > 30-day longest × 1.1 and > +1 km), VOLUME_LOW (< 6 sets, major muscles), VOLUME_HIGH (> 22), INJURY_CONFLICT,
+ *   HARD_DAYS_ADJACENT (also last → first of a rotation of ≥ 4 workouts, unless the last one is the long run: 3-day
+ *   rotations run on non-consecutive days), PATTERN_FREQUENCY (with ≥ 2 strength workouts, a main pattern group
+ *   (legs = squat/lunge/hinge, push, pull; with ≥ 4 also squat and hinge apart) in only one of them; skipped when
+ *   strength is not a goal), DELOAD_NOT_REDUCED (block.phase "deload" but strength sets > 75 % of `previousPlan`'s),
  *   NO_REST_RUN_EASY (< 70 % easy km), MISSING_ALTERNATIVES, COND_NO_STIMULUS (conditioning block without a
  *   stimulus note), COND_REPEAT (consecutive conditioning blocks with the same format and the same dominant modal
  *   element M/G/W; ties count as mixed), COND_TIME_DOMAIN (≥ 2 conditioning blocks, all in one time domain), TOO_VERBOSE (text over PLAN_TEXT_LIMITS: at most one
@@ -1119,12 +1143,12 @@ export const RUN_LIMITS = Object.freeze({
  * Equipment checks need profile.equipment.locations; run baselines come from sessions in the 4 weeks before
  * plan.weekStart (falling back to profile.experience.running); both run checks are skipped when nothing is known.
  * @param {object} plan
- * @param {{ profile?: object, sessions?: object[], today?: string }} [opts]
+ * @param {{ profile?: object, sessions?: object[], today?: string, previousPlan?: object }} [opts]
  * @returns {{ ok: boolean, errors: object[], warnings: object[], stats: { setsPerMuscle: object,
  *   minutesByWorkout: Record<string, number>, runKm: number, longestRunKm: number, conditioningCount: number } }}
  *   Issue = { code, workoutId, path, message }
  */
-export function validatePlan(plan, { profile = null, sessions = [], today } = {}) {
+export function validatePlan(plan, { profile = null, sessions = [], today, previousPlan = null } = {}) {
   const errors = [], warnings = [];
   const err = (code, workoutId, path, message) => errors.push({ code, workoutId: workoutId ?? null, path, message });
   const warn = (code, workoutId, path, message) => warnings.push({ code, workoutId: workoutId ?? null, path, message });
@@ -1180,7 +1204,7 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
     if (!Array.isArray(w.blocks) || !w.blocks.length) { err("SCHEMA", w.id, `${wp}.blocks`, "Workout needs a non-empty blocks array."); hardness.push({}); return; }
     const eq = hasEquip ? availableEquipment(profile, w.locationId) : null;
     if (hasEquip && w.locationId && !profile.equipment.locations.some((l) => l?.id === w.locationId)) err("SCHEMA", w.id, `${wp}.locationId`, `Unknown location "${w.locationId}".`);
-    const h = { quality: false, legs: 0 };
+    const h = { quality: false, legs: 0, patterns: new Set(), strength: false, longRun: false };
     w.blocks.forEach((b, bi) => {
       const bp = `${wp}.blocks[${bi}]`;
       if (!b || !BLOCK_KINDS.includes(b.kind)) { err("SCHEMA", w.id, `${bp}.kind`, `Invalid block kind "${b?.kind}".`); return; }
@@ -1197,6 +1221,8 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
           if (it.progression != null && !PROGRESSIONS.includes(it.progression)) err("SCHEMA", w.id, `${ip}.progression`, `Invalid progression "${it.progression}".`);
           const ex = (it.exerciseId || it.name) ? checkExercise(w, `${ip}.exerciseId`, it.exerciseId, it.name, eq, "strength") : null;
           if (ex && ["squat", "hinge", "lunge", "olympic"].includes(ex.pattern)) h.legs += num(it.sets) || 0;
+          if (ex) h.patterns.add(ex.pattern);
+          h.strength = true;
           const alts = Array.isArray(it.alternatives) ? it.alternatives : [];
           let usable = 0;
           alts.forEach((a, ai) => {
@@ -1233,6 +1259,7 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
           easyKm += num(b.totalKm) > 0 ? Math.max(0, Math.min(km, wcKm, km - segKm)) : 0;
         }
         if (QUALITY_RUNS.has(b.runType)) h.quality = true;
+        if (b.runType === "long") h.longRun = true;
       }
     });
     if (w.blocks.some((b) => b?.kind === "conditioning")) stats.conditioningCount += 1;
@@ -1278,13 +1305,38 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
     for (const [m, v] of Object.entries(stats.setsPerMuscle)) if (v > 22) warn("VOLUME_HIGH", null, `stats.setsPerMuscle.${m}`, `${m}: ${v} sets/week (> 22).`);
   }
 
+  const hardPair = (a, b) => (a.quality && b.quality) || (a.quality && b.legs >= 4) || (a.legs >= 4 && b.quality);
   for (let i = 0; i + 1 < hardness.length; i++) {
-    const a = hardness[i], b = hardness[i + 1];
-    const heavyA = a.legs >= 4, heavyB = b.legs >= 4;
-    if ((a.quality && b.quality) || (a.quality && heavyB) || (heavyA && b.quality)) {
+    if (hardPair(hardness[i], hardness[i + 1])) {
       warn("HARD_DAYS_ADJACENT", workouts[i + 1]?.id, `workouts[${i + 1}]`,
         `${workouts[i]?.id} and ${workouts[i + 1]?.id} are back-to-back hard sessions (intense run/conditioning or heavy legs).`);
     }
+  }
+  // The rotation wraps into next week. 3-day rotations run on non-consecutive days; a long run last is the
+  // templates' accepted boundary (a rest day follows it).
+  const lastH = hardness[hardness.length - 1];
+  if (hardness.length >= 4 && !lastH?.longRun && hardPair(lastH, hardness[0])) {
+    warn("HARD_DAYS_ADJACENT", workouts[0]?.id, "workouts[0]",
+      `${workouts[workouts.length - 1]?.id} and ${workouts[0]?.id} are back-to-back hard sessions when the rotation starts again.`);
+  }
+
+  // Each main pattern ≥ 2×/week once there are ≥ 2 strength workouts (PLAN_RULES §3.1; the second exposure may be a variant).
+  const strengthDays = hardness.filter((x) => x.strength);
+  if (strengthDays.length >= 2 && profile?.goals?.modalities?.strength !== false) {
+    const groups = [["legs (squat/hinge)", ["squat", "lunge", "hinge"]], ["push", ["h_push", "v_push"]], ["pull", ["h_pull", "v_pull"]]];
+    if (strengthDays.length >= 4) groups.push(["squat", ["squat", "lunge"]], ["hinge", ["hinge"]]);
+    for (const [label, pats] of groups) {
+      const days = strengthDays.filter((x) => pats.some((pt) => x.patterns.has(pt))).length;
+      if (days === 1) warn("PATTERN_FREQUENCY", null, "workouts", `${label} is trained in 1 of ${strengthDays.length} strength workouts: aim for ≥ 2×/week (a variant or lighter second exposure is fine).`);
+    }
+  }
+
+  // A deload week (block.phase) keeps the exercises but about half the sets (PLAN_RULES §3.6).
+  if (String(plan.block?.phase ?? "").toLowerCase() === "deload" && previousPlan && typeof previousPlan === "object") {
+    const setsOf = (p) => (Array.isArray(p?.workouts) ? p.workouts : []).reduce((a, w) => a + (w?.blocks || [])
+      .filter((b) => b?.kind === "strength").reduce((x, b) => x + (b.items || []).reduce((y, it) => y + (num(it?.sets) || 0), 0), 0), 0);
+    const cur = setsOf(plan), prev = setsOf(previousPlan);
+    if (prev > 0 && cur > prev * 0.75) warn("DELOAD_NOT_REDUCED", null, "block", `Deload week but ${cur} strength sets vs ${prev} in the previous plan: aim for about half.`);
   }
 
   const ELEMENT = { M: "cardio", G: "bodyweight", W: "loaded" };

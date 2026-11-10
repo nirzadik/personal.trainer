@@ -56,7 +56,7 @@ export const PLAN_BUDGETS = Object.freeze({
  */
 export const PLAN_JSON_SPEC = `Reply with ONLY one JSON object, compact on ONE line (no indentation or line breaks), no prose, no code fence.
 OMIT every field that would be null, "" or [], and every field marked ? when at its default (=…): the app fills them in. Never write null.
-Plan = {"focus": ≤ 60 chars, "rationale": ≤ 2 short sentences ≤ 220 chars citing 1-2 history numbers, "workouts": [Workout] exactly the required number in rotation order, "notes"?: [≤ 5 strings ≤ 100 chars: deload hints, swaps, safety]}
+Plan = {"focus": ≤ 60 chars, "rationale": ≤ 2 short sentences ≤ 220 chars citing 1-2 history numbers, "block"?=digest.block: {"week": block week n, "phase": "build"|"deload"|"test" (a build week with a test)|"taper"|"race"|"return"} (write it when yours differs), "workouts": [Workout] exactly the required number in rotation order, "notes"?: [≤ 5 strings ≤ 100 chars: the minimum version, swaps, safety]}
 Workout = {"id"?="W1","W2"… by position, "title", "type"?="strength"|"run"|"conditioning" by its one main block kind, "hybrid" with 2+ kinds, else "mobility", "locationId"?=the default location, "estMinutes", "intent": 1 sentence ≤ 90 chars, "blocks": [Block]}
 Block is one of:
  {"kind": "warmup"|"cooldown"|"mobility", "minutes", "items": [{"name", "detail"?: ≤ 6 words}]}
@@ -74,6 +74,7 @@ CondItem = {"exerciseId", "name"?=catalog name (omit), "reps"?, "calories"?, "di
 export const PLAN_EXAMPLE_FULL = Object.freeze({
   focus: "Wk 3 build: squat and bench up, runs easy",
   rationale: "Squat e1RM +3% with RIR on target: loads up. Runs held at 12 km, no pain: long run +1 km.",
+  block: { week: 3, phase: "build" },
   workouts: [
     {
       id: "W1", title: "Lower A", type: "strength", locationId: "gym", estMinutes: 55, intent: "Heavy squat; legs fresh for W3",
@@ -98,7 +99,35 @@ export const PLAN_EXAMPLE_FULL = Object.freeze({
 });
 
 const PLAN_KEYS = Object.freeze(["id", "status", "weekStart", "createdAt", "approvedAt", "weeklyTargets", "validation"]);
-const T_PLAN = [["focus", ""], ["rationale", ""], ["workouts", []], ["notes", []]];
+const T_PLAN = [["focus", ""], ["rationale", ""], ["block", null], ["workouts", []], ["notes", []]];
+
+/** Plan.block.phase values (PLAN_JSON_SPEC). "test" is a build week that holds a test; the others are reduced or special weeks. */
+export const PLAN_BLOCK_PHASES = Object.freeze(["build", "deload", "test", "taper", "race", "return"]);
+const PHASE_SYNONYMS = {
+  build: "build", base: "build", accumulation: "build", "race-specific": "build", "race specific": "build", peak: "build", intensification: "build",
+  deload: "deload", "deload week": "deload", cutback: "deload", recovery: "deload",
+  test: "test", testing: "test", "test week": "test",
+  taper: "taper", race: "race", "race week": "race", return: "return", "return week": "return",
+};
+
+/**
+ * Plan.block = { week, phase } in a fixed shape, or null: week an integer 1-52 (a "Wk 3" string is read), phase one
+ * of PLAN_BLOCK_PHASES (a few synonyms mapped). Missing parts come from `fallback` (typically digest.block), then
+ * week 1 / phase "build"; neither readable and no fallback → null.
+ * @param {unknown} v
+ * @param {unknown} [fallback]
+ * @returns {{ week: number, phase: string }|null}
+ */
+export function normalizePlanBlock(v, fallback = null) {
+  const fb = fallback != null && fallback !== v ? normalizePlanBlock(fallback) : null;
+  if (!isPlainObject(v)) return fb;
+  const ph = PHASE_SYNONYMS[String(v.phase ?? "").trim().toLowerCase()] ?? null;
+  const m = /\d+/.exec(String(v.week ?? ""));
+  const wk = m ? Number(m[0]) : null;
+  const week = wk != null && wk >= 1 ? Math.min(52, wk) : null;
+  if (!ph && week == null) return fb;
+  return { week: week ?? fb?.week ?? 1, phase: ph ?? fb?.phase ?? "build" };
+}
 const T_WORKOUT = [["id", null], ["title", ""], ["type", null], ["locationId", null], ["estMinutes", null], ["intent", ""], ["blocks", []]];
 const T_PREP = [["kind", null], ["minutes", null], ["items", []]];
 const T_PREP_ITEM = [["name", ""], ["detail", ""]];
@@ -138,11 +167,13 @@ function inferType(blocks) {
  * every Workout / Block / item field present (null, "", [] or the stated default), strength reps as strings,
  * workout ids W1… by position, a missing type inferred from the block kinds, names from `nameOf`, missing locationIds from `defaultLocationId`. A full plan passes
  * through unchanged (values kept, keys reordered). A `{ plan: {...} }` wrapper is unwrapped. App-owned keys are kept.
+ * `block` is normalized (normalizePlanBlock); an omitted block ("block"?=digest.block) takes `opts.block` (no key
+ * when there is neither, so an older plan passes through unchanged).
  * @param {unknown} raw
- * @param {{ nameOf?: (exerciseId: string) => string|null|undefined, defaultLocationId?: string }} [opts]
+ * @param {{ nameOf?: (exerciseId: string) => string|null|undefined, defaultLocationId?: string, block?: object|null }} [opts]
  * @returns {object}
  */
-export function expandPlan(raw, { nameOf, defaultLocationId } = {}) {
+export function expandPlan(raw, { nameOf, defaultLocationId, block: defaultBlock = null } = {}) {
   let p = raw;
   if (isPlainObject(p?.plan) && Array.isArray(p.plan.workouts)) p = p.plan;
   if (!isPlainObject(p)) p = {};
@@ -169,7 +200,9 @@ export function expandPlan(raw, { nameOf, defaultLocationId } = {}) {
       locationId: (v) => v ?? defaultLocationId ?? null,
     });
   }).map((w, i) => (isPlainObject(w) && !(typeof w.id === "string" && w.id.trim()) ? { ...w, id: `W${i + 1}` } : w));
-  return fill(p, T_PLAN, { workouts: () => workouts });
+  const out = fill(p, T_PLAN, { workouts: () => workouts, block: (v) => normalizePlanBlock(v, defaultBlock) });
+  if (out.block === null && !("block" in p)) delete out.block; // an older plan without a block stays as it was
+  return out;
 }
 
 /**
@@ -495,9 +528,11 @@ export function buildPlanPrompt(d) {
 export function formatDigest(digest) {
   if (!isPlainObject(digest)) return "";
   const key = digest.basis === "history"
-    ? "basis \"history\": plan from these numbers. week = the latest plan week's completion (week.inProgress: that week is still running, so done is judged against week.expected = workouts due so far; workouts not yet done are simply still to come); strength[].next = the app's next target (kg/reps); adjustments = what to do per scope (follow them; kg/kmMax/longMax are limits); baselines = profile fallbacks only for items without history."
+    ? "basis \"history\": plan from these numbers. week = the latest plan week's completion (week.inProgress: that week is still running, so done is judged against week.expected = workouts due so far; workouts not yet done are simply still to come); strength[].next = the app's next target (kg/reps); adjustments = what to do per scope (follow them; kg/kmMax/longMax are limits; run downWeek = the §4.3 down week); baselines = profile fallbacks only for items without history."
     : "basis \"profile\": no logged sessions yet. Calibration week from profile baselines (see adjustments and baselines).";
-  return `${key}\n\`\`\`json\n${JSON.stringify(groupAdjustments(digest))}\n\`\`\``;
+  const blockKey = " block = the week you are writing, counted by the app (not from focus text): block.week is its block week (\"Wk N\" in focus), block.phase the expected phase, weeksSinceDeload the build weeks since the last deload; the plan's \"block\" field defaults to it." +
+    (isPlainObject(digest.event) ? " event = the race timeline for this week (weeksOut, taperFrom, stage base|build|race-specific|taper|race week|post-race; §4.8)." : "");
+  return `${key}${isPlainObject(digest.block) ? blockKey : ""}\n\`\`\`json\n${JSON.stringify(groupAdjustments(digest))}\n\`\`\``;
 }
 
 /**

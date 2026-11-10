@@ -173,6 +173,7 @@ All writes go through `store.js`. Path parity: `data/users/<uid>` is a collectio
   createdAt, approvedAt: null,
   focus: "one line",
   rationale: "≤ 2 short sentences (≤ 220 chars), referencing recent history",
+  block: null,                      // { week, phase: "build"|"deload"|"test"|"taper"|"race"|"return" } (CONTRACT-v2, 2026-11 knowledge review)
   workouts: [ Workout ],            // rotation order
   weeklyTargets: { runKm: null, conditioningSessions: null, strengthSetsPerMuscle: {} },
   notes: [],

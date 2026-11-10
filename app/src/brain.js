@@ -13,7 +13,7 @@ import { buildContextSnapshot, buildReviewSnapshot, formatMemory, formatPlanOver
 import {
   CHAT_BUDGETS, ONBOARDING_START_TURN, REVIEW_START_TURN, buildChatTurns, buildInstructionsTurn, isClearCommand, normalizeTurns,
 } from "./prompts/chat.js";
-import { PLAN_BUDGETS, buildPlanPrompt, buildRepairPrompt, expandPlan, formatPaces } from "./prompts/plan.js";
+import { PLAN_BUDGETS, buildPlanPrompt, buildRepairPrompt, expandPlan, formatPaces, normalizePlanBlock } from "./prompts/plan.js";
 import { progressionDigest } from "./progress.js";
 import { SUMMARY_STALE_AFTER, buildSummaryPrompt, composeSummary, parseSummary } from "./prompts/summary.js";
 import { buildCommentPrompt, clampWords } from "./prompts/comment.js";
@@ -1404,10 +1404,11 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
 
   // ---------- plans ----------
 
-  function normalizePlan(raw, { id, weekStart, profile }) {
+  function normalizePlan(raw, { id, weekStart, profile, block = null }) {
     const defLoc = profile?.equipment?.defaultLocationId || profileLocations(profile)[0].id;
-    // the reply is compact (PLAN_JSON_SPEC: defaults and nulls omitted): restore the CONTRACT §4 shape first
-    const p = expandPlan(raw, { nameOf: exerciseName, defaultLocationId: defLoc });
+    // the reply is compact (PLAN_JSON_SPEC: defaults and nulls omitted): restore the CONTRACT §4 shape first;
+    // an omitted "block" ("block"?=digest.block) takes the app's count (`block`: the draft's, else the digest's)
+    const p = expandPlan(raw, { nameOf: exerciseName, defaultLocationId: defLoc, block });
     const seen = new Set();
     const fillName = (it) => (isPlainObject(it) ? { ...it, name: it.name || exerciseName(it.exerciseId) || String(it.exerciseId ?? "") } : it);
     const workouts = (Array.isArray(p.workouts) ? p.workouts : []).filter(isPlainObject).map((w, i) => {
@@ -1429,6 +1430,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       id, status: "draft", weekStart, createdAt: nowIso(), approvedAt: null,
       focus: clip(String(p.focus ?? ""), 140),
       rationale: clip(String(p.rationale ?? ""), 1200),
+      block: normalizePlanBlock(p.block),
       workouts,
       weeklyTargets: { runKm: null, conditioningSessions: null, strengthSetsPerMuscle: {} },
       notes: (Array.isArray(p.notes) ? p.notes : []).map((n) => clip(String(n), 200)).filter(Boolean).slice(0, 8),
@@ -1481,15 +1483,18 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         soft(() => store.wellness?.list?.({ from: addDaysISO(today(), -27), to: today() }), []),
       ]);
       const plansForDigest = [...(Array.isArray(planList) ? planList : []), agreed].filter(isPlainObject);
-      const digest = attempt(() => progressionDigest({
-        sessions: sessionsAsc, plans: plansForDigest, wellness: Array.isArray(wellness) ? wellness : [], profile, today: today(), weeks: 2,
-      }));
-      const lim = await getLimits();
-      tier = tierFor(PLAN_TIERS.has(tierWanted) ? tierWanted : "complex", lim);
-
       const thisWeek = weekStartOf(t);
       const weekStart = base?.weekStart && isIsoDate(base.weekStart) ? base.weekStart
         : planWeekStart(agreed, thisWeek);
+      const digest = attempt(() => progressionDigest({
+        sessions: sessionsAsc, plans: plansForDigest, wellness: Array.isArray(wellness) ? wellness : [], profile, today: today(), weeks: 2,
+        planWeekStart: weekStart,
+      }));
+      // Plan.block when the reply omits it: a revised draft keeps its own, a new plan takes the digest's count
+      const defaultBlock = normalizePlanBlock(base?.block) ?? normalizePlanBlock(digest?.block);
+      const lim = await getLimits();
+      tier = tierFor(PLAN_TIERS.has(tierWanted) ? tierWanted : "complex", lim);
+
       const id = weekStart; // provisional: store.plans.saveDraft assigns the final id (weekStart, -2, -3…)
 
       const workoutCount = clampInt(profile?.schedule?.daysPerWeek, 1, 7, 3);
@@ -1522,11 +1527,11 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         onText: ({ text }) => { streamedChars = text.length; progress(phaseNow, { chars: text.length }); },
       };
       const raw = await callJson(prompt, jsonOpts);
-      let plan = normalizePlan(raw, { id, weekStart, profile });
+      let plan = normalizePlan(raw, { id, weekStart, profile, block: defaultBlock });
 
       progress("validating");
       phaseNow = "validating";
-      const validate = (p) => attempt(() => C.validatePlan(p, { profile, sessions: sessionsAsc, today: t }));
+      const validate = (p) => attempt(() => C.validatePlan(p, { profile, sessions: sessionsAsc, today: t, previousPlan: agreed }));
       let validation = validate(plan);
       const errorCount = (v) => (Array.isArray(v?.errors) ? v.errors.length : 0);
       if (errorCount(validation) > 0) {
@@ -1537,7 +1542,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
           const raw2 = await callJson(buildRepairPrompt({
             ...common, plan, errors: validation.errors, locationIds: profileLocations(profile).map((l) => l.id), defaultLocationId,
           }), jsonOpts);
-          const plan2 = normalizePlan(raw2, { id, weekStart, profile });
+          const plan2 = normalizePlan(raw2, { id, weekStart, profile, block: plan.block ?? defaultBlock });
           const v2 = validate(plan2);
           if (plan2.workouts.length && errorCount(v2) <= errorCount(validation)) {
             plan = plan2;

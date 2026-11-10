@@ -8,6 +8,7 @@
 import {
   adherence, daysBetween, exerciseStats, exposures, formatPace, nextTarget, paceSecPerKm, runningLoad, todayISO, weekStartOf,
 } from "./core.js";
+import { normalizePlanBlock } from "./prompts/plan.js";
 
 /** Byte budget of the digest JSON. */
 export const DIGEST_MAX_BYTES = 6000;
@@ -28,6 +29,9 @@ export const DIGEST_RULES = Object.freeze({
   painSignal: 4,             // pain ≥ 4/10 = a signal (and a swap for the affected exercise / reduce for running)
   fatigueSignalsDeload: 2,   // ≥ this many independent signals → deload week; 1 → hold
   buildWeeksDeloadDue: 6,    // consecutive non-deload plans → deload due
+  downWeekAfter: 3,          // run km level or rising this many weeks in a row → down week (PLAN_RULES §4.3)
+  downWeekLevel: 0.9,        // "level": a week ≥ 90 % of the one before
+  downWeekKmPct: 0.8,        // down week: kmMax = last week × 0.8 (−20-30 %), longMax = 30-day longest × 0.8
   runProgressPct: 90,        // completed / planned run km ≥ this → may progress volume
   runHoldPct: 75,            // < this → rebuild from completed km, no increase
   paceSlowTolerance: 0.02,   // quality run slower than the slow end of its target by > 2 % → hold paces
@@ -71,19 +75,67 @@ function lastPlanOf(plans, today, sessionsAsc = []) {
     && !sessionsAsc.some((s) => s.planId === first.id || s.date >= first.weekStart)) return second;
   return first ?? null;
 }
-function buildWeeksSinceDeload(plans, today) {
+/** Plan.block phases that end a block: the next plan is Wk 1 again. "build" and "test" weeks count as build weeks. */
+export const BLOCK_RESET_PHASES = Object.freeze(["deload", "return", "taper", "race"]);
+
+/**
+ * Consecutive build weeks (agreed / archived plans up to today, one per weekStart) since the last block reset.
+ * A plan with `block` (Plan JSON spec) is read by its phase; an older plan without one falls back to the words
+ * "deload", "cutback" or "recovery week" in its focus (notes are no longer read: "deload next week" there is a hint,
+ * not a deload).
+ * @param {object[]} plans
+ * @param {string} today
+ * @returns {number}
+ */
+export function buildWeeksSinceDeload(plans, today) {
   const list = (Array.isArray(plans) ? plans : []).filter((p) => isObj(p) && p.status !== "draft" && String(p.weekStart ?? "") <= today)
-    .sort((a, b) => String(b.weekStart).localeCompare(String(a.weekStart)));
+    .sort((a, b) => String(b.weekStart).localeCompare(String(a.weekStart)) || (a.status === "agreed" ? -1 : b.status === "agreed" ? 1 : 0)
+      || String(b.approvedAt ?? b.createdAt ?? "").localeCompare(String(a.approvedAt ?? a.createdAt ?? "")));
   const seen = new Set();
   let count = 0;
   for (const p of list) {
     if (seen.has(p.weekStart)) continue;
     seen.add(p.weekStart);
-    if (/deload|cutback|recovery week/i.test(`${p.focus ?? ""} ${(p.notes ?? []).join(" ")}`)) break;
+    const block = normalizePlanBlock(p.block);
+    const reset = block ? BLOCK_RESET_PHASES.includes(block.phase) : /deload|cutback|recovery week/i.test(String(p.focus ?? ""));
+    if (reset) break;
     count++;
   }
   return count;
 }
+
+/** Taper length in days by race distance (PLAN_RULES §4.8: 5K/10K 7-10 days, HM 10-14, marathon 3 weeks). */
+function taperDays(km) { return km > 25 ? 21 : km > 12 ? 14 : 10; }
+/** Weeks of build before the taper (PLAN_RULES §4.8 minimum builds, upper end). */
+function buildWeeks(km) { return km > 25 ? 20 : km > 12 ? 14 : km > 6 ? 10 : 8; }
+
+/**
+ * Race timeline for the plan week starting `weekStart` (Sunday): weeks to profile.goals.event.date, the taper
+ * start and the stage (PLAN_RULES §4.8): "base" | "build" | "race-specific" (4-6 weeks before the taper) | "taper" |
+ * "race week" | "post-race" (the week after). null without a dated event, or once it is more than a week past.
+ * @param {object|null} event { type, distanceKm, date, goalTimeSec }
+ * @param {string} weekStart YYYY-MM-DD
+ * @returns {{ date: string, km: number|null, weeksOut: number, taperFrom: string, stage: string }|null}
+ */
+export function eventTimeline(event, weekStart) {
+  const date = isObj(event) && /^\d{4}-\d{2}-\d{2}$/.test(String(event.date ?? "")) ? event.date : null;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(weekStart ?? ""))) return null;
+  const km = n(event.distanceKm) > 0 ? n(event.distanceKm) : null;
+  const weekEnd = addDays(weekStart, 6);
+  const daysOut = daysBetween(weekStart, date);
+  if (daysOut == null || daysOut < -7) return null;
+  const taperFrom = addDays(date, -taperDays(km ?? 10));
+  const weeksOut = Math.max(0, Math.ceil(daysOut / 7));
+  let stage;
+  if (date < weekStart) stage = "post-race";
+  else if (date <= weekEnd) stage = "race week";
+  else if (addDays(weekStart, 3) >= taperFrom) stage = "taper"; // most of the week inside the taper
+  else if (weekStart >= addDays(taperFrom, -42)) stage = "race-specific";
+  else if (daysOut <= 7 * buildWeeks(km ?? 10)) stage = "build";
+  else stage = "base";
+  return { date, ...(km ? { km } : {}), weeksOut, taperFrom, stage };
+}
+
 function planStrengthItems(plan) {
   const map = new Map();
   for (const w of plan?.workouts ?? []) for (const b of w?.blocks ?? []) {
@@ -308,8 +360,15 @@ function runSection({ sessionsAsc, plan, profile, today, weekCtx }) {
       ...(n(s.run.rpe) != null ? { rpe: n(s.run.rpe) } : {}), ...(slow ? { slow: true } : {}), ...(fast ? { fast: true } : {}), ...(hard ? { hard: true } : {}) });
   }
   const pain = Math.max(0, ...inWeek.flatMap((s) => (s.pain ?? []).map((p) => n(p?.score) ?? 0)));
+  // Down week (PLAN_RULES §4.3): the last DOWN_WEEK_AFTER full weeks all level or rising. Today's calendar week counts
+  // as full from Friday on; earlier in the week it is still filling up and the three weeks before it are judged.
+  const dayOfWeek = daysBetween(weekStartOf(today), today) ?? 6;
+  const fullWeeks = (dayOfWeek >= 5 ? kmWk : kmWk.slice(0, -1)).slice(-R.downWeekAfter);
+  const levelRun = fullWeeks.length === R.downWeekAfter && fullWeeks.every((k) => k > 0)
+    && fullWeeks.every((k, i) => i === 0 || k >= fullWeeks[i - 1] * R.downWeekLevel);
   return {
     logged: true, kmWk, avg4, doneKm, ...(planKm != null ? { planKm, ...(pct != null ? { pct } : {}) } : {}), ...(lastFullKm ? { lastFullKm } : {}), longest30,
+    ...(levelRun ? { levelWeeks: fullWeeks.length, levelKm: fullWeeks[fullWeeks.length - 1] } : {}),
     ...(easySec ? { easyPace: fmtPace(easySec), easySec } : {}),
     ...(quality.length ? { quality: quality.slice(-4) } : {}),
     ...(pain ? { pain } : {}),
@@ -328,6 +387,10 @@ function runDecision(run, weekAct) {
     ? { pace: "hold", paceWhy: `${slowQ[0].type} ran ${slowQ[0].actual ?? "?"} vs ${slowQ[0].target ?? "target"}${slowQ[0].hard ? ", RPE ≥9" : ""}: keep paces, don't speed up` }
     : fastQ.length ? { pace: "hold", paceWhy: "quality ran faster than target: keep paces until a new race/time trial" } : {};
   if (weekAct === "deload") return { act: "deload", kmMax: r1(base * 0.7), longMax: r1(run.longest30 * 0.8), why: "deload week: −30% km, easy + strides", ...paceHint };
+  if (run.levelWeeks && !["reduce_volume", "return"].includes(weekAct)) {
+    return { act: "reduce_volume", downWeek: true, kmMax: r1(run.levelKm * R.downWeekKmPct), longMax: r1(run.longest30 * R.downWeekKmPct),
+      why: `down week: ${run.levelWeeks} level or rising weeks: −20-30% km, long run ~80%, one short quality touch`, ...paceHint };
+  }
   if (run.pct != null && run.pct < R.runHoldPct) {
     return { act: "repeat", kmMax: r1(Math.max(run.doneKm || 0, run.avg4 || 0)), longMax: run.longest30, why: `${run.doneKm} of ${run.planKm} km done: rebuild from completed km, no increase`, ...paceHint };
   }
@@ -387,9 +450,13 @@ function conditioningDecision(cond, weekAct) {
  * @param {object} [args.profile]
  * @param {string} [args.today] YYYY-MM-DD
  * @param {number} [args.weeks=2] look-back window for per-exercise rows and trends
- * @returns {object} ≤ DIGEST_MAX_BYTES of JSON: { v, asOf, basis, week, signals, strength, run, conditioning, pain, wellness, adjustments, baselines }
+ * @param {string} [args.planWeekStart] Sunday of the plan being written (default: as brain.planWeekStart: this week, or
+ *   next week when the latest plan already covers this week); dates the event timeline
+ * @returns {object} ≤ DIGEST_MAX_BYTES of JSON: { v, asOf, basis, week, block, event, signals, deloadDue, strength, run,
+ *   conditioning, pain, wellness, adjustments, baselines }. block = { week, phase, weeksSinceDeload, deloadDue } for the
+ *   plan being written (Plan.block defaults to { week, phase }).
  */
-export function progressionDigest({ sessions = [], plans = [], wellness = [], profile = {}, today, weeks = 2 } = {}) {
+export function progressionDigest({ sessions = [], plans = [], wellness = [], profile = {}, today, weeks = 2, planWeekStart } = {}) {
   const t = typeof today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : todayISO();
   const w = Math.max(1, Math.min(8, Number(weeks) || 2));
   const sessionsAsc = sortAsc(sessions).filter((s) => String(s.date) <= t);
@@ -406,13 +473,26 @@ export function progressionDigest({ sessions = [], plans = [], wellness = [], pr
 
   // ----- week-level decision
   const { signals, severe } = fatigueSignals({ week, well, strengthRows, painMax });
-  const deloadDue = buildWeeksSinceDeload(plans, t) >= R.buildWeeksDeloadDue;
+  const weeksSinceDeload = buildWeeksSinceDeload(plans, t);
+  const deloadDue = weeksSinceDeload >= R.buildWeeksDeloadDue;
+  const thisWeek = weekStartOf(t);
+  const nextWs = /^\d{4}-\d{2}-\d{2}$/.test(String(planWeekStart ?? "")) ? planWeekStart
+    : plan && String(plan.weekStart ?? "") >= thisWeek ? addDays(thisWeek, 7) : thisWeek;
+  const event = safe(() => eventTimeline(profile?.goals?.event, nextWs));
+  const raceWeek = event && ["taper", "race week"].includes(event.stage); // the taper is the reduced week
+  // PLAN_RULES §0: deloadDue → deload, unless a novice on linear progression has no hold or fatigue flag.
+  const level = String(profile?.experience?.level ?? "");
+  const linear = [...planStrengthItems(plan).values()].some((it) => it.progression === "linear");
+  const noviceExempt = (level === "novice" || level === "late_novice") && linear
+    && strengthRows.every((r) => !r.flag && ["progress", "calibrate"].includes(r._decision?.act));
   let weekAct, weekWhy;
   if (!hasHistory) { weekAct = "calibrate"; weekWhy = "no logged sessions: calibration week from profile baselines"; }
   else if (severe || signals.length >= R.fatigueSignalsDeload || (deloadDue && signals.length >= 1)) {
     weekAct = "deload"; weekWhy = `${signals.join("; ")}${deloadDue ? "; deload due" : ""}: ~50% sets, RIR 3-4, loads −10-20%`;
   } else if (week.daysSinceLast != null && week.daysSinceLast >= R.gapReturnDays) {
     weekAct = "return"; weekWhy = `${week.daysSinceLast} days since last session: −30% volume, loads per targets`;
+  } else if (deloadDue && !noviceExempt && !raceWeek) {
+    weekAct = "deload"; weekWhy = `${weeksSinceDeload} build weeks since the last deload: planned deload, ~50% sets, last week's loads at RIR 3-4`;
   } else if (week.pct != null && week.pct < R.completeRepeatPct) {
     const sick = (week.missedWhy?.sick ?? 0) + (week.missedWhy?.pain ?? 0) > 0;
     weekAct = sick ? "reduce_volume" : "repeat";
@@ -421,7 +501,7 @@ export function progressionDigest({ sessions = [], plans = [], wellness = [], pr
     weekAct = "repeat";
     weekWhy = `${week.done + week.partial} of ${week.expected ?? week.planned} done${week.inProgress ? " so far" : ""}: put missed key lifts first, no added volume${week.missedWhy?.time ? "; condense (trim accessories)" : ""}`;
   } else if (signals.length === 1) { weekAct = "hold"; weekWhy = `${signals[0]}: hold volume, no extra load jumps`; }
-  else { weekAct = "progress"; weekWhy = `${week.inProgress ? `week in progress, ${week.done + week.partial} of ${week.planned} done so far` : `${week.pct ?? 100}% done`}, recovery fine: progress per targets${deloadDue ? "; deload due soon" : ""}`; }
+  else { weekAct = "progress"; weekWhy = `${week.inProgress ? `week in progress, ${week.done + week.partial} of ${week.planned} done so far` : `${week.pct ?? 100}% done`}, recovery fine: progress per targets${deloadDue ? (raceWeek ? "; deload due: the taper replaces it" : "; deload due, novice still progressing linearly: keep building") : ""}`; }
 
   // per-exercise: the week decision caps the exercise decision
   const adjustments = [{ scope: "week", act: weekAct, why: weekWhy }];
@@ -451,9 +531,14 @@ export function progressionDigest({ sessions = [], plans = [], wellness = [], pr
   if (!hasHistory && profile?.experience?.level) baselines.level = profile.experience.level;
 
   const ad4 = hasHistory ? safe(() => adherence(sessionsAsc, profile, { weeks: 4, today: t })) : null;
+  const phase = weekAct === "deload" ? "deload" : weekAct === "return" ? "return"
+    : event?.stage === "race week" ? "race" : event?.stage === "taper" ? "taper" : "build";
+  const block = { week: phase === "return" ? 1 : weeksSinceDeload + 1, phase, weeksSinceDeload, deloadDue };
   const digest = {
     v: 1, asOf: t, basis: hasHistory ? "history" : "profile",
     week: { ...week, ...(ad4?.pct != null ? { adherence4wPct: ad4.pct } : {}), thisWeekStart: weekStartOf(t) },
+    block,
+    ...(event ? { event } : {}),
     ...(signals.length ? { signals } : {}),
     ...(deloadDue ? { deloadDue: true } : {}),
     ...(strengthRows.length ? { strength: strengthRows } : {}),

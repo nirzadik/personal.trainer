@@ -560,7 +560,9 @@ test("validatePlan: warnings", () => {
   assert.ok(alt.some((w) => w.code === "MISSING_ALTERNATIVES" && w.path === "workouts[0].blocks[1].items[0].alternatives"));
   assert.ok(!alt.some((w) => w.path === "workouts[0].blocks[1].items[1].alternatives"), "cable row is usable");
   const base = warns(() => {});
-  assert.deepEqual(codes(base).filter((c) => c !== "VOLUME_LOW"), ["HARD_DAYS_ADJACENT"], JSON.stringify(base));
+  // the fixture is a 2-day upper/lower split: each pattern once a week (PLAN_RULES §3.2 asks for full body A/B)
+  assert.deepEqual(codes(base).filter((c) => c !== "VOLUME_LOW"), ["HARD_DAYS_ADJACENT", "PATTERN_FREQUENCY"], JSON.stringify(base));
+  assert.equal(base.filter((w) => w.code === "PATTERN_FREQUENCY").length, 3, "legs, push and pull");
   assert.deepEqual(base.filter((w) => w.code === "HARD_DAYS_ADJACENT").map((w) => w.workoutId), ["W4"], "heavy legs then the long run");
 });
 
