@@ -40,9 +40,9 @@ Run these steps in order for every metcon.
 | Long | >20 min | 3-5 | AMRAP, RFT, chipper, erg piece | Moderate, never stop moving |
 | Intervals | bout sets the domain (§4) | 1-3 | EMOM / every X min / work:rest | Repeatable output each round |
 
-Mainsite (55 conditioning pieces): ≤5 min 5%, 6-10 min 18%, 11-20 min 55%, >20 min 22%; median 15 min; plus ~1 heavy strength day per week. [CF]
+Mainsite (55 pieces): ≤5 min 5%, 6-10 min 18%, 11-20 min 55%, >20 min 22%; median 15 min. [CF]
 
-**Step 2. Priority.** *Task* (fixed work, score = time; cap 1.25-1.5× expected) or *time* (fixed clock, score = rounds; self-limiting, best for newcomers). Mainsite: For Time/RFT/chipper 55%, intervals 14%, AMRAP 11%, strength 14% of days. [CF]
+**Step 2. Priority.** *Task* (fixed work, score = time; cap 1.25-1.5× expected) or *time* (fixed clock, score = rounds; self-limiting, best for newcomers).
 
 **Step 3. Estimate the time** before prescribing: per-movement time for one round (e.g. 400 m run ≈ 1:45-2:15 for most, 10 KB swings ≈ 20-25 s, 10 burpees ≈ 35-45 s) → sum → × rounds → add 10-15 s per transition and ~10-20% for fatigue. If the estimate overshoots the band, cut rounds or reps. [CF method]
 
@@ -95,7 +95,6 @@ Ratios: NSCA table; Buchheit & Laursen 2013 [PS]. No interval structure clearly 
 - **Frequency.** 2-3 HIIT sessions/week is the usual effective range; weekly dose matters more than frequency [MA]. Quality runs count toward the same budget.
 - **Recovery ≥48 h** between hard sessions loading the same tissues or system, metcon ↔ quality run included. Performance, CK and liver enzymes normalise by ~48 h after single CrossFit workouts (Timón 2019) and a strength-power microcycle (2026) [OBS]; a 68-study scoping review says 48-72 h, with muscle-damage markers lagging performance [MA].
 - **Very-high-intensity time:** keep work >90% HRmax at about 30-40 min/week (Les Mills, n=35, industry-funded: weak, sensible ceiling) [P].
-- **Rest rhythm.** 2003 template: 3 on/1 off; current mainsite: Mon-Wed, Thu off, Fri-Sat, Sun off (every sampled week) [CF]. Here §10 governs: ≤2 hard days in a row.
 - **Deload** with the strength deload (every 4-8 weeks): ~half metcon volume, RPE ≤7, no new movements.
 
 ## 6. Movement selection and limited-equipment substitutions
@@ -217,7 +216,7 @@ Example, 2/week: W1 A = DB thruster + burpee 8 min (W), B = row + push-up + air 
    - **Conditioning-led:** 2-3 strength + metcon sessions (strength first), 1 interval session, 1 easy aerobic.
    - ~2 exposures/week per modality to progress, 1 to maintain.
 
-**Template weeks** (order = rotation order; 3-day rows assume non-consecutive days; put a rest day after the long run; check rules 1-3 after any reorder):
+**Template weeks** (order = rotation order; 3-day rows assume non-consecutive days; check rules 1-3 after any reorder). With 3 hard days in ≤5 sessions one hard-hard adjacency is unavoidable: put it at the week boundary (long run last) with a rest day after the long run. With exactly 2 strength sessions, "upper" and "lower" are full-body days biased that way (`programming.md` §7), so every pattern is trained twice:
 
 | Days | Balanced hybrid | Running priority | Strength priority | Conditioning priority |
 |---|---|---|---|---|

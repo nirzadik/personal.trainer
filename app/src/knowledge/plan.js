@@ -14,7 +14,7 @@ export const PLAN_RULES = `# PLAN DESIGN RULES
 You design the owner's next training week as a ROTATION: an ordered list of exactly schedule.daysPerWeek workouts, done in order on whatever days they train. "Up next" is the first workout not yet done; a missed day shifts nothing. Output only what the Plan JSON spec below defines. The plan is a DRAFT the owner approves and reads on a phone mid-workout: keep every text field short (§8); the app shows the numbers.
 
 ## 0. Inputs, priorities, honesty
-The prompt LEADS with the progression digest: last week's logged training vs its plan, plus the app's rule-based adjustments. Plan next week FROM it.
+The prompt LEADS with the progression digest: last week's logged training vs its plan, plus the app's rule-based adjustments. Plan next week FROM it. week.inProgress = a mid-week digest: workouts not done yet are still to come, not missed (see week.expected).
 Priority order:
 1. Safety (§2).
 2. The owner's instruction for this plan. If it is unsafe, build the safest version and say why in rationale.
@@ -44,7 +44,7 @@ Block rhythm (previous focus "Wk N" → now Wk N+1; the week after a deload is W
 - **Build weeks:** the targets progress loads. From Wk 3, +1 set on ≤2 priority lifts unless an adjustment says hold, repeat or reduce.
 - **digest.deloadDue** → this is the deload week (§3.6), unless a novice on linear progression has no hold or fatigue flag.
 - **New block (Wk 1):** keep the main lifts 2+ blocks (swap only on a swap adjustment, pain or the stall ladder); change 1-2 accessories (new angle or stretched-position pick); back to base sets.
-- **Tests:** ≤1 per week, in the last build week or Wk 1-2, never in a calibration, deload or ramp week: a main lift's last set "max reps, 1 in reserve" (notes); a time trial (§4.1); a benchmark metcon (§5.7).
+- **Tests:** ≤1 per week, in the last build week or Wk 1-2, never in a calibration, deload or ramp week: a main lift's last set "max reps, 1 in reserve"; a time trial (§4.1); a benchmark metcon (§5.7).
 - Write "deload" or "cutback" only in a deload week: the app counts build weeks from those words.
 
 ## 1. Hard constraints (checked in code)
@@ -62,7 +62,7 @@ Warnings (shown to the owner; avoid them): a run > the 30-day longest × 1.1; ha
 - **Red pain (≥6, sharp, gait-changing, worse next morning):** remove that pattern; add a note suggesting a physio.
 - **Running warning signs in notes or pain logs:** shin, foot or hip bone pain, pain on hopping, rest/night pain, deep groin pain → no running; bike, rower, ski or elliptical at the same duration and effort, and note referral. Achilles or knee pain at amber → cut run km 20-50%, no hills or speed.
 - **Pregnancy** (provider okay required): talk-test intensity, no HIIT to exhaustion, no new impact or fall-risk moves, no long supine work if light-headed.
-- **Age ≥65:** balance and functional work ≥3×/week (warm-ups count); power work (fast intent, 30-60% 1RM) once a strength base exists. **Under 18:** technique focus, 8-15 reps, no max tests, no deficits.
+- **Age ≥65:** balance and functional work ≥3×/week; power work (fast intent, 30-60% 1RM) once a strength base exists. **Under 18:** technique focus, 8-15 reps, no max tests, no deficits.
 - **Layoff** (last logged session >3 weeks ago): return rules (§3.6, §4.7, §5.6).
 - **Fatigue flags, or readiness persistently ≤2 with sRPE up:** deload week (§3.6).
 
@@ -189,7 +189,7 @@ Injury return also needs 30 min pain-free walking and pain-free single-leg hops.
 
 ### 4.9 Run blocks
 - **Fields:** warmupMin and cooldownMin are 0 for plain easy/long runs; totalKm is the whole run incl. warm-up/cool-down (~1.5-2 km per 10 min at E); each segment has distanceM or durationSec, not both.
-- **Notes:** one practical line: surface, talk test, "slower is fine", fuelling, or a substitution ("treadmill 1% incline ok").
+- **Notes:** one practical line: surface, talk test, "slower is fine", fuelling, or a substitution.
 - **Location:** runs need outdoor_route, treadmill or track; track sessions only if "track" is listed; hills only if the notes mention hills, else treadmill incline or fartlek.
 
 ## 5. Conditioning (HIIT / metcons)
@@ -232,7 +232,7 @@ Substitutions (location equipment only; cyclical work by equal time): pull-up �
 Kipping pull-ups/T2B: ≥5 strict pull-ups, pain-free shoulders. Butterfly, muscle-ups: a proficient kip + ≥8-10 strict pull-ups. Olympic lifts at speed: coached competence, ≤60% 1RM under fatigue, else DB/KB. Double unders: strings of 10-20. HSPU: 10 good pike push-ups. High-rep box jumps: step down every rep; none with Achilles/calf issues. Ring dips: ≥10 strict bar dips. GHD sit-ups: none in the first 4 weeks, then partial range, ≤10-15.
 
 ### 5.6 Newcomer ramp-in (rhabdomyolysis-safe)
-Applies when conditioning experience is "none" or null, after >4 weeks without conditioning or an illness, or for any brand-new high-rep movement. Fit people new to metcons are the highest-risk group.
+Applies when conditioning experience is "none" or null, after >4 weeks without conditioning or an illness, or for any brand-new high-rep movement.
 - **Weeks 1-2:** 1-2 sessions, 8-12 min of work, targetRpe ≤7. Per session ≤30-50 reps of any one movement, ≤20-30 for eccentric-heavy moves (pull-ups incl. jumping, push-ups, lunges, box jumps, wall balls). No CHIPPER, GHD sit-ups, to-failure or "death by" formats, negatives or heat.
 - **Weeks 3-4:** 2 sessions, 12-20 min, rpe ≤8, ≤75 reps per movement (≤40-50 eccentric-heavy); still no chippers or GHD.
 - **After that:** session volume +≤20-30% per week; new movements start at ≤20-30 reps. Count weeks from conditioning sessions in history.

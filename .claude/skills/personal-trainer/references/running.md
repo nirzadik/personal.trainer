@@ -20,7 +20,7 @@ Defaults for lifters who also run (1-3 runs/week beside gym and HIIT) and recrea
 
 ## 1. Rules that matter most
 
-1. **No single run >10% longer than the longest run of the last 30 days** (Frandsen 2025 [OBS]): the best-supported load rule. At most one new longest run per week.
+1. **No single run >10% longer than the longest run of the last 30 days** (Frandsen 2025 [OBS], one large cohort): the best-supported single-session rule, not proof of cause. At most one new longest run per week.
 2. **Mostly easy.** About 80% of running time conversational; easy days easy so hard days can be hard.
 3. **Volume before intensity.** Speed raises bone load faster than distance (Warden 2021 [PS]). Add quality only after 3-4 stable weeks; hold volume that week.
 4. **One change per week:** a longer long run, *or* more km, *or* more/faster quality [P].
@@ -30,8 +30,7 @@ Defaults for lifters who also run (1-3 runs/week beside gym and HIIT) and recrea
 ## 2. Intensity
 
 **Distribution.** Keep **~75-80%+ of running time easy** (warm-ups, cool-downs, recovery jogs and long runs count as easy); the rest is threshold, interval and race pace.
-- Polarized beat other models only for VO2peak (SMD 0.24), mainly in highly trained athletes and <12-week studies; time trials were equal (Oliveira 2024, 17 studies [MA]).
-- Recreational runners: polarized vs threshold-heavy gave similar gains (Muñoz 2014; Festa 2020, where 40/50/10 matched 77/3/20 with 17% less time [RCT]).
+- Polarized beat other models only for VO2peak (SMD 0.24), mainly in highly trained athletes; time trials were equal (Oliveira 2024 [MA]). In recreational runners polarized and threshold-heavy plans gave similar gains (Muñoz 2014; Festa 2020 [RCT]).
 - **Default: pyramidal** (easy > threshold > VO2max). At 1-3 runs/week what matters is ≤1 hard run, since HIIT already supplies intensity.
 
 | Intensity | Talk test | RPE 0-10 | ~%HRmax | Pace (§3) | Used for |
@@ -42,11 +41,11 @@ Defaults for lifters who also run (1-3 runs/week beside gym and HIIT) and recrea
 | Interval (I) | Can't talk | 8-9 | 95-100 by end of rep | I (~3K-5K race pace) | 2-5 min reps |
 | Repetition (R) | n/a (too short for HR) | 8, fast but relaxed | n/a | R (~mile pace) | strides, 200-400 m, hill sprints |
 
-HR bands: Daniels [PS], ±5-10 points individually. When HR and talk test disagree, the talk test wins: comfortable speech tracks the first ventilatory threshold (Reed & Pipe 2014; Kwon 2023 [OBS]).
+HR bands (Daniels [PS]) vary ±5-10 points. When HR and talk test disagree, the talk test wins: comfortable speech tracks the first ventilatory threshold (Reed & Pipe 2014; Kwon 2023 [OBS]).
 
 **Heart rate.** HRmax ≈ 208 - 0.7 × age (Tanaka 2001 [MA], ±10 bpm); a measured max or LTHR (mean HR of the last 20 min of a solo 30-min all-out run; easy < ~85% LTHR) is better. HR lags 1-2 min, drifts in heat and long runs, and is blunted by beta-blockers (then RPE only). Prescribe by **pace + RPE**; HR is an easy-day ceiling.
 
-**No race result yet (the usual hybrid case):**
+**No race result yet:**
 1. Weeks 1-3: talk test and RPE only (easy = full sentences; quality = fartlek surges at RPE 6-8).
 2. Then a time trial after an easy day, as that week's quality: 5K, or 3K (5K ≈ 3K × 1.72), or a mile (5K ≈ mile × 3.33) (Riegel). Use the §3 row.
 3. 5K slower than ~35 min, or walkers: stay on effort.
@@ -178,9 +177,11 @@ All tiers [P]. After injury also require 30 min pain-free walking, 10-20 pain-fr
 
 [PS/P: Daniels, Pfitzinger.] First marathon: ≥30 km/week for 8+ weeks and a comfortable 13-16 km long run first. If §4 long-run steps can't reach the peak in time, say so; offer a shorter race, run/walk, or a finish goal.
 
-**Phases:** base (easy volume + strides) → build (1 quality, threshold first) → race-specific (race pace; long-run peak) → taper.
+**Phases, placed backwards from race day:** taper ← race-specific (the 4-6 weeks before it: race pace, long-run peak) ← build (1 quality, threshold first, then I for 5K/10K) ← base (easy volume + strides) for anything earlier.
+- Strength in race-specific and taper weeks: no new exercises or added sets, lower body at 2-3 RIR; metcons 0-1, low-impact.
+- Week after the race: easy running only at -30-50% km (half/marathon: no quality for 2 weeks) [P].
 
-**Taper:** ~2 weeks, volume cut 41-60% progressively, intensity and frequency kept (Bosquet 2007; Wang 2023 [MA]). In 158,000 recreational marathoners, a strict 3-week taper went with a median 2.6% (5.5 min) faster finish than a minimal taper (Smyth 2021 [OBS]).
+**Taper:** ~2 weeks, volume cut 41-60% progressively, intensity and frequency kept (Bosquet 2007; Wang 2023 [MA]). A strict 3-week marathon taper went with 2.6% faster finishes in 158,000 recreational runners (Smyth 2021 [OBS]).
 - 5K/10K: 7-10 days, -30-50% km; one short I or T session 4-5 days out, plus strides.
 - Half: 10-14 days, ~-40%; last long run (≤16 km) 10-14 days out.
 - Marathon: 3 weeks, about -20-30%, -40%, then -60% in race week; last 28-32 km run 3 weeks out; keep short M-pace work.
@@ -226,4 +227,3 @@ This section owns the concurrent-training evidence; the weekly scheduling rules 
 - **Before prescribing a run**, find the longest run of the last 30 days and the 3-4-week average km.
 - **Progress:** faster pace at the same HR on easy runs; less HR drift on long runs; the same T/I session ≥1 RPE easier; time-trial PRs.
 - **Warning signs:** easy HR up ≥5-10 bpm at the same pace for a week, heavy legs 3+ runs, pain trending up, high resting HR. Cut back a week (-30%, easy only); check sleep, food, stress.
-- Session load = sRPE × minutes (Foster 2001); watch single-session spikes, not just weekly totals.

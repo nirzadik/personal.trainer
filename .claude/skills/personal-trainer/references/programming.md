@@ -34,7 +34,7 @@ Starting points: the client's logged response overrides population averages (mos
 | **Exercise choice** | 1-3/muscle/week, different joint actions. Hamstrings need a hinge *and* knee flexion; rectus femoris needs knee extension (squats grow neither). Machines ≈ free weights for size | Kassiano 2022 [MA]; Kubo 2019 [RCT]; Haugen 2023 [MA] |
 | **Rep vs load progression** | Adding reps at a fixed load ≈ adding load at fixed reps for growth (and nearly for strength) | Plotkin 2022 [RCT] |
 
-**Volume landmarks** [P] (Israetel/RP; heuristics): maintenance ~4-6 sets/wk · MEV ~6-10 · productive ~10-20 · max recoverable ~20-26+, highly individual. Front delts, triceps and glutes get lots of indirect work.
+**Volume landmarks** [P]: maintenance ~4-6 sets/wk · productive ~10-20 · max recoverable ~20-26+, highly individual.
 
 ## 2. Strength
 
@@ -76,9 +76,8 @@ Accuracy: people **underpredict reps left by ~1** (0.95; Halperin 2022 [MA]) at 
 ### Progression models
 - **Linear (novice main lifts):** fixed reps, add load every session/week: lower +2.5-5 kg, upper +1-2.5 kg (microplates for OHP and smaller lifters). Two misses at a load → reset ~10% or move the lift to double/weekly progression.
 - **Double progression (default for accessories and most intermediates):** range e.g. 3×8-12 @1-2 RIR; hold load until *all* sets hit the top at target RIR; add the smallest increment (~2-5%) and restart at the bottom. Adding reps is real progress (Plotkin 2022).
-- **NSCA "2-for-2" [PS]:** 2+ reps over target on the last set in 2 consecutive sessions → add load: upper +2.5-5 lb (1-2 kg) less-trained / +5-10 lb trained; lower +5-15 lb (2-7 kg) less-trained / +10-20 lb (4-9 kg) trained (sources disagree on the lower-body figures).
 - **RPE / top-set + back-off (intermediate+):** "1×5 @RPE 8, then 3×5 at −8-10%". RPE under target → +2-4% per RPE point next time; over → hold or reduce. RPE loading ≥ %1RM loading (Helms 2018 [RCT]).
-- **Volume progression (hypertrophy blocks):** start near MEV, add ~1 set/muscle every 1-2 weeks while performance and recovery hold. Add a set if soreness is gone early and reps are up; hold or remove sets if still sore, joints achy or reps down.
+- **Volume progression (hypertrophy blocks):** start at the low end of the range, add ~1 set/muscle every 1-2 weeks while performance and recovery hold. Add a set if soreness is gone early and reps are up; hold or remove sets if still sore, joints achy or reps down.
 
 ### Mesocycle examples [P] (4-6 week block + deload; adjust to logs)
 | Week | Hypertrophy block (per exercise) | Strength block (main lift) |
@@ -89,10 +88,8 @@ Accuracy: people **underpredict reps left by ~1** (0.95; Halperin 2022 [MA]) at 
 | 4 | same sets @1 RIR (last set 0 on isolations) | top single @RPE 8-9 (~88-90%) + 3×3 @82% |
 | 5 | **Deload** (§5), or continue if still progressing | **Deload**, or test/AMRAP, then restart ~2.5-5% above W1 |
 
-DUP alternative for 3×/week strength: heavy 3-5 reps @RPE 8 · volume 8-10 @RPE 7 · light 5 @RPE 6.
-
 ### e1RM & loads
-- **Epley:** e1RM = load × (1 + reps/30), with reps = reps done + RIR. **Brzycki:** load × 36/(37 − reps). Use ≤10-12 reps-to-failure only (the script ignores higher-rep estimates for PRs); use for **trends**, ±3-5% day-to-day noise is normal. `trainer.py e1rm` / `next` / `pct` do the math.
+- **Epley:** e1RM = load × (1 + reps/30), with reps = reps done + RIR. Use ≤10-12 reps-to-failure only (the script ignores higher-rep estimates for PRs); use for **trends**, ±3-5% day-to-day noise is normal. `trainer.py e1rm` / `next` / `pct` do the math.
 
 **%1RM ↔ reps to failure** (NSCA chart; machines and lower body allow more reps):
 
@@ -161,8 +158,6 @@ Order inside each day per §9. Rows = sets × reps @ RIR; rest 2-3 min compounds
 5. Keep reps ≤30 and sets within ~0-2 RIR; very high-rep sets are hard to judge, so err toward failure on safe moves.
 Strength-specific goals (barbell 1RM) need heavier loading than most home gyms allow; say so.
 
-**Strength programs by level** [P]: novice 3× full-body linear (GZCLP-style); intermediate weekly progression (5/3/1, Texas Method) or RPE blocks with heavy/volume/light days; advanced block periodization with RPE/e1RM autoregulation.
-
 ## 7. Periodization & frameworks
 
 **NSCA training-goal table** (Essentials of S&C) [PS]:
@@ -177,17 +172,14 @@ Strength-specific goals (barbell 1RM) need heavier loading than most home gyms a
 
 **Models:** linear (volume ↓, intensity ↑ across blocks; novices, simple) · undulating/DUP (heavy, medium, light days; plateaus, busy schedules, since a missed day costs less) · block (accumulation → transmutation → realization; advanced lifters with a date).
 
-**NASM OPT** [PS], useful for deconditioned or general-fitness clients (most cycle phases 1-3):
+**NASM OPT** [PS]: deconditioned beginners do 2-6 weeks of controlled-tempo, 12-20-rep work before heavier loading; its short rest periods are a framework, not an optimum.
 
-| Phase | Reps | Sets | Tempo | Intensity | Rest |
-|---|---|---|---|---|---|
-| 1 Stabilization endurance, 4-6 wk | 12-20 | 1-3 | 4/2/1 | 50-70% | 0-90 s |
-| 2 Strength endurance (+ stability superset) | 8-12 | 2-4 | 2/0/2 + 4/2/1 | 70-80% | 0-60 s |
-| 3 Hypertrophy | 6-12 | 3-5 | 2/0/2 | 75-85% | 0-60 s (evidence: ≥60-90 s) |
-| 4 Max strength | 1-5 | 4-6 | explosive-controlled | 85-100% | 3-5 min |
-| 5 Power (heavy + explosive pair) | 1-5 + 8-10 | 3-5 | explosive | 85-100% + ~30-45% / med ball | 3-5 min |
-
-Takeaway: deconditioned beginners benefit from 2-6 weeks of controlled-tempo, moderate-rep work before heavy loading; NASM rest periods are a framework, not an optimum.
+**Block rhythm** [P] (how weeks connect; the client's logs override it):
+- **Wk 1** base sets, find loads (RIR 3 on new lifts). **Build weeks:** load or reps up by the progression rule; from Wk 3, +1 set on ≤2 priority lifts if recovery holds. **Deload** after ~6 build weeks or on fatigue signs (§5); novices on linear progression with no flags keep going.
+- **New block:** keep main lifts ≥2 blocks (swap only for pain or step 5 of the stall ladder); change 1-2 accessories (new angle or stretched-position pick); restart at base sets.
+- **Tests:** at most one per week, in the last build week or Wk 1-2 of a block, never in a calibration or deload week: a rep test (last set of a main lift to 1 RIR, compare e1RM), a 3K/5K time trial, or a benchmark metcon. No true 1RM tests unless the goal needs one.
+- **Novices:** compounds 5-10 reps (never below 5), stable simple variants, the same A/B exercises every week.
+- **Hybrid week with 2 strength sessions:** both full body: one upper-biased (heavy press + pull, ≤3 easy leg sets; a moderate day) and one lower-biased (heavy squat or hinge + one press + one pull; a hard day), so every pattern is trained twice.
 
 **Peaking for a test or meet** [P]: final 3-6 weeks more specific (85-95%+, low reps, volume falling); taper 1-2 weeks with volume −30-70%, intensity and frequency kept; last heavy single (~90%) 7-10 days out; last session 2-4 days out is light. Attempts: opener ≈ a load you could triple (~90-92% of goal), second ~95-98%, third = PR.
 
@@ -218,7 +210,7 @@ Details for running and HIIT: `running.md`, `conditioning.md`. Lifting-relevant 
 - Rotate which muscle goes first across the week (e.g. upper day 1 bench first, day 2 incline/row first).
 - Isolation-first ("pre-exhaust") is fine for hypertrophy or a cranky joint, but costs load on the following compound.
 - Pair antagonists or upper/lower moves in supersets (row + press, curl + triceps, leg curl + lateral raise).
-- Per session: 4-7 exercises, ~12-25 working sets, 45-75 min.
+- Per session: 4-7 exercises, 2-4 hard sets each, 45-75 min. In-session autoregulation: 2+ reps short of target → drop one load step for the remaining sets; a set that felt easy → finish as planned and progress next time.
 
 **Warm-up (RAMP, 5-10 min):** (1) Raise: 3-5 min easy cardio, longer if cold; optional when short on time (a general warm-up adds little on top of specific sets). (2) Mobilize: 1-3 drills for today's joints. (3) **Ramp-up sets** on the first exercise of each new pattern:
 

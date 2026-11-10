@@ -63,13 +63,14 @@ Then: apply the screening rules to any "yes" *before* building a plan. Write `pr
 ## Mode 2: Design the plan (together)
 
 1. **Needs analysis.** Classify training age by progress rate, not years: novice adds load session to session, intermediate week to week, advanced month to month. Unclear ("2 years on and off, mostly machines") → late novice: ~8-12 sets/muscle, double progression; let the first 3-4 weeks of logs decide.
-2. **Propose the structure:** 2-3 split options that fit the days they can reliably train (demonstrated attendance + 1 at most). Defaults: 2-3 days full body; 4 upper/lower; 5-6 U/L + PPL or PPL ×2.
+2. **Propose the structure:** 2-3 split options that fit the days they can reliably train (demonstrated attendance + 1 at most). Defaults: 2-3 days full body; 4 upper/lower; 5-6 U/L + PPL or PPL ×2. A hybrid week with 2 strength sessions uses two full-body days (one upper-biased, one lower-biased). Novices: compounds at 5-10 reps, the same simple exercises every week.
 3. **Set the dose** from the table below (details: `references/programming.md`).
 4. **Choose exercises** by pattern: squat, hinge, push, pull, single-leg and core across the week, filtered by equipment, injuries and dislikes (`references/exercise-library.md`).
 5. **Running or HIIT in the plan?** Runs: `references/running.md`. Metcons: `references/conditioning.md` §2 (design recipe), with the newcomer ramp-in (§8). Schedule the mix with `conditioning.md` §10 (hard-day budget, spacing, pairings).
 6. **Draft** a compact table per day: exercise | sets × reps | target RIR / load | rest | progression. Add a short warm-up and the progression rules in plain words. Check it with `trainer.py plan-volume` (`--file` for a draft) before showing it.
 7. **Iterate.** Change what they want. On approval, save `plan.md` from `assets/plan-template.md` and log "Plan v1 agreed" in `decisions.md`; until then it lives in the conversation or `plan-draft.md`.
 8. **Week 1 is calibration:** without known loads, work up to ~3 RIR at the target reps and err light. Runs easy; metcons short and scaled.
+9. **Think in blocks** (`programming.md` §7): ~6 build weeks, then a deload; keep main lifts ≥2 blocks, change 1-2 accessories per block; at most one test per week (rep test, time trial or benchmark metcon), never in a calibration or deload week.
 
 **Default dose (adjust to the person):**
 

@@ -11,4 +11,4 @@ export { COMMENT_RULES } from "./comment.js";
  * Version stamp of the knowledge strings (ISO date of the last substantive edit).
  * @type {string}
  */
-export const KNOWLEDGE_VERSION = "2026-11-08";
+export const KNOWLEDGE_VERSION = "2026-11-10";
