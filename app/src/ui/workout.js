@@ -531,7 +531,10 @@ export function openLiveWorkout(ctx, plan, workout, { note = "" } = {}) {
         "aria-label": `Set ${si + 1}: ${setSpeech(ex, st)}. Edit`,
         onClick: () => {
           editing = isEditing ? null : { ei, si };
-          rerenderEx(ei, isEditing ? `ws-${ei}-${si}-val` : `ws-${ei}-${si}-${st.loadKg == null && !ex.bw ? "load" : "reps"}`);
+          // Steppers first: focusing a field would pop the keyboard over the sheet on every edit. Only a value
+          // that is still missing gets the field (and the keyboard) straight away.
+          const missing = st.loadKg == null && !ex.bw ? "load" : st.reps == null ? "reps" : null;
+          rerenderEx(ei, isEditing ? `ws-${ei}-${si}-val` : `ws-${ei}-${si}-${missing || "ok"}`);
         },
       }, setLabel(ex, st)),
       h("button", {

@@ -265,9 +265,13 @@ ul, ol { margin: 0; padding: 0; }
   letter-spacing: 0.03em;
   text-transform: uppercase;
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dev-tag {
+  flex: none;
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -511,7 +515,7 @@ html.composing.kb-open .tabbar { display: none; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {
   flex: none;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
@@ -621,20 +625,25 @@ html.composing.kb-open .tabbar { display: none; }
   position: fixed;
   z-index: 60;
   left: 0; right: 0;
-  top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + 10px);
+  /* above the tab bar, in thumb reach, clear of the page titles (components.placeToastHost) */
+  bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px) + 12px);
   display: flex;
   justify-content: center;
   padding-left: var(--gutter-l);
   padding-right: var(--gutter-r);
   pointer-events: none;
 }
+html[data-route="coach"] .toast-host { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px) + var(--dock-h, 0px) + 12px); }
+html.composing.kb-open .toast-host { bottom: calc(var(--kb, 0px) + var(--dock-h, 0px) + 12px); }
+/* inside an open sheet: just above its footer (the inline bottom is set by placeToastHost) */
+dialog.sheet > .toast-host { position: absolute; z-index: 5; }
 .toast {
   pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 12px;
   max-width: 480px;
-  min-height: 48px;
+  min-height: 52px;
   padding: 4px 6px 4px 16px;
   border-radius: var(--r-md);
   background: var(--ink);
@@ -647,7 +656,8 @@ html.composing.kb-open .tabbar { display: none; }
 .toast-error { background: var(--pain); color: var(--on-pain); }
 .toast-text { flex: 1; padding-block: 8px; }
 .toast-action {
-  min-height: 40px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 0 12px;
   border: 0;
   border-radius: 6px;
@@ -657,7 +667,7 @@ html.composing.kb-open .tabbar { display: none; }
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .skeleton-list { display: grid; gap: 8px; }
 .skeleton-card {
@@ -1577,27 +1587,25 @@ details > summary::-webkit-details-marker { display: none; }
 .action-planchange .action-icon { background: var(--accent-soft); color: var(--accent-text); }
 .action-planchange:not(.is-undone) { border-color: var(--accent); }
 
+/* A status bar docked under the header (not floating over the page title): the page moves down while it shows. */
 .rv-host {
-  position: fixed; z-index: 59; left: 0; right: 0;
-  top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + 8px);
-  display: flex; justify-content: center;
-  padding-left: var(--gutter-l); padding-right: var(--gutter-r);
-  pointer-events: none;
+  position: fixed; z-index: 19; left: 0; right: 0;
+  top: calc(env(safe-area-inset-top, 0px) + var(--header-h));
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--accent);
+  padding-left: var(--gutter-l); padding-right: max(6px, env(safe-area-inset-right, 0px));
 }
 .rv-host:empty { display: none; }
 .rv-strip {
-  pointer-events: auto;
   display: flex; align-items: center; gap: 10px;
-  width: 100%; max-width: 480px; min-height: 48px;
-  padding: 4px 4px 4px 14px;
-  border: 1px solid var(--accent); border-radius: var(--r-md);
-  background: var(--accent-soft); color: var(--accent-text);
-  box-shadow: var(--shadow);
+  max-width: var(--content-max); margin: 0 auto; height: var(--rv-h);
+  color: var(--ink);
   font-size: var(--fs-sm); font-weight: 600;
 }
-.rv-text { flex: 1; min-width: 0; }
+.rv-text { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .rv-time { color: var(--ink-2); font-weight: 500; }
-.rv-on .toast-host { top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + 72px); }
+:root { --rv-h: 52px; }
+.rv-on .main { padding-top: calc(16px + var(--rv-h)); }
 /* end v2: feedback */
 
 /* ============================================================================================
@@ -1876,3 +1884,22 @@ html.kb-open .ws-sheet .ws-finish { min-height: 44px; font-size: 1.0625rem; }
 .ws-moves { gap: 4px; }
 .ws-run-rx { font-weight: 600; overflow-wrap: anywhere; }
 /* end live workout sheet */
+
+/* ============================================================================================
+   2026-11 design review: small refinements on top of the sections above. */
+
+/* Plan: empty generation / draft hosts take no gap; done cards are one row; quieter Swap. */
+.gen-host:empty, .draft-host:empty, .agreed-host:empty { display: none; }
+.agreed-host { scroll-margin-top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + 12px); }
+.workout-body .w-actions-logged { margin-top: 0; padding: 8px 0 0; }
+.workout-body > .w-actions-logged:first-child { border-top: 0; padding-top: 0; }
+.draft-jump { justify-self: start; margin-left: -10px; }
+.sw-btn { border-color: transparent; background: transparent; padding: 0 10px; margin-right: -10px; }
+.mv-row .sw-btn { margin-right: -10px; }
+
+/* Tap-to-expand lines: a taller hit area without moving the text. */
+.pl-line:not(.w-intent) { padding-block: 8px; margin-block: -8px; }
+.pl-line:focus-visible { outline-offset: -2px; }
+
+/* Quiet "Add …" buttons sit at the start of their grid instead of stretching across it. */
+.pain-edit > .btn, .ex-edit > .btn-quiet { justify-self: start; margin-left: -10px; }

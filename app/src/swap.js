@@ -3,25 +3,16 @@
 // Pure helpers behind the Plan tab's per-exercise Swap control: which exercises can stand in for a
 // planned item (ranked, filtered by the owner's equipment, dislikes removed, current injuries
 // ranked last), and a plan with one item swapped. No DOM, no platform calls; `core` and `catalog`
-// are passed in so this module stays decoupled from their internals.
+// are passed in so this module stays decoupled from their internals (the one direct import is core's
+// injury map, so the two can never drift apart).
+
+import { injuryTags as coreInjuryTags } from "./core.js";
+
+/** Current injuries as [{ area (lower-cased), tags }]: core's injury → jointStress map, used only to rank options. */
+const injuryTags = (profile) => coreInjuryTags(profile).map((i) => ({ area: String(i.area || "").trim().toLowerCase(), tags: i.tags }));
 
 /** Block kinds whose items can be swapped, in the order their items are indexed. */
 const SWAPPABLE_BLOCKS = new Set(["strength", "conditioning"]);
-
-/**
- * Injury area words → catalog jointStress tags. Mirrors core.js's private map (core does not export
- * it); used only to rank options, never to hide them.
- */
-const INJURY_MAP = [
-  [/knee|patell|menisc|acl|mcl|quad tendon/, ["knee_flexion_deep", "impact"]],
-  [/back|lumbar|spine|spinal|disc|sciatic/, ["spinal_axial", "spinal_flexion", "hinge_loaded"]],
-  [/shoulder|rotator|labrum|\bac\b/, ["overhead", "shoulder_extension", "kipping"]],
-  [/elbow|tennis|golfer/, ["elbow", "grip"]],
-  [/wrist|hand|carpal|thumb/, ["wrist_extension", "grip"]],
-  [/hip|groin/, ["hip_flexion_deep"]],
-  [/ankle|achilles|calf|calves|shin|foot|feet|plantar|heel/, ["impact", "ankle_dorsiflexion"]],
-  [/neck|cervical/, ["spinal_axial", "overhead"]],
-];
 
 const UNIT_WORD = { calories: "calories", distance: "distance", time: "time", reps: "reps", load_reps: "reps" };
 
@@ -50,18 +41,6 @@ export function swappableItems(workout) {
   return out;
 }
 
-/** Current injuries as [{ area, tags }]. */
-function injuryTags(profile) {
-  const out = [];
-  for (const inj of profile?.injuries || []) {
-    if (inj?.status && inj.status !== "current") continue;
-    const area = String(inj?.area || "").toLowerCase();
-    const tags = new Set();
-    for (const [re, t] of INJURY_MAP) if (re.test(area)) t.forEach((x) => tags.add(x));
-    if (tags.size) out.push({ area: String(inj.area || "").trim().toLowerCase(), tags });
-  }
-  return out;
-}
 
 /** Disliked exercises: ids resolved through the catalog, plus free-text fragments matched against names. */
 function dislikes(profile, catalog) {

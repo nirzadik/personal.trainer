@@ -125,14 +125,18 @@ function weekSection(plan, sessionsAsc, profile, today) {
   }
   const missedWhy = {};
   for (const s of inWeek) if (s.status === "missed") missedWhy[s.missedReason || "unspecified"] = (missedWhy[s.missedReason || "unspecified"] || 0) + 1;
-  const credited = Math.min(planned, done + partial * 0.5);
+  // A plan week that is still running (the owner reviews a workout or asks for next week before day 7) is judged
+  // against the share of workouts due so far, not the whole week: 1 of 4 on Monday is on track, not "25 %".
+  const inProgress = Boolean(plan && workouts.length) && addDays(ws, 6) > today && doneIds.size < workouts.length;
+  const expected = inProgress ? Math.min(planned, Math.floor((planned * ((daysBetween(ws, we) ?? 0) + 1)) / 7)) : planned;
+  const credited = Math.min(expected, done + partial * 0.5);
   const notDone = workouts.filter((w) => !doneIds.has(w.id)).map((w) => `${w.id} ${clipS(w.title, 24)}`);
   const active = inWeek.filter((s) => s.status !== "missed");
   const last = [...sessionsAsc].reverse().find((s) => s.status !== "missed" && s.date <= today);
   return {
-    plan: plan?.id ?? null, from: ws, to: we, planned, done, partial,
+    plan: plan?.id ?? null, from: ws, to: we, planned, ...(inProgress ? { inProgress: true, expected } : {}), done, partial,
     missed: Object.values(missedWhy).reduce((a, b) => a + b, 0),
-    pct: planned ? Math.round((100 * credited) / planned) : null,
+    pct: expected ? Math.round((100 * credited) / expected) : null,
     ...(notDone.length && workouts.length ? { notDone: notDone.slice(0, 7) } : {}),
     ...(Object.keys(missedWhy).length ? { missedWhy } : {}),
     srpe: mean(active.map((s) => n(s.sessionRpe))),
@@ -245,7 +249,7 @@ function strengthDecision({ row, tgt, fb, planned, trainedLastWeek, known, weekC
       ? { act: "swap", kg: null, why: "stalled over many exposures: close variant or new rep scheme" }
       : { act: "hold", kg, why: "stall: +1-2 sets if fresh, or change rep scheme" };
   }
-  if (planned && !trainedLastWeek && weekCtx.planned) return { act: "repeat", kg, why: "not trained last week: repeat its target" };
+  if (planned && !trainedLastWeek && weekCtx.planned && !weekCtx.inProgress) return { act: "repeat", kg, why: "not trained last week: repeat its target" };
   if (reason === "effort_hold" || flags.includes("effort_overshoot")) return { act: "hold", kg, why: "effort overshot target RIR: consolidate" };
   if (["add_load", "add_reps", "rpe_increase"].includes(reason)) return { act: "progress", kg, why: reason === "add_reps" ? "add reps at this load" : "targets hit: add load" };
   if (reason === "repeat" || reason === "rpe_hold") {
@@ -276,7 +280,9 @@ function runSection({ sessionsAsc, plan, profile, today, weekCtx }) {
   const inWeek = runs.filter((s) => (plan && s.planId === plan.id) || (s.date >= weekCtx.from && s.date <= weekCtx.to));
   const doneKm = r1(inWeek.reduce((a, s) => a + n(s.run.distanceKm), 0));
   const planKm = blocks.length ? r1(blocks.reduce((a, x) => a + (n(x.block.totalKm) || 0), 0)) : null;
-  const pct = planKm ? Math.round((100 * doneKm) / planKm) : null;
+  // mid-week the planned km are not due yet: no completion share, and the base looks at the last full week too
+  const pct = planKm && !weekCtx.inProgress ? Math.round((100 * doneKm) / planKm) : null;
+  const lastFullKm = weekCtx.inProgress && weeksRows.length >= 2 ? weeksRows[weeksRows.length - 2].km : 0;
   const longest30 = r1(Math.max(0, ...runs.filter((s) => s.date >= addDays(today, -29)).map((s) => n(s.run.distanceKm))));
   const kmWk = weeksRows.map((w) => w.km);
   const avg4 = kmWk.length ? r1(kmWk.reduce((a, b) => a + b, 0) / kmWk.length) : 0;
@@ -303,7 +309,7 @@ function runSection({ sessionsAsc, plan, profile, today, weekCtx }) {
   }
   const pain = Math.max(0, ...inWeek.flatMap((s) => (s.pain ?? []).map((p) => n(p?.score) ?? 0)));
   return {
-    logged: true, kmWk, avg4, doneKm, ...(planKm != null ? { planKm, pct } : {}), longest30,
+    logged: true, kmWk, avg4, doneKm, ...(planKm != null ? { planKm, ...(pct != null ? { pct } : {}) } : {}), ...(lastFullKm ? { lastFullKm } : {}), longest30,
     ...(easySec ? { easyPace: fmtPace(easySec), easySec } : {}),
     ...(quality.length ? { quality: quality.slice(-4) } : {}),
     ...(pain ? { pain } : {}),
@@ -313,7 +319,7 @@ function runSection({ sessionsAsc, plan, profile, today, weekCtx }) {
 function runDecision(run, weekAct) {
   if (!run) return null;
   if (!run.logged) return { act: "calibrate", why: "no logged runs: start from profile baseline km, easy runs only" };
-  const base = Math.max(run.doneKm || 0, run.avg4 || 0);
+  const base = Math.max(run.doneKm || 0, run.avg4 || 0, run.lastFullKm || 0);
   const longCapProgress = Math.floor(run.longest30 * (1 + R.longRunRampPct) * 10 + 1e-9) / 10;
   if ((run.pain ?? 0) >= R.painSignal) return { act: "reduce_volume", kmMax: r1(base * 0.7), longMax: run.longest30, why: `run pain ${run.pain}/10: −30% km, easy only` };
   const slowQ = (run.quality ?? []).filter((q) => q.slow || q.hard);
@@ -353,7 +359,7 @@ function conditioningSection({ sessionsAsc, plan, profile, weekCtx }) {
     return { date: s.date, fmt: c.format ?? null, ...(res.completed === false ? { incomplete: true } : {}), ...(c.scaled ? { scaled: true } : {}),
       ...(rpe != null ? { rpe } : {}), ...(target != null ? { targetRpe: target } : {}) };
   });
-  return { logged: true, planned: planned.length || null, done: inWeek.length, recent };
+  return { logged: true, planned: planned.length || null, done: inWeek.length, recent, ...(weekCtx.inProgress ? { inProgress: true } : {}) };
 }
 function conditioningDecision(cond, weekAct) {
   if (!cond) return null;
@@ -361,7 +367,7 @@ function conditioningDecision(cond, weekAct) {
   if (weekAct === "deload") return { act: "deload", why: "deload week: half the volume, RPE ≤7" };
   const over = cond.recent.filter((r) => r.incomplete || (r.rpe != null && (r.targetRpe != null ? r.rpe >= r.targetRpe + 2 : r.rpe >= 9.5)));
   if (over.length) return { act: "hold", why: "a metcon was unfinished or far above target RPE: same dose" };
-  if (cond.planned && cond.done < cond.planned) return { act: "repeat", why: `${cond.done} of ${cond.planned} done: repeat, no increase` };
+  if (cond.planned && cond.done < cond.planned && !cond.inProgress) return { act: "repeat", why: `${cond.done} of ${cond.planned} done: repeat, no increase` };
   if (["hold", "repeat", "reduce_volume", "return"].includes(weekAct)) return { act: "hold", why: "recovery or completion signals: same dose" };
   if (cond.recent.some((r) => r.scaled)) return { act: "progress", why: "done at target effort but scaled: reduce scaling one step" };
   return { act: "progress", why: "done at target effort: +1 round or +2-3 min (≤+20% time domain)" };
@@ -410,12 +416,12 @@ export function progressionDigest({ sessions = [], plans = [], wellness = [], pr
   } else if (week.pct != null && week.pct < R.completeRepeatPct) {
     const sick = (week.missedWhy?.sick ?? 0) + (week.missedWhy?.pain ?? 0) > 0;
     weekAct = sick ? "reduce_volume" : "repeat";
-    weekWhy = `${week.done + week.partial} of ${week.planned} done${sick ? " (sick/pain)" : ""}: repeat last week's targets, no increases${sick ? ", −30% volume" : ""}`;
+    weekWhy = `${week.done + week.partial} of ${week.expected ?? week.planned} done${week.inProgress ? " so far" : ""}${sick ? " (sick/pain)" : ""}: repeat last week's targets, no increases${sick ? ", −30% volume" : ""}`;
   } else if (week.pct != null && week.pct < R.completeProgressPct) {
     weekAct = "repeat";
-    weekWhy = `${week.done + week.partial} of ${week.planned} done: put missed key lifts first, no added volume${week.missedWhy?.time ? "; condense (trim accessories)" : ""}`;
+    weekWhy = `${week.done + week.partial} of ${week.expected ?? week.planned} done${week.inProgress ? " so far" : ""}: put missed key lifts first, no added volume${week.missedWhy?.time ? "; condense (trim accessories)" : ""}`;
   } else if (signals.length === 1) { weekAct = "hold"; weekWhy = `${signals[0]}: hold volume, no extra load jumps`; }
-  else { weekAct = "progress"; weekWhy = `${week.pct ?? 100}% done, recovery fine: progress per targets${deloadDue ? "; deload due soon" : ""}`; }
+  else { weekAct = "progress"; weekWhy = `${week.inProgress ? `week in progress, ${week.done + week.partial} of ${week.planned} done so far` : `${week.pct ?? 100}% done`}, recovery fine: progress per targets${deloadDue ? "; deload due soon" : ""}`; }
 
   // per-exercise: the week decision caps the exercise decision
   const adjustments = [{ scope: "week", act: weekAct, why: weekWhy }];

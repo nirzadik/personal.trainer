@@ -98,10 +98,11 @@ export function defaultCoachMemory() {
 export function defaultAppState() {
   return {
     schemaVersion: 1,
-    settings: { theme: "system", chatTier: "default" },
+    settings: { theme: "system", chatTier: "default", reviewAfterWorkout: true },
     rotation: { planId: null, done: [] },
     onboarding: { status: "not_started" },
     pendingPlanRequest: null,
+    lastPlanError: null,
   };
 }
 
@@ -116,8 +117,29 @@ export function defaultSession() {
     id: "", date: "", planId: null, workoutId: null, title: "", type: "other", status: "done",
     missedReason: null, durationMin: null, readiness: null, sessionRpe: null, notes: "",
     pain: [], strength: [], conditioning: [], run: null, prs: [],
-    coachComment: "", createdBy: "manual", createdAt: "", updatedAt: "",
+    coachComment: "", reviewedAt: null, createdBy: "manual", createdAt: "", updatedAt: "",
   };
+}
+
+/**
+ * Read-side migration: documents written by earlier app versions lack newer fields (Session.reviewedAt and
+ * per-exercise feedback, Plan.changeLog / validation / weeklyTargets). The store never rewrites old documents on
+ * load (db.d.ts: write on a user action only); instead every getter, list and subscription fills the missing
+ * top-level fields from the current defaults, so readers can rely on the CONTRACT §4 shape whatever wrote the doc.
+ * Stored values always win; nothing is dropped.
+ */
+function hydrateSession(doc) {
+  if (!isPlainObject(doc)) return doc;
+  const out = { ...defaultSession(), ...doc };
+  for (const k of ["pain", "strength", "conditioning", "prs"]) if (!Array.isArray(out[k])) out[k] = [];
+  return out;
+}
+function hydratePlan(doc) {
+  if (!isPlainObject(doc)) return doc;
+  const out = { ...defaultPlanFields(), changeLog: [], approvedAt: null, ...doc };
+  for (const k of ["workouts", "notes", "changeLog"]) if (!Array.isArray(out[k])) out[k] = [];
+  if (!isPlainObject(out.weeklyTargets)) out.weeklyTargets = defaultPlanFields().weeklyTargets;
+  return out;
 }
 
 /** WellnessEntry score fields (0-100) and their numeric siblings with plausible ranges (CONTRACT-v2). */
@@ -657,12 +679,12 @@ function buildStore(db, uid, now) {
 
   async function plansWhereStatus(status) {
     const snap = await plansColl().where("status", "==", status).get();
-    return sortPlans(snap.docs.map((d) => clone(d.data())));
+    return sortPlans(snap.docs.map((d) => hydratePlan(clone(d.data()))));
   }
 
   const plans = {
     /** @returns {Promise<object|null>} */
-    get: guard(async (id) => clone(await readDoc(planPath(id))) ?? null),
+    get: guard(async (id) => hydratePlan(clone(await readDoc(planPath(id)))) ?? null),
     /** The agreed plan (newest if several). @returns {Promise<object|null>} */
     getAgreed: guard(async () => (await plansWhereStatus("agreed"))[0] ?? null),
     /** The current draft. @returns {Promise<object|null>} */
@@ -671,7 +693,7 @@ function buildStore(db, uid, now) {
     list: guard(async ({ limit } = {}) => {
       let q = plansColl().orderBy("weekStart", "desc");
       if (limit != null) q = q.limit(limit);
-      return sortPlans((await q.get()).docs.map((d) => clone(d.data())));
+      return sortPlans((await q.get()).docs.map((d) => hydratePlan(clone(d.data()))));
     }),
     /**
      * Save a new draft, replacing (deleting) any previous draft. The store
@@ -787,7 +809,7 @@ function buildStore(db, uid, now) {
      * @returns {() => void} unsubscribe
      */
     subscribe: (cb, { limit = 50, onError } = {}) =>
-      subscribeQuery(plansColl().orderBy("weekStart", "desc").limit(limit), sortPlans, cb, { onError }),
+      subscribeQuery(plansColl().orderBy("weekStart", "desc").limit(limit), (list) => sortPlans(list.map(hydratePlan)), cb, { onError }),
   };
 
   // -- sessions ---------------------------------------------------------------
@@ -827,7 +849,7 @@ function buildStore(db, uid, now) {
       throw new StoreError("internal", "Could not allocate a session id");
     }),
     /** @returns {Promise<object|null>} */
-    get: guard(async (id) => clone(await readDoc(sessionPath(id))) ?? null),
+    get: guard(async (id) => hydrateSession(clone(await readDoc(sessionPath(id)))) ?? null),
     /**
      * Deep-merge a patch (arrays replace); `id` and `createdAt` can't change.
      * Rejects `not_found` for an unknown id. Undo reverts only the patched fields.
@@ -865,14 +887,14 @@ function buildStore(db, uid, now) {
      *   from/to inclusive YYYY-MM-DD; type one Session.type or a list of them
      * @returns {Promise<object[]>}
      */
-    list: guard(async (filter = {}) => sortSessions((await sessionsQuery(filter).get()).docs.map((d) => clone(d.data())))),
+    list: guard(async (filter = {}) => sortSessions((await sessionsQuery(filter).get()).docs.map((d) => hydrateSession(clone(d.data()))))),
     /**
      * Live sessions, newest first.
      * @param {(sessions: object[], meta: object) => void} cb
      * @param {{ limit?: number, from?: string, to?: string, type?: string|string[], onError?: Function }} [opts]
      * @returns {() => void} unsubscribe
      */
-    subscribe: (cb, { onError, ...filter } = {}) => subscribeQuery(sessionsQuery(filter), sortSessions, cb, { onError }),
+    subscribe: (cb, { onError, ...filter } = {}) => subscribeQuery(sessionsQuery(filter), (list) => sortSessions(list.map(hydrateSession)), cb, { onError }),
   };
 
   // -- chat -------------------------------------------------------------------
@@ -1093,14 +1115,24 @@ function buildStore(db, uid, now) {
     /**
      * Replace ALL stored data with a backup (object or JSON string from
      * exportAll()). Validates everything before writing. Undo restores the data
-     * as it was before the import.
+     * as it was before the import. If writing fails part-way the previous data is restored
+     * and the rejection carries `rolledBack: true` (false when even that failed).
      * @returns {Promise<{ counts: { plans, sessions, chatDays }, undo }>}
      */
     importAll: guard(async (json) => {
       const data = parseBackup(json);
       return serial(IMPORT_LOCK, async () => {
         const before = await exportAll();
-        await replaceAll(data);
+        try {
+          await replaceAll(data);
+        } catch (e) {
+          // A half-applied import would leave a mix of old and new documents: put the previous data back
+          // (best effort) and say which state the owner is in.
+          const err = toStoreError(e);
+          let rolledBack = true;
+          try { await replaceAll(before.data); } catch { rolledBack = false; }
+          throw { code: err.code, message: `${err.message} (${rolledBack ? "import undone: your previous data is back" : "import stopped half-way and could not be undone: import the backup again when the connection is back"})`, rolledBack };
+        }
         return {
           counts: { plans: data.plans.length, sessions: data.sessions.length, chatDays: data.chat.length },
           undo: makeUndo(() => serial(IMPORT_LOCK, () => replaceAll(before.data))),

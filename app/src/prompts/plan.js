@@ -270,19 +270,24 @@ export function formatAllowedExercises(locations, maxBytes = PLAN_BUDGETS.allowe
  * Running-load caps line, computed in code so the model never does the arithmetic.
  * Mirrors core.RUN_LIMITS / validatePlan: weekly km ≤ max(base × 1.1, base + 3) with base = max(average, last week);
  * any single run ≤ 30-day longest × 1.1 (warning above; error above × 1.3 and +3 km).
- * @param {{ avgWeeklyKm?: number, lastWeekKm?: number, longestKm?: number, weeks?: number }} load
+ * @param {{ avgWeeklyKm?: number, lastWeekKm?: number, longestKm?: number, weeks?: number, source?: "log"|"profile" }} load
  * @returns {{ text: string, weeklyCapKm: number, longRunCapKm: number }}
  */
 export function runCaps(load) {
   const avg = Number(load?.avgWeeklyKm) || 0;
   const base = Math.max(avg, Number(load?.lastWeekKm) || 0);
   const longest = Number(load?.longestKm) || 0;
-  const weeklyCapKm = Math.floor(Math.max(base * 1.1, base + 3) * 10 + 1e-9) / 10;
+  // same formula as core.validatePlan (RUN_LIMITS): +10 %, or +3 km at low volume, never below a first week's 8 km
+  const weeklyCapKm = Math.floor(Math.max(base * 1.1, base + 3, 8) * 10 + 1e-9) / 10;
   const longRunCapKm = Math.floor(longest * 1.1 * 10 + 1e-9) / 10;
-  const text = `recent average ${fmtNum(avg)} km/week over the last ${load?.weeks ?? 4} weeks` +
-    `${base > avg ? `, last week ${fmtNum(base)} km` : ""}; longest run in the last 30 days ${fmtNum(longest)} km. ` +
-    `Caps this week: weekly total ≤ ${fmtNum(weeklyCapKm)} km; any single run ≤ ${fmtNum(longRunCapKm)} km` +
-    `${longest > 0 && longest < 10 ? " (short runs: round down)" : ""}. The digest's kmMax/longMax win when lower.`;
+  const source = load?.source === "profile" ? "from the onboarding profile (no runs logged yet)" : `over the last ${load?.weeks ?? 4} weeks`;
+  // No longest-run baseline (nothing logged, nothing in the profile): no single-run number, never "≤ 0 km".
+  const single = longest > 0
+    ? `any single run ≤ ${fmtNum(longRunCapKm)} km${longest < 10 ? " (short runs: round down)" : ""}`
+    : "no recent run to cap single runs from: start with short easy runs or run/walk (the beginner rules)";
+  const text = `recent average ${fmtNum(avg)} km/week ${source}` +
+    `${base > avg ? `, last week ${fmtNum(base)} km` : ""}; longest run in the last 30 days ${longest > 0 ? `${fmtNum(longest)} km` : "none"}. ` +
+    `Caps this week: weekly total ≤ ${fmtNum(weeklyCapKm)} km; ${single}. The digest's kmMax/longMax win when lower.`;
   return { text, weeklyCapKm, longRunCapKm };
 }
 
@@ -490,7 +495,7 @@ export function buildPlanPrompt(d) {
 export function formatDigest(digest) {
   if (!isPlainObject(digest)) return "";
   const key = digest.basis === "history"
-    ? "basis \"history\": plan from these numbers. week = last week's completion; strength[].next = the app's next target (kg/reps); adjustments = what to do per scope (follow them; kg/kmMax/longMax are limits); baselines = profile fallbacks only for items without history."
+    ? "basis \"history\": plan from these numbers. week = the latest plan week's completion (week.inProgress: that week is still running, so done is judged against week.expected = workouts due so far; workouts not yet done are simply still to come); strength[].next = the app's next target (kg/reps); adjustments = what to do per scope (follow them; kg/kmMax/longMax are limits); baselines = profile fallbacks only for items without history."
     : "basis \"profile\": no logged sessions yet. Calibration week from profile baselines (see adjustments and baselines).";
   return `${key}\n\`\`\`json\n${JSON.stringify(groupAdjustments(digest))}\n\`\`\``;
 }

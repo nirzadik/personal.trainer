@@ -987,10 +987,11 @@ export function buildSeedBackup(now = new Date()) {
 
   const state = {
     schemaVersion: 1,
-    settings: { theme: "system", chatTier: "default" },
+    settings: { theme: "system", chatTier: "default", reviewAfterWorkout: true },
     rotation: { planId: agreed.id, done },
     onboarding: { status: "done" },
     pendingPlanRequest: null,
+    lastPlanError: null,
   };
 
   const body = {

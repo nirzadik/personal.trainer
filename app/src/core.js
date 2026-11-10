@@ -740,7 +740,11 @@ export function trainingSummary(sessions, profile, { weeks = 4, today } = {}) {
 
   const spm = weeklySetsPerMuscle(sessions, { from: start, to: day });
   const setsPerMuscleWk = {};
-  for (const [m, v] of Object.entries(spm)) setsPerMuscleWk[m] = Math.round((v / weeks) * 2) / 2;
+  // Average over the weeks that have history (like adherence), so a new owner's first week is not divided by 4.
+  const firstDate = sorted.map((s) => s.date).filter(isIso)[0];
+  const spmStart = firstDate && firstDate > start ? firstDate : start;
+  const spmWeeks = firstDate ? Math.min(weeks, Math.max(1, Math.ceil(((daysBetween(spmStart, day) ?? 0) + 1) / 7))) : weeks;
+  for (const [m, v] of Object.entries(spm)) setsPerMuscleWk[m] = Math.round((v / spmWeeks) * 2) / 2;
 
   return {
     asOf: day, weeks,
@@ -787,7 +791,11 @@ export function exerciseAllowed(exerciseId, equipmentSet) {
   return equipmentCheck(ex, toEquipSet(equipmentSet));
 }
 
-const INJURY_MAP = [
+/**
+ * Injury area words → catalog jointStress tags (shared with swap.js, which ranks options with it).
+ * @type {ReadonlyArray<[RegExp, string[]]>}
+ */
+export const INJURY_STRESS_MAP = Object.freeze([
   [/knee|patell|menisc|acl|mcl|quad tendon/, ["knee_flexion_deep", "impact"]],
   [/back|lumbar|spine|spinal|disc|sciatic/, ["spinal_axial", "spinal_flexion", "hinge_loaded"]],
   [/shoulder|rotator|labrum|\bac\b/, ["overhead", "shoulder_extension", "kipping"]],
@@ -796,8 +804,14 @@ const INJURY_MAP = [
   [/hip|groin/, ["hip_flexion_deep"]],
   [/ankle|achilles|calf|calves|shin|foot|feet|plantar|heel/, ["impact", "ankle_dorsiflexion"]],
   [/neck|cervical/, ["spinal_axial", "overhead"]],
-];
-function injuryTags(profile) {
+]);
+const INJURY_MAP = INJURY_STRESS_MAP;
+/**
+ * Current injuries of a profile with the jointStress tags they map to (past injuries and unmapped areas are skipped).
+ * @param {object} profile
+ * @returns {Array<{ area: string, tags: Set<string> }>}
+ */
+export function injuryTags(profile) {
   const out = [];
   for (const inj of profile?.injuries || []) {
     if (inj?.status && inj.status !== "current") continue;
@@ -1085,6 +1099,7 @@ function runBaseline(sessions, profile, refWeekStart) {
 export const RUN_LIMITS = Object.freeze({
   weeklyRampPct: 0.10,   // planned weekly km ≤ base × 1.1 …
   weeklyRampMinKm: 3,    // … or base + 3 km at low volume (base = max(4-week average, last week))
+  weeklyStartKm: 8,      // … and never below a beginner's first week (3 short run/walk sessions) when the base is ~0
   longRunWarnPct: 0.10,  // warn: any run > 30-day longest × 1.1 …
   longRunWarnMinKm: 1,   // … ignoring steps ≤ 1 km
   longRunErrorPct: 0.30, // error: > 30-day longest × 1.3 and > +3 km
@@ -1239,8 +1254,8 @@ export function validatePlan(plan, { profile = null, sessions = [], today } = {}
     if (base) {
       const L = RUN_LIMITS;
       const kmBase = Math.max(base.avgKm, base.lastWeekKm ?? 0);
-      const cap = Math.max(kmBase * (1 + L.weeklyRampPct), kmBase + L.weeklyRampMinKm);
-      if (totalRunKm > cap + 0.05) err("RUN_RAMP", null, "workouts", `Planned ${r1(totalRunKm)} km/week vs recent ~${r1(kmBase)} km/week (max ${r1(cap)}: +10%, or +3 km at low volume).`);
+      const cap = Math.max(kmBase * (1 + L.weeklyRampPct), kmBase + L.weeklyRampMinKm, L.weeklyStartKm);
+      if (totalRunKm > cap + 0.05) err("RUN_RAMP", null, "workouts", `Planned ${r1(totalRunKm)} km/week vs recent ~${r1(kmBase)} km/week (max ${r1(cap)}: +10%, or +3 km at low volume; ${L.weeklyStartKm} km for a first running week).`);
       const lg = base.longestKm, run = stats.longestRunKm;
       if (lg == null) { /* no single-run baseline */ } else if (run > lg * (1 + L.longRunErrorPct) && run > lg + L.longRunErrorMinKm) {
         err("LONG_RUN_SPIKE", null, "workouts", `Longest planned run ${run} km vs ${r1(lg)} km longest in the last 30 days (hard max ${r1(Math.max(lg * (1 + L.longRunErrorPct), lg + L.longRunErrorMinKm))}; aim ≤ ${r1(lg * (1 + L.longRunWarnPct))}).`);
@@ -1389,7 +1404,8 @@ export function normalizeSession(input, { today, now } = {}) {
     type = kinds.length > 1 ? "hybrid" : kinds[0] || "other";
   }
   const status = ["done", "partial", "missed"].includes(i.status) ? i.status : "done";
-  let durationMin = typeof i.durationMin === "string" ? (parseDuration(i.durationMin) ?? null) / 60 : num(i.durationMin);
+  const durSec = typeof i.durationMin === "string" ? parseDuration(i.durationMin) : null;
+  let durationMin = typeof i.durationMin === "string" ? (durSec == null ? null : durSec / 60) : num(i.durationMin);
   if (durationMin == null && run?.durationSec) durationMin = run.durationSec / 60;
   const title = String(i.title || "").trim() || (
     type === "run" ? `${run.runType[0].toUpperCase()}${run.runType.slice(1)} run${run.distanceKm ? ` ${run.distanceKm} km` : ""}`
@@ -1407,7 +1423,7 @@ export function normalizeSession(input, { today, now } = {}) {
     status,
     missedReason: status === "done" ? null : MISSED_REASONS.includes(i.missedReason) ? i.missedReason : status === "missed" ? "other" : null,
     durationMin: durationMin == null ? null : Math.round(durationMin),
-    readiness: i.readiness == null ? null : clamp(Math.round(num(i.readiness)), 1, 5),
+    readiness: num(i.readiness) == null ? null : clamp(Math.round(num(i.readiness)), 1, 5),
     sessionRpe: clamp(num(i.sessionRpe ?? i.rpe), 1, 10),
     notes: String(i.notes || ""),
     pain: (Array.isArray(i.pain) ? i.pain : []).filter((p) => p && p.area).map((p) => ({
@@ -1595,6 +1611,22 @@ export function markWorkoutDone(state, plan, workoutId) {
   const done = same ? [...rot.done] : [];
   if ((plan?.workouts || []).some((w) => w?.id === workoutId) && !done.includes(workoutId)) done.push(workoutId);
   return { planId: plan?.id ?? null, done };
+}
+
+/**
+ * Rotation after taking a workout back out (undo of a log or skip, or a deleted session). The inverse of
+ * markWorkoutDone: it removes the id from the CURRENT rotation instead of restoring an old snapshot, so workouts
+ * logged in between stay done. A rotation that belongs to another plan is returned unchanged.
+ * @param {object} state AppState
+ * @param {object} plan
+ * @param {string} workoutId
+ * @returns {{ planId: string|null, done: string[] }}
+ */
+export function unmarkWorkoutDone(state, plan, workoutId) {
+  const rot = state?.rotation;
+  const done = Array.isArray(rot?.done) ? [...rot.done] : [];
+  if (!rot || rot.planId !== plan?.id) return { planId: rot?.planId ?? null, done };
+  return { planId: rot.planId, done: done.filter((id) => id !== workoutId) };
 }
 
 // ================================================================== live (in-progress) workout

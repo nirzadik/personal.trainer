@@ -8,7 +8,7 @@ import {
 } from "./components.js";
 import { renderMarkdown, plainText } from "./markdown.js";
 import { removeSession, markDone, exerciseName, equipmentSet, prettifyId } from "./ops.js";
-import { saveLoggedSession, workoutDraft, feedbackControl, feedbackLabel } from "./quicklog.js";
+import { saveLoggedSession, workoutDraft, feedbackControl, feedbackLabel, MISSED_REASONS } from "./quicklog.js";
 import { openLiveWorkout } from "./workout.js";
 
 const FILTER_KEY = "pt.historyFilter";
@@ -170,7 +170,7 @@ function setText(s) {
 /** One-line metrics for a session card. */
 export function sessionMetrics(ctx, s) {
   const lines = [];
-  if (s.status === "missed") return [`Missed${s.missedReason ? ` · ${s.missedReason}` : ""}`];
+  if (s.status === "missed") return [`Missed${s.missedReason ? ` · ${missedLabel(s.missedReason)}` : ""}`];
   if (s.run) {
     const r = s.run;
     const pace = r.avgPaceSecPerKm || safe(() => ctx.core.paceSecPerKm(r.distanceKm, r.durationSec), null);
@@ -183,6 +183,11 @@ export function sessionMetrics(ctx, s) {
   }
   for (const c of s.conditioning || []) lines.push(metconText(c));
   return lines.filter(Boolean);
+}
+
+/** "time" → "no time" (the Skip panel's wording, lower case). */
+function missedLabel(reason) {
+  return String(MISSED_REASONS.find(([v]) => v === reason)?.[1] || reason).toLowerCase();
 }
 
 function shortName(name) {
@@ -370,7 +375,7 @@ function detailBody(ctx, s, localComment, commentJob) {
   const parts = [];
   parts.push(h("div", { class: "detail-tags" },
     typePill(s.type),
-    s.status !== "done" ? pill(s.status === "missed" ? `Missed${s.missedReason ? ` · ${s.missedReason}` : ""}` : "Partial", "neutral") : null,
+    s.status !== "done" ? pill(s.status === "missed" ? `Missed${s.missedReason ? ` · ${missedLabel(s.missedReason)}` : ""}` : "Partial", "neutral") : null,
     s.createdBy === "manual" ? pill("Added by hand", "neutral") : null,
   ));
   parts.push(h("dl", { class: "facts" }, facts.map(([k, v]) => h("div", { class: "fact" }, h("dt", {}, k), h("dd", { class: "num" }, v)))));

@@ -128,9 +128,9 @@ export const TOOL_SPECS = {
     startLabel: "Logging workout…",
     description:
       "Save a workout the owner reports (or a missed day with status \"missed\"). Expand set notation: \"100x5,5,4\" = 3 sets; \"3x8 @60\" = 3 sets of 8 at 60 kg. " +
-      "Use exerciseId when known, else name (the app maps names); per set omit loadKg for bodyweight, rir = reps in reserve (omit if not given), warmup true for a warm-up set; conditioning summary = what the workout was. Set workoutId to the planned id, or \"next\" when they did the up-next workout; omit for unplanned sessions. " +
+      "Use exerciseId when known, else name (the app maps names); per set omit loadKg for bodyweight, rir = reps in reserve (omit if not given), warmup true for a warm-up set; conditioning summary = what the workout was. Set workoutId to the planned id, or \"next\" when they did the up-next workout; omit for unplanned sessions. status \"missed\" WITH a workoutId skips that workout (Up next moves on); for a missed day they will still do, omit workoutId. " +
       "Omit any number the owner did not give. feedback = how an exercise or metcon felt overall (easy/fine/hard), only when the owner said so. " +
-      "The app computes pace, PRs and the rotation. Returns {id, prs, nextTargets, upNext}. Log only what the owner said; never invent numbers.",
+      "The app computes pace, PRs and the rotation. Returns {id, prs, nextTargets, upNext}. Log only what the owner said; never invent numbers. A duplicate of an already logged session is refused.",
     // Flat (no `session` wrapper) to keep the schema small; brain.js also accepts { session: {...} }.
     inputSchema: {
       type: "object",

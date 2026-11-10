@@ -100,8 +100,14 @@ export function mountChat(el, ctx) {
   append(el, [thread, dock]);
 
   // composer height → padding so the last message clears the dock
+  // (the page-level copy lifts toasts above the dock). When the dock grows (the suggestion chips come back
+  // after a reply) and the reader is at the bottom, stay there so the last action card is not covered.
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
-    el.style.setProperty("--dock-h", `${Math.ceil(dock.getBoundingClientRect().height)}px`);
+    const px = `${Math.ceil(dock.getBoundingClientRect().height)}px`;
+    const stick = !el.hidden && nearBottom();
+    el.style.setProperty("--dock-h", px);
+    document.documentElement.style.setProperty("--dock-h", px);
+    if (stick) scrollToBottom();
   }) : null;
   ro?.observe(dock);
   unsubs.push(() => ro?.disconnect());
@@ -396,9 +402,17 @@ export function mountChat(el, ctx) {
           t.phase === "done" ? icon("check", { size: 16 }) : t.phase === "error" ? icon("alert", { size: 16 }) : h("span", { class: "tool-spin", "aria-hidden": "true" }),
           h("span", {}, t.label || TOOL_COPY[t.name] || t.name),
         ))) : null,
-      hasText ? h("div", { class: "md" }, renderMarkdown(inflight.stream)) : null,
+      hasText ? h("div", { class: "md" }, renderMarkdown(closeOpenBold(inflight.stream))) : null,
     );
     if (wasBottom) scrollToBottom();
+  }
+
+  /** Mid-stream, a "**bold" whose closing marker has not arrived yet would show its asterisks: close it. */
+  function closeOpenBold(text) {
+    const nl = text.lastIndexOf("\n");
+    const last = text.slice(nl + 1);
+    if ((last.match(/\*\*/g) || []).length % 2 === 0) return text;
+    return text.slice(0, nl + 1) + (last.endsWith("**") ? last.slice(0, -2) : `${last}**`);
   }
 
   function scheduleStream() {
@@ -436,6 +450,8 @@ export function mountChat(el, ctx) {
     stopBtn.hidden = !busy;
     sendBtn.disabled = !input.value.trim();
     chips.hidden = busy || onboarding || !canChat || Boolean(input.value.trim()) || !loaded;
+    ctx.chatEmpty = !msgs.length;
+    ctx.refreshChrome?.();
   }
 
   function renderWelcome(status) {

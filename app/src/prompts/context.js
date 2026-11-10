@@ -3,7 +3,7 @@
 
 import {
   clip, compactJson, compactValue, fmtDuration, fmtNum, fmtPace, formatSessionCompact,
-  isPlainObject, joinSections, truncateBytes,
+  isPlainObject, joinSections, selectNotes, truncateBytes, utf8Bytes,
 } from "./util.js";
 
 /** Byte budgets of the snapshot sections (the total is capped separately). */
@@ -190,14 +190,22 @@ function formatEquipment(profile, equipmentNames) {
   return lines.join("\n");
 }
 
-function formatMemory(coach) {
+/**
+ * Coach memory as prompt text: the rolling summary, then the notes chosen by selectNotes (standing facts such as
+ * injuries, preferences and goals are kept however old; recent insights and decisions fill the rest).
+ * @param {object} coach CoachMemory (summary already stripped of app markers)
+ * @param {{ maxBytes?: number }} [opts] budget of the whole section
+ * @returns {string}
+ */
+export function formatMemory(coach, { maxBytes = CONTEXT_BUDGETS.memory } = {}) {
   if (!isPlainObject(coach)) return "";
   const lines = [];
   if (coach.summary) lines.push(`Summary: ${clip(coach.summary, 2000)}`);
-  const notes = Array.isArray(coach.notes) ? coach.notes.slice(-20) : [];
+  const room = Math.max(600, maxBytes - utf8Bytes(lines.join("\n")) - 40);
+  const notes = selectNotes(coach.notes, { maxBytes: room });
   if (notes.length) {
     lines.push("Notes (oldest → newest):");
-    for (const n of notes) if (isPlainObject(n)) lines.push(`- ${n.date ?? ""} [${n.kind ?? "note"}] ${clip(n.text, 300)}`);
+    for (const n of notes) lines.push(`- ${n.date ?? ""} [${n.kind ?? "note"}] ${clip(n.text, 300)}`);
   }
   return lines.join("\n");
 }
@@ -325,7 +333,7 @@ export function buildReviewSnapshot(data, { maxBytes = 26000 } = {}) {
     { title: "Today", body: `${d.today ?? "?"} (${d.weekday ?? ""})` },
     { title: "Owner profile (JSON)", body: truncateBytes(profileForPrompt(d.profile, "chat"), B.profile) },
     { title: "Equipment", body: formatEquipment(d.profile, d.equipmentNames), maxBytes: B.equipment },
-    { title: "Coach memory", body: formatMemory(d.coach), maxBytes: 3000 },
+    { title: "Coach memory", body: formatMemory(d.coach, { maxBytes: 3000 }), maxBytes: 3000 },
     { title: "Workout just logged", body: formatSessionCompact(s, { notesChars: 300, commentChars: 0 }), maxBytes: 3000 },
     { title: "Planned version of it", body: isPlainObject(d.plannedWorkout) ? formatWorkout(d.plannedWorkout) : "", maxBytes: 3000 },
     { title: "Owner feedback (how each part felt)", body: fbLines.length ? fbLines.join("\n") : "None given." },

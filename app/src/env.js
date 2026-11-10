@@ -28,20 +28,39 @@ const DOWNLOAD_EXTENSIONS = new Set([
  * - live when `window.claude` exists (and not `forceMock`): `use("sample" | "db" | "user" | "downloads")`
  *   run concurrently; each resolves null when unavailable (the platform may take up to 10 s).
  *   `uid = await user.id()`.
- * - mock when `window.claude` is absent or `forceMock`: an in-memory db persisted to
+ * - no `window.claude` on a non-dev host (see isDevHost): "live" with every capability null and all three
+ *   problems, so the UI explains instead of running on fake data.
+ * - mock when `forceMock`, or `window.claude` is absent on a dev host: an in-memory db persisted to
  *   localStorage, B's `createMockSample()` (null + "sample_unavailable" if that module
  *   isn't ready), uid "dev-user", stub user and downloads. With `?seed` in the URL an
  *   empty dev db is filled by `seedDevData()`.
  *
  * Never rejects.
  *
- * @param {{ forceMock?: boolean, claude?: object }} [options]
- *   `claude` overrides `window.claude` (tests).
+ * @param {{ forceMock?: boolean, claude?: object, location?: object }} [options]
+ *   `claude` overrides `window.claude`, `location` overrides `globalThis.location` (tests).
  * @returns {Promise<Runtime>}
  */
-export async function getRuntime({ forceMock = false, claude = globalThis.window?.claude } = {}) {
+export async function getRuntime({ forceMock = false, claude = globalThis.window?.claude, location = globalThis.location } = {}) {
   if (!forceMock && claude) return liveRuntime(claude);
+  // No window.claude. The simulated coach and browser-only data are for development: on any other host (a saved
+  // or re-hosted copy of the published page) starting them would let the owner "log" workouts that are never
+  // stored in their real data. There the app starts with nothing available and explains why.
+  if (!forceMock && !isDevHost(location)) return liveRuntime({});
   return mockRuntime();
+}
+
+/**
+ * May the mocks run here? Yes without a `location` (Node tests), on localhost / 127.0.0.1 / [::1] / *.localhost,
+ * from a file: URL, or with `?mock` in the URL.
+ * @param {{ hostname?: string, protocol?: string, search?: string }|undefined|null} location
+ * @returns {boolean}
+ */
+export function isDevHost(location) {
+  if (!location || typeof location !== "object") return true;
+  const host = String(location.hostname ?? "").toLowerCase();
+  if (location.protocol === "file:" || host === "" || host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1" || host.endsWith(".localhost")) return true;
+  try { return new URLSearchParams(String(location.search ?? "")).has("mock"); } catch { return false; }
 }
 
 async function liveRuntime(claude) {

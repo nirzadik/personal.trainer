@@ -134,6 +134,9 @@ export function mountApp(root, { runtime, store, coach, core, catalog }) {
     weekStartOf: (iso) => safe(() => core.weekStartOf(iso), "") || sundayFallback(iso),
     openSettings: () => openSettings(ctx),
     applyTheme,
+    /** Set by the Coach tab: nothing to clear yet (hides the header's Clear chat button). */
+    chatEmpty: true,
+    refreshChrome: () => {},
     /** Filled in by the views. */
     chat: null,
     plan: null,
@@ -282,6 +285,10 @@ export function mountApp(root, { runtime, store, coach, core, catalog }) {
     tabs[2].setAttribute("aria-label", hasDraft ? "Plan, draft waiting" : "Plan");
   }));
 
+  ctx.refreshChrome = () => {
+    clearChatBtn.hidden = ctx.route !== "coach" || !store || ctx.chatEmpty;
+  };
+
   // ---- routing -----------------------------------------------------------------------------
   function routeFromHash() {
     const r = String(location.hash || "").replace(/^#/, "");
@@ -297,7 +304,7 @@ export function mountApp(root, { runtime, store, coach, core, catalog }) {
   function show(route) {
     const changed = ctx.route !== route;
     ctx.route = route;
-    clearChatBtn.hidden = route !== "coach" || !store;
+    ctx.refreshChrome();
     for (const r of ROUTES) {
       views[r].hidden = r !== route;
       tabs[ROUTES.indexOf(r)].toggleAttribute("aria-current", r === route);

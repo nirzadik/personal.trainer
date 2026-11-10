@@ -480,7 +480,7 @@ describe("store: state", () => {
     await store.state.update({ rotation: { planId: "2026-11-01", done: ["W1", "W2"] } });
     const { state, undo } = await store.state.update({ rotation: { done: ["W1"] }, settings: { theme: "dark" } });
     assert.deepEqual(state.rotation, { planId: "2026-11-01", done: ["W1"] });
-    assert.deepEqual(state.settings, { theme: "dark", chatTier: "default" });
+    assert.deepEqual(state.settings, { theme: "dark", chatTier: "default", reviewAfterWorkout: true });
     await undo();
     const s = await store.state.get();
     assert.deepEqual(s.rotation.done, ["W1", "W2"]);

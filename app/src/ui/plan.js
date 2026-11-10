@@ -411,10 +411,15 @@ export function mountPlan(el, ctx) {
       : status === "later" ? pill("Later", "neutral") : null;
     // Logging actions (agreed plan only): visible under the head for Up next / Done / Skipped, inside the body for Later.
     const canLog = withTargets && Boolean(store) && plan.status === "agreed";
-    const actionsInBody = canLog && status === "later" && !skipping.has(key) && !liveDraftFor(plan.id, w.id);
+    // Done / Skipped cards stay one row tall (their status line joins the meta) so "Up next" keeps moving up the
+    // screen as the week goes on; their "View in History" row sits in the body.
+    const settled = status === "done" || status === "skipped";
+    const actionsInBody = canLog && (settled || (status === "later" && !skipping.has(key) && !liveDraftFor(plan.id, w.id)));
     const actions = () => (canLog ? workoutActions(plan, w, idx, status, logged) : null);
     const loc = (ctx.data.profile?.equipment?.locations || []).find((l) => l.id === w.locationId)?.name;
-    const meta = [TYPE_LABEL[w.type] || prettifyId(w.type), w.estMinutes ? `${w.estMinutes} min` : null, loc].filter(Boolean).join(" · ");
+    const meta = (canLog && settled
+      ? [TYPE_LABEL[w.type] || prettifyId(w.type), loggedText(status, logged)]
+      : [TYPE_LABEL[w.type] || prettifyId(w.type), w.estMinutes ? `${w.estMinutes} min` : null, loc]).filter(Boolean).join(" · ");
     const body = h("div", { class: "workout-body", id: bodyId, hidden: !isOpen });
     const sw = swapContext(plan, w, status);
     const fill = () => fillBody(body, w, withTargets, actionsInBody ? actions() : null, sw);
@@ -666,11 +671,8 @@ export function mountPlan(el, ctx) {
       },
     }) : null;
     if (status === "done" || status === "skipped") {
-      const what = status === "skipped"
-        ? `Skipped${logged?.missedReason ? ` · ${(MISSED_REASONS.find(([v]) => v === logged.missedReason)?.[1] || logged.missedReason).toLowerCase()}` : ""}`
-        : logged ? `Logged ${relDay(logged.date)}` : "Done";
+      if (!viewBtn && status !== "skipped") return null;
       return h("div", { class: "w-actions w-actions-logged" },
-        h("span", { class: "w-logged num" }, what),
         viewBtn,
         status === "skipped" ? button({ id: `w${slug}-done`, label: "Log it", icon: "check", kind: "ghost", small: true, onClick: () => openWorkoutLog(ctx, plan, w) }) : null,
       );
@@ -707,9 +709,15 @@ export function mountPlan(el, ctx) {
     }
     return h("div", { class: ["w-actions", status === "next" && "is-next"] },
       button({ id: `w${slug}-done`, label: "Start", icon: "play", kind: status === "next" ? "primary" : "secondary", small: true, disabled: isBusy, onClick: () => openWorkoutLog(ctx, plan, w) }),
-      button({ id: `w${slug}-asplanned`, label: "As planned", ariaLabel: `Done exactly as planned: log ${w.title || w.id} with the planned values`, kind: "secondary", small: true, disabled: isBusy, onClick: () => doneAsPlanned(plan, w, key) }),
+      button({ id: `w${slug}-asplanned`, label: "Done as planned", ariaLabel: `Done exactly as planned: log ${w.title || w.id} with the planned values`, kind: "secondary", small: true, disabled: isBusy, onClick: () => doneAsPlanned(plan, w, key) }),
       button({ id: `w${slug}-skip`, label: "Skip", kind: "ghost", small: true, disabled: isBusy, onClick: () => { skipping.set(key, { reason: "time", notes: "" }); render(); focusLater(`#w${slug}-skip-reason-time`); } }),
     );
+  }
+
+  /** "Logged today" / "Skipped · no time" for a settled card's meta line. */
+  function loggedText(status, logged) {
+    if (status === "skipped") return `Skipped${logged?.missedReason ? ` · ${(MISSED_REASONS.find(([v]) => v === logged.missedReason)?.[1] || logged.missedReason).toLowerCase()}` : ""}`;
+    return logged ? `Logged ${relDay(logged.date)}` : "Done";
   }
 
   function relDay(iso) {
@@ -812,6 +820,7 @@ export function mountPlan(el, ctx) {
         const tReps = target?.reps ?? null;
         const alts = (it.alternatives || []).map((id) => exerciseName(ctx.catalog, id)).filter(Boolean);
         const swapBtn = swapControl(sw, it);
+        const bw = tLoad == null && isBodyweight(it.exerciseId);
         return h("li", { class: ["lift", it.swappedFrom && "is-swapped"] },
           h("div", { class: "lift-main" },
             h("p", { class: "lift-name" }, tag ? h("span", { class: "ss-tag" }, tag) : null, it.name || exerciseName(ctx.catalog, it.exerciseId), swappedMark(it)),
@@ -823,14 +832,22 @@ export function mountPlan(el, ctx) {
           withTargets || tLoad != null || swapBtn ? h("div", { class: "lift-side" },
             withTargets || tLoad != null ? h("div", { class: "lift-target", title: target?.reason || "" },
               h("span", { class: "target-label" }, "Target"),
-              h("span", { class: "target-val num" }, tLoad != null ? `${fmtKg(tLoad)}` : "—", tLoad != null ? h("span", { class: "target-unit" }, "kg") : null),
-              tReps != null ? h("span", { class: "target-reps num" }, `× ${tReps}`) : h("span", { class: "target-reps num" }, tLoad == null ? "pick a load" : `× ${it.reps}`),
+              h("span", { class: "target-val num" }, tLoad != null ? `${fmtKg(tLoad)}` : bw ? "BW" : "—", tLoad != null ? h("span", { class: "target-unit" }, "kg") : null),
+              tReps != null ? h("span", { class: "target-reps num" }, `× ${tReps}`) : h("span", { class: "target-reps num" }, tLoad == null && !bw ? "pick a load" : `× ${it.reps}`),
             ) : null,
             swapBtn,
           ) : null,
         );
       })),
     );
+  }
+
+  /** No barbell, dumbbell, kettlebell or machine in its equipment: the target is bodyweight, not "pick a load". */
+  function isBodyweight(exerciseId) {
+    const ex = safe(() => ctx.catalog.getExercise(exerciseId), null);
+    if (!ex) return false;
+    const ids = [...(ex.equipment?.all || []), ...(ex.equipment?.any || [])];
+    return !ids.some((id) => ["free_weights", "machines"].includes(ctx.catalog.EQUIPMENT?.[id]?.group));
   }
 
   function paceRange(t) {
@@ -906,10 +923,17 @@ export function mountPlan(el, ctx) {
   // ---- draft ---------------------------------------------------------------------------------
   function draftSection(plan) {
     const v = plan.validation || safe(() => ctx.core.validatePlan(plan, { profile: ctx.data.profile, sessions: ctx.data.sessions, today: ctx.today() }), null) || { errors: [], warnings: [] };
+    // TOO_VERBOSE is a note to the plan writer about text length, not something the owner can act on.
     const issues = [
       ...(v.errors || []).map((i) => ({ ...i, level: "error" })),
-      ...(v.warnings || []).map((i) => ({ ...i, level: "warn" })),
+      ...(v.warnings || []).filter((i) => i.code !== "TOO_VERBOSE").map((i) => ({ ...i, level: "warn" })),
     ];
+    const workoutLabel = (id) => {
+      const n = (plan.workouts || []).findIndex((w) => w.id === id);
+      return n >= 0 ? `Workout ${n + 1}` : String(id);
+    };
+    const agreed = ctx.agreedPlan();
+    const weekOpen = agreed && rotationOf(agreed).next;
     const shown = showAllIssues ? issues : issues.slice(0, 4);
     const busy = Boolean(job && !job.error);
     const actions = h("div", { class: "draft-actions" });
@@ -943,11 +967,20 @@ export function mountPlan(el, ctx) {
         h("p", { class: "eyebrow eyebrow-draft" }, "Draft · needs your OK"),
         h("h2", { class: ["plan-focus", String(plan.focus || "").length > 48 && "is-long"] }, plan.focus || "Next week"),
         h("p", { class: "plan-meta num" }, [`Week of ${fmtWeekRange(plan.weekStart)}`, plural((plan.workouts || []).length, "workout")].join(" · ")),
+        weekOpen ? button({
+        id: "draft-jump-week",
+        label: "Go to this week's workouts",
+        icon: "chevron",
+        kind: "quiet",
+        small: true,
+        class: "draft-jump",
+        onClick: () => agreedEl.scrollIntoView({ block: "start", behavior: "auto" }),
+      }) : null,
       ),
       issues.length ? h("div", { class: "issues" },
         h("ul", { class: "issue-list", "aria-label": "Plan check" }, shown.map((i) => h("li", { class: `issue issue-${i.level}` },
           icon(i.level === "error" ? "alert" : "dot", { size: 16 }),
-          h("span", {}, i.workoutId ? h("strong", {}, `${i.workoutId} `) : null, i.message || prettifyId(i.code)),
+          h("span", {}, i.workoutId ? h("strong", {}, `${workoutLabel(i.workoutId)}: `) : null, i.message || prettifyId(i.code)),
         ))),
         issues.length > 4 ? button({ id: "draft-issues-more", label: showAllIssues ? "Show fewer" : `Show all ${issues.length}`, kind: "quiet", small: true, onClick: () => { showAllIssues = !showAllIssues; render(); } }) : null,
       ) : h("p", { class: "issue-clear" }, icon("check", { size: 16 }), "Passed the plan check: equipment, volume, session length and run ramp."),

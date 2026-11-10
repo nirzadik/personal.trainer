@@ -320,3 +320,44 @@ export function sortSessionsAsc(sessions) {
       || a.i - b.i)
     .map((x) => x.s);
 }
+
+/** Note kinds that stay relevant however old they are (standing facts), versus running commentary. */
+const STANDING_NOTE_KINDS = ["injury", "preference", "goal"];
+
+/**
+ * Choose which CoachMemory notes go into a prompt. The store keeps 200 notes; a prompt has room for far fewer, and
+ * "the newest 20" silently forgets an injury or preference noted months ago once enough small insights pile up.
+ * So: standing facts (injury, preference, goal) keep the newest `perStandingKind` each, running commentary
+ * (insight, decision, anything else) the newest `recent`; exact duplicate texts collapse to the newest; the result
+ * is trimmed from the OLDEST commentary first to fit `maxBytes`, and returned oldest → newest.
+ * @param {object[]} notes CoachMemory.notes (oldest → newest)
+ * @param {{ recent?: number, perStandingKind?: number, maxBytes?: number, noteChars?: number }} [opts]
+ * @returns {object[]}
+ */
+export function selectNotes(notes, { recent = 12, perStandingKind = 8, maxBytes = 4000, noteChars = 300 } = {}) {
+  const list = (Array.isArray(notes) ? notes : []).filter((n) => isPlainObject(n) && String(n.text ?? "").trim());
+  const seenText = new Set();
+  const picked = [];
+  const left = { other: recent };
+  for (const k of STANDING_NOTE_KINDS) left[k] = perStandingKind;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const n = list[i];
+    const bucket = STANDING_NOTE_KINDS.includes(n.kind) ? n.kind : "other";
+    const key = String(n.text).trim().toLowerCase();
+    if (left[bucket] <= 0 || seenText.has(key)) continue;
+    seenText.add(key);
+    left[bucket] -= 1;
+    picked.push({ i, n, standing: bucket !== "other" });
+  }
+  const size = (x) => utf8Bytes(clip(x.n.text, noteChars)) + 28;
+  let total = picked.reduce((a, x) => a + size(x), 0);
+  // over budget: drop the oldest commentary first, then the oldest standing facts
+  for (const standing of [false, true]) {
+    for (let k = picked.length - 1; k >= 0 && total > maxBytes; k--) {
+      if (picked[k].standing !== standing) continue;
+      total -= size(picked[k]);
+      picked.splice(k, 1);
+    }
+  }
+  return picked.sort((a, b) => a.i - b.i).map((x) => x.n);
+}

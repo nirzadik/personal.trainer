@@ -301,8 +301,12 @@ export function openSheet({ title, build, onClose, id, backdropClose = true, cla
     close: () => {
       if (closed) return;
       closed = true;
+      // a toast shown from inside this sheet (e.g. "Logged · Undo") must outlive it
+      const toasts = dialog.querySelector("#toast-host");
+      if (toasts) document.body.appendChild(toasts);
       if (dialog.open) dialog.close();
       dialog.remove();
+      placeToastHost();
       if (!document.querySelector("dialog.sheet[open]")) document.documentElement.classList.remove("sheet-open");
       onClose?.();
     },
@@ -319,6 +323,7 @@ export function openSheet({ title, build, onClose, id, backdropClose = true, cla
   } catch {
     dialog.setAttribute("open", "");
   }
+  if (document.getElementById("toast-host")) placeToastHost();
   return api;
 }
 
@@ -326,16 +331,30 @@ export function openSheet({ title, build, onClose, id, backdropClose = true, cla
 // Toasts
 
 /**
+ * The toast host, placed where a toast can be seen and tapped: inside the top-most open sheet (a modal
+ * <dialog> covers and inerts everything outside it), just above that sheet's footer; otherwise on the page,
+ * above the tab bar (and the Coach composer). Created on first use.
+ * @returns {HTMLElement}
+ */
+export function placeToastHost() {
+  let host = document.getElementById("toast-host");
+  if (!host) host = h("div", { id: "toast-host", class: "toast-host", "aria-live": "polite" });
+  const sheets = document.querySelectorAll("dialog.sheet[open]");
+  const top = sheets.length ? sheets[sheets.length - 1] : null;
+  const parent = top || document.body;
+  if (host.parentNode !== parent) parent.appendChild(host);
+  const footer = top?.querySelector(".sheet-footer:not([hidden])");
+  host.style.bottom = top ? `${(footer?.offsetHeight || 0) + 10}px` : "";
+  return host;
+}
+
+/**
  * Show a short toast above the tab bar, optionally with an action (e.g. Undo).
  * @param {{ text: string, action?: { label: string, fn: Function }, timeout?: number, kind?: string }} opts
  * @returns {() => void} dismiss
  */
 export function toast({ text, action, timeout = 6000, kind = "info" }) {
-  let host = document.getElementById("toast-host");
-  if (!host) {
-    host = h("div", { id: "toast-host", class: "toast-host", "aria-live": "polite" });
-    document.body.appendChild(host);
-  }
+  const host = placeToastHost();
   const el = h("div", { class: `toast toast-${kind}`, role: "status" }, h("span", { class: "toast-text" }, text));
   let timer = null;
   const dismiss = () => {

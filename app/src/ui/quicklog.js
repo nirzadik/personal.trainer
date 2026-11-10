@@ -3,7 +3,7 @@
 // the session log and the rotation consistent, and every write comes with an Undo that reverts both.
 // v2: the Easy / Fine / Hard feedback control, and the post-workout review the save tap starts (coach.reviewWorkout).
 
-import { h, safe, toast, plural, errorText, button, createTicker, fmtElapsed, replaceChildren } from "./components.js";
+import { h, safe, toast, plural, errorText, button, createTicker, fmtElapsed, replaceChildren, placeToastHost } from "./components.js";
 
 /** Exercise feedback values and labels (Session.strength[].feedback, CONTRACT-v2). */
 export const FEEDBACK_OPTIONS = [
@@ -58,11 +58,7 @@ export const MISSED_REASONS = [
  */
 export function actionToast({ text, actions = [], timeout = 8000, kind = "info" }) {
   if (actions.length <= 1) return toast({ text, action: actions[0], timeout, kind });
-  let host = document.getElementById("toast-host");
-  if (!host) {
-    host = h("div", { id: "toast-host", class: "toast-host", "aria-live": "polite" });
-    document.body.appendChild(host);
-  }
+  const host = placeToastHost();
   let timer = null;
   const el = h("div", { class: `toast toast-${kind} pl-toast`, role: "status" }, h("span", { class: "toast-text" }, text));
   const dismiss = () => {
@@ -337,7 +333,7 @@ function renderReviewStrip() {
   }
   replaceChildren(host, h("div", { class: "rv-strip", role: "status", id: "review-status" },
     h("span", { class: "pulse", "aria-hidden": "true" }),
-    h("span", { class: "rv-text" }, "Coach is reviewing your workout…"),
+    h("span", { class: "rv-text" }, "Coach is reviewing your workout"),
     h("span", { class: "rv-time num", "aria-label": "elapsed" }, elapsed),
     button({ id: "review-stop", label: "Stop", icon: "stop", kind: "stop", small: true, onClick: () => job.ctl.abort() }),
   ));

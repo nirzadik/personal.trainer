@@ -9,11 +9,11 @@ import {
   localISODate, sortSessionsAsc, sundayOf, truncateBytes, utf8Bytes, weekdayName,
 } from "./prompts/util.js";
 import { CHAT_TOOL_ORDER, NOTE_KINDS, ONBOARDING_TOOL_ORDER, REVIEW_TOOL_ORDER, TOOL_ENUMS, TOOL_SPECS, checkToolSpec } from "./prompts/tools.js";
-import { buildContextSnapshot, buildReviewSnapshot, formatPlanOverview, formatWellnessEntry, formatWorkout } from "./prompts/context.js";
+import { buildContextSnapshot, buildReviewSnapshot, formatMemory, formatPlanOverview, formatWellnessEntry, formatWorkout } from "./prompts/context.js";
 import {
   CHAT_BUDGETS, ONBOARDING_START_TURN, REVIEW_START_TURN, buildChatTurns, buildInstructionsTurn, isClearCommand, normalizeTurns,
 } from "./prompts/chat.js";
-import { buildPlanPrompt, buildRepairPrompt, expandPlan, formatPaces } from "./prompts/plan.js";
+import { PLAN_BUDGETS, buildPlanPrompt, buildRepairPrompt, expandPlan, formatPaces } from "./prompts/plan.js";
 import { progressionDigest } from "./progress.js";
 import { SUMMARY_STALE_AFTER, buildSummaryPrompt, composeSummary, parseSummary } from "./prompts/summary.js";
 import { buildCommentPrompt, clampWords } from "./prompts/comment.js";
@@ -117,6 +117,7 @@ const ERROR_DETAIL_CHARS = 300;
  * @property {(instruction: string, opts?: { signal?: AbortSignal, onProgress?: (p: PlanProgress) => void, modelTier?: "complex"|"default" }) => Promise<{ plan: object, validation: object|null, undo?: Function }>} reviseDraft
  * @property {(sessionId: string, opts?: { signal?: AbortSignal }) => Promise<string>} commentOnSession
  * @property {(sessionId: string, opts?: { signal?: AbortSignal, onText?: Function, onTool?: Function }) => Promise<SendResult>} reviewWorkout
+ * @property {(opts?: { signal?: AbortSignal }) => Promise<{ summarized: number }>} rememberChat fold unsummarized chat into CoachMemory.summary (call from the "Clear chat" tap, before store.chat.clear)
  * @property {(ref: string) => Promise<{ plan: object, undo?: Function }>} undoPlanChange
  * @property {(ref: string, plans?: object[]) => boolean} planChangeActive
  * @property {(code: string) => string} errorCopy
@@ -358,7 +359,17 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     }
     return out;
   }
-  function runLoadOf(sessionsAsc, t) {
+  function runLoadOf(sessionsAsc, t, profile) {
+    const logged = runLoadFromLog(sessionsAsc, t);
+    if (logged.longestKm > 0 || logged.avgWeeklyKm > 0) return logged;
+    // No runs logged in the window: fall back to the onboarding baseline, as core.validatePlan's run checks do,
+    // so the prompt's caps and the validator agree (a runner's first plan is not capped at "0 km").
+    const r = profile?.experience?.running;
+    const km = Number(r?.currentWeeklyKm) || 0;
+    const long = Number(r?.longestRecentRunKm) || 0;
+    return km > 0 || long > 0 ? { avgWeeklyKm: km, lastWeekKm: km, longestKm: long, weeks: 4, source: "profile" } : logged;
+  }
+  function runLoadFromLog(sessionsAsc, t) {
     // longest run of the last 30 days (the single-run rule) and the last full week's km (the weekly base)
     const from30 = addDaysISO(t, -29);
     const recent = sessionsAsc.filter((s) => s.status !== "missed" && s.date >= from30 && s.date <= t && Number(s.run?.distanceKm) > 0);
@@ -396,6 +407,18 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
   const guard = (signal) => {
     if (signal?.aborted) throw new Error("Stopped by the owner before saving.");
   };
+  /**
+   * Undo of a rotation step: take `workoutId` out of the CURRENT rotation (not a snapshot restore), so workouts
+   * logged after it stay done. No-op when the rotation has moved to another plan.
+   */
+  async function unmarkRotation(plan, workoutId) {
+    const st = (await store.state.get()) ?? {};
+    if (st.rotation?.planId !== plan?.id) return;
+    const next = typeof C.unmarkWorkoutDone === "function"
+      ? C.unmarkWorkoutDone(st, plan, workoutId)
+      : { planId: st.rotation.planId, done: (st.rotation.done ?? []).filter((x) => x !== workoutId) };
+    await store.state.update({ rotation: next });
+  }
   const clampInt = (v, lo, hi, dflt) => {
     const n = Math.round(Number(v));
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
@@ -887,6 +910,10 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       if (!changed.length) throw new Error(`Nothing to update${notes.length ? `: ${notes.join("; ")}` : ""}`);
       guard(signal);
       const undos = [(await store.profile.update(patch))?.undo];
+      // A new body weight is also a weigh-in: keep the trend (data/users/<uid>/body), not only the latest value.
+      if (Number(patch.weightKg) > 0 && Number(patch.weightKg) !== Number(current.weightKg) && typeof store.body?.add === "function") {
+        undos.push((await soft(() => store.body.add({ date: ctx.today, kg: Number(patch.weightKg) })))?.undo);
+      }
       const finished = patch.onboarded === true && !current.onboarded;
       if (finished) undos.push((await store.state.update({ onboarding: { status: "done" } }))?.undo);
       const fresh = await soft(() => store.profile.get());
@@ -981,22 +1008,30 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
       };
       const session = C.normalizeSession(base, { today: t });
       if (!isPlainObject(session)) throw new Error("could not read that session");
-      const prior = sortSessionsAsc(existing);
+      // A memoryless model can get the year wrong or log twice after a failed reply: refuse both, with the fix.
+      if (String(session.date) > t) throw new Error(`date ${session.date} is in the future (today is ${t}). Log it on the day, or fix the date.`);
+      const dup = (Array.isArray(existing) ? existing : []).find((s) => isPlainObject(s) && sameSessionContent(s, session));
+      if (dup) throw new Error(`Already logged as ${dup.id} (${formatSessionCompact(dup, { notesChars: 0, withId: false })}). Nothing was saved. Use update_session to correct it.`);
+      const all = sortSessionsAsc(existing);
+      const prior = all.filter((s) => String(s.date) <= String(session.date));
       session.prs = attempt(() => C.detectPrs(session, prior), Array.isArray(session.prs) ? session.prs : []);
       guard(signal);
       const res = await store.sessions.add(session);
       const id = res?.id ?? res?.session?.id ?? session.id ?? null;
       const undos = [res?.undo];
       let rotation = state?.rotation;
-      if (planned && session.status !== "missed") {
+      // Done, partial and skipped ("missed" against a planned workout) all move "Up next" on, as the Plan tab does.
+      if (planned) {
         const next = attempt(() => C.markWorkoutDone(state, agreed, planned.id));
-        if (isPlainObject(next)) {
-          undos.push((await store.state.update({ rotation: next }))?.undo);
+        const already = state?.rotation?.planId === agreed.id && Array.isArray(state.rotation.done) && state.rotation.done.includes(planned.id);
+        if (isPlainObject(next) && !already) {
+          await store.state.update({ rotation: next });
+          undos.push(() => unmarkRotation(agreed, planned.id));
           rotation = next;
         }
       }
       const saved = { ...session, id };
-      const after = [...prior, saved];
+      const after = sortSessionsAsc([...all, saved]);
       const items = strengthItems(agreed);
       const nextTargets = targetsFor((saved.strength ?? []).map((e) => items.get(e?.exerciseId)).filter(Boolean), after, t, 8);
       const upNext = agreed ? attempt(() => C.nextWorkout(agreed, { ...state, rotation })) : null;
@@ -1209,14 +1244,45 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     const isNew = (m) => !throughTs || (typeof m.ts === "string" && m.ts > throughTs);
     const pending = older.filter(isNew);
     if (prior.filter(isNew).length <= SUMMARY_STALE_AFTER || !pending.length) return;
-    const batch = pending.slice(-SUMMARY_SCAN);
-    const res = await callSample(buildSummaryPrompt({ previousSummary: text, messages: batch, today: t }), {
+    await summarizeBatch(pending.slice(-SUMMARY_SCAN), coachMem, text, lim, signal, t);
+  }
+
+  /** One quick-tier call that folds `batch` into the rolling summary and stores it (marker = the last message's ts). */
+  async function summarizeBatch(batch, coachMem, previousText, lim, signal, t) {
+    const res = await callSample(buildSummaryPrompt({ previousSummary: previousText, messages: batch, today: t }), {
       modelTier: tierFor("quick", lim), cache: false, signal,
     });
     const last = batch[batch.length - 1];
     const stored = composeSummary(res.text, typeof last?.ts === "string" ? last.ts : nowIso());
     await soft(() => store.coach.setSummary(stored));
     coachMem.summary = stored;
+  }
+
+  /**
+   * Fold every chat message that is not in the rolling summary yet into it: one quick-tier call, only ever from
+   * an owner tap (the UI calls it from "Clear chat", so clearing forgets wording, not facts). Never retried.
+   * @param {{ signal?: AbortSignal }} [opts]
+   * @returns {Promise<{ summarized: number }>} messages folded in (0 = nothing new, no call made);
+   *   rejects { code, message } like the other coach methods
+   */
+  async function rememberChat({ signal } = {}) {
+    const blocked = unavailableCode();
+    if (blocked) throw { code: blocked, message: errorCopy(blocked) };
+    try {
+      const [recent, coachMem] = await Promise.all([
+        store.chat.recent(CHAT_BUDGETS.historyMessages + SUMMARY_SCAN), soft(() => store.coach.get(), {}),
+      ]);
+      const mem = isPlainObject(coachMem) ? coachMem : {};
+      const { throughTs, text } = parseSummary(mem.summary);
+      const pending = (Array.isArray(recent) ? recent : []).filter((m) => isPlainObject(m) && (m.role === "user" || m.role === "assistant")
+        && String(m.text ?? "").trim() && !isClearCommand(m.text) && (!throughTs || (typeof m.ts === "string" && m.ts > throughTs)));
+      if (!pending.some((m) => m.role === "user")) return { summarized: 0 };
+      await summarizeBatch(pending.slice(-SUMMARY_SCAN), mem, text, await getLimits(), signal, today());
+      return { summarized: Math.min(pending.length, SUMMARY_SCAN) };
+    } catch (e) {
+      const err = isPlainObject(e) && typeof e.code === "string" ? e : anyError(e);
+      throw { code: err.code, message: String(err.message ?? err.code) };
+    }
   }
 
   async function persistReply(text, actions, error, detail) {
@@ -1423,18 +1489,15 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
 
       const thisWeek = weekStartOf(t);
       const weekStart = base?.weekStart && isIsoDate(base.weekStart) ? base.weekStart
-        : (isIsoDate(agreed?.weekStart) && agreed.weekStart >= thisWeek ? addDaysISO(agreed.weekStart, 7) : thisWeek);
+        : planWeekStart(agreed, thisWeek);
       const id = weekStart; // provisional: store.plans.saveDraft assigns the final id (weekStart, -2, -3…)
 
       const workoutCount = clampInt(profile?.schedule?.daysPerWeek, 1, 7, 3);
       const minutesPerSession = clampInt(profile?.schedule?.minutesPerSession, 10, 240, 60);
       const allowedLocations = allowedByLocation(profile);
-      const runLoad = runLoadOf(sessionsAsc, t);
+      const runLoad = runLoadOf(sessionsAsc, t, profile);
       const mem = memoryForPrompt(coachMem);
-      const memoryText = [
-        mem.summary ? `Summary: ${mem.summary}` : "",
-        ...(Array.isArray(mem.notes) ? mem.notes.slice(-20) : []).map((n) => `- ${n.date ?? ""} [${n.kind}] ${clip(n.text, 300)}`),
-      ].filter(Boolean).join("\n");
+      const memoryText = formatMemory(mem, { maxBytes: PLAN_BUDGETS.memory });
       const from14 = addDaysISO(t, -13);
       const previousDone = state.rotation?.planId === agreed?.id ? state.rotation?.done : [];
       const defaultLocationId = profile?.equipment?.defaultLocationId || profileLocations(profile)[0].id;
@@ -1486,6 +1549,10 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
         }
       }
       if (signal?.aborted) throw { code: "cancelled", message: "Stopped" };
+      // A reply that parsed as JSON but holds no workout (wrong shape, or cut to an empty shell) is not a draft.
+      if (!plan.workouts.length || !plan.workouts.some((w) => Array.isArray(w.blocks) && w.blocks.length)) {
+        throw { code: "invalid_json", message: "the reply had no workouts (not a plan)" };
+      }
       plan.validation = isPlainObject(validation) ? validation : null;
       plan.weeklyTargets = weeklyTargetsOf(plan, validation);
 
@@ -1664,6 +1731,7 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
     reviseDraft: (instruction, { signal, onProgress, modelTier } = {}) => runPlan({ instruction: String(instruction ?? ""), signal, onProgress, revise: true, modelTier }),
     commentOnSession,
     reviewWorkout,
+    rememberChat,
     undoPlanChange,
     planChangeActive,
     errorCopy,
@@ -1671,6 +1739,17 @@ export function createCoach({ runtime, store, core, catalog, knowledge, now } = 
 }
 
 // ---------- module-private helpers ----------
+
+/**
+ * weekStart of a new plan: this week, or next week when the agreed plan already covers this week (or a later
+ * one). Never more than one week ahead, however many plans are generated and approved early.
+ * @param {object|null} agreed the agreed plan, if any
+ * @param {string} thisWeek the Sunday of the current week (YYYY-MM-DD)
+ * @returns {string}
+ */
+export function planWeekStart(agreed, thisWeek) {
+  return isIsoDate(agreed?.weekStart) && agreed.weekStart >= thisWeek ? addDaysISO(thisWeek, 7) : thisWeek;
+}
 
 /** modelTier values the plan UI may ask for ("Try with the faster model" = "default"). */
 const PLAN_TIERS = new Set(["complex", "default"]);
@@ -1759,6 +1838,27 @@ export function parseWellnessText(text) {
   set("restingHr", grab(/(?:resting\s*(?:hr|heart\s*rate)|rhr)[^0-9\n]{0,12}(\d{2,3})/i));
   set("stress", grab(/\bstress[^0-9\n]{0,12}(\d{1,3})/i));
   return out;
+}
+
+/**
+ * True when a stored session holds the same training as a new one: same date, type and status and identical
+ * strength sets, run and conditioning results (titles, notes and timestamps are ignored). Sessions with no
+ * training content (e.g. two missed days) only match on the same planned workout.
+ * @param {object} a stored Session
+ * @param {object} b new Session (normalized)
+ * @returns {boolean}
+ */
+export function sameSessionContent(a, b) {
+  if (!isPlainObject(a) || !isPlainObject(b)) return false;
+  if (a.date !== b.date || a.type !== b.type || (a.status ?? "done") !== (b.status ?? "done")) return false;
+  const key = (s) => JSON.stringify({
+    st: (s.strength ?? []).map((e) => [e?.exerciseId ?? e?.name ?? null, (e?.sets ?? []).map((x) => [x?.type ?? "work", x?.loadKg ?? null, x?.reps ?? null, x?.rir ?? null])]),
+    run: s.run ? [s.run.runType ?? null, s.run.distanceKm ?? null, s.run.durationSec ?? null] : null,
+    cond: (s.conditioning ?? []).map((c) => [c?.format ?? null, c?.description ?? "", c?.result?.rounds ?? null, c?.result?.reps ?? null, c?.result?.timeSec ?? null, c?.result?.calories ?? null]),
+  });
+  const empty = !(b.strength ?? []).length && !b.run && !(b.conditioning ?? []).length;
+  if (empty) return Boolean(b.workoutId) && a.workoutId === b.workoutId && (a.planId ?? null) === (b.planId ?? null) && key(a) === key(b);
+  return key(a) === key(b);
 }
 
 function defaultTitle(type) {
