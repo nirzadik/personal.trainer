@@ -8,7 +8,7 @@ import {
 } from "./components.js";
 import { renderMarkdown, plainText } from "./markdown.js";
 import { removeSession, markDone, exerciseName, equipmentSet, prettifyId } from "./ops.js";
-import { saveLoggedSession, workoutDraft, feedbackControl, feedbackLabel, MISSED_REASONS } from "./quicklog.js";
+import { saveLoggedSession, feedbackControl, feedbackLabel, MISSED_REASONS } from "./quicklog.js";
 import { openLiveWorkout } from "./workout.js";
 
 const FILTER_KEY = "pt.historyFilter";
@@ -589,8 +589,7 @@ function parseClock(ctx, str) {
 /**
  * Open the log sheet for a workout of the agreed plan. This is the live, in-workout sheet (workout.js): every
  * planned set prefilled from core.sessionFromWorkout, ticked set by set, with a draft that survives closing and
- * reloads. Finishing logs it and advances the rotation. (The add form's `{ plan, workout }` mode below is the
- * earlier one-shot version, kept for reference but no longer opened.)
+ * reloads. Finishing logs it and advances the rotation.
  * @param {any} ctx
  * @param {any} plan
  * @param {any} workout
@@ -600,34 +599,25 @@ export function openWorkoutLog(ctx, plan, workout, { note = "" } = {}) {
   openLiveWorkout(ctx, plan, workout, { note });
 }
 
-function planDraft(ctx, plan, workout) {
-  const s = workoutDraft(ctx, plan, workout);
-  const d = draftFrom(ctx, s);
-  d.type = s.type;
-  d.title = s.title;
-  d.durationMin = s.durationMin ?? "";
-  d.workoutRef = `${plan.id}|${workout.id}`;
-  d.sections = [s.strength.length && "strength", s.run && "run", s.conditioning.length && "conditioning"].filter(Boolean);
-  d.condExtra = (s.conditioning || []).slice(1).map(({ target, ...c }) => c);
-  return d;
-}
-
-function openForm(ctx, existing, opts = {}) {
+/**
+ * The manual Add / Edit workout form (History). Plan workouts are logged in the live workout sheet instead.
+ * @param {any} ctx
+ * @param {any|null} existing session to edit, or null to add one
+ */
+function openForm(ctx, existing) {
   const { store, core, catalog, coach } = ctx;
   if (!store) return;
-  const fromPlan = opts.plan && opts.workout ? { plan: opts.plan, workout: opts.workout } : null;
-  const draft = fromPlan ? planDraft(ctx, fromPlan.plan, fromPlan.workout) : draftFrom(ctx, existing);
+  const draft = draftFrom(ctx, existing);
   // A hybrid session (e.g. logged from the plan) edits every section it has; otherwise the type picker decides.
-  const multi = fromPlan ? draft.sections
-    : existing ? [existing.strength?.length && "strength", existing.run && "run", existing.conditioning?.length && "conditioning"].filter(Boolean) : [];
-  const sectionsOf = () => (fromPlan || multi.length > 1 ? multi : [draft.type]);
+  const multi = existing ? [existing.strength?.length && "strength", existing.run && "run", existing.conditioning?.length && "conditioning"].filter(Boolean) : [];
+  const sectionsOf = () => (multi.length > 1 ? multi : [draft.type]);
   const isEdit = Boolean(existing);
-  let picker = { open: !fromPlan && draft.strength.length === 0, query: "", allEquipment: false };
+  let picker = { open: draft.strength.length === 0, query: "", allEquipment: false };
   let errorMsg = "";
   let saving = false;
 
   const sheet = openSheet({
-    title: fromPlan ? `Log · ${fromPlan.workout.title || fromPlan.workout.id}` : isEdit ? "Edit workout" : "Add workout",
+    title: isEdit ? "Edit workout" : "Add workout",
     id: "workout-form-sheet",
     build: (api) => {
       const form = h("form", { class: "wform", id: "workout-form", novalidate: true, onSubmit: (e) => { e.preventDefault(); save(); } });
@@ -636,7 +626,7 @@ function openForm(ctx, existing, opts = {}) {
     },
   });
   const form = sheet.form;
-  const saveBtn = button({ id: "wf-save", label: isEdit ? "Save changes" : fromPlan ? "Save" : "Save workout", icon: fromPlan ? "check" : null, kind: "primary", type: "submit", onClick: (e) => { e.preventDefault(); save(); } });
+  const saveBtn = button({ id: "wf-save", label: isEdit ? "Save changes" : "Save workout", kind: "primary", type: "submit", onClick: (e) => { e.preventDefault(); save(); } });
   const cancelBtn = button({ id: "wf-cancel", label: "Cancel", kind: "ghost", onClick: () => sheet.close() });
   const errEl = h("p", { class: "form-error", role: "alert", hidden: true });
   replaceChildren(sheet.footer, h("div", { class: "sheet-actions" }, errEl, cancelBtn, saveBtn));
@@ -659,9 +649,9 @@ function openForm(ctx, existing, opts = {}) {
 
   function render(focusId) {
     const plan = ctx.agreedPlan();
-    const workoutOptions = plan && !fromPlan ? [["", "Not from the plan"], ...plan.workouts.map((w) => [`${plan.id}|${w.id}`, `${w.id} · ${w.title}`])] : null;
+    const workoutOptions = plan ? [["", "Not from the plan"], ...plan.workouts.map((w) => [`${plan.id}|${w.id}`, `${w.id} · ${w.title}`])] : null;
 
-    const typeSeg = fromPlan ? planHead() : multi.length > 1 ? null : segmented({
+    const typeSeg = multi.length > 1 ? null : segmented({
       id: "wf-type",
       label: "Workout type",
       options: [{ value: "strength", label: "Strength" }, { value: "run", label: "Run" }, { value: "conditioning", label: "HIIT" }],
@@ -713,25 +703,7 @@ function openForm(ctx, existing, opts = {}) {
     );
 
     replaceChildren(form, typeSeg, typeSec, common, how);
-    if (fromPlan) sheet.body.classList.add("pl-quicklog");
     if (focusId) requestAnimationFrame(() => form.querySelector(`#${CSS.escape(focusId)}`)?.focus());
-  }
-
-  // ---- plan header -----------------------------------------------------------------------
-  function planHead() {
-    const w = fromPlan.workout;
-    const idx = (fromPlan.plan.workouts || []).findIndex((x) => x.id === w.id);
-    return h("div", { class: "pl-ql-head" },
-      h("p", { class: "eyebrow" }, `From your plan · ${idx >= 0 ? `#${idx + 1}` : w.id}${w.type ? ` · ${TYPE_LABEL[w.type] || prettifyId(w.type)}` : ""}`),
-      h("p", { class: "field-hint" }, opts.note || "Prefilled with today's targets. Change what differed, then save."),
-    );
-  }
-
-  function strengthHint(t) {
-    if (!t) return null;
-    const rx = [`Plan ${t.sets} × ${t.reps || "?"}`, t.targetRir != null ? `@ RIR ${t.targetRir}` : null].filter(Boolean).join(" ");
-    const load = t.loadKg != null ? `target ${fmtKg(t.loadKg)} kg${t.nextReps && t.nextReps !== t.reps ? ` × ${t.nextReps}` : ""}` : "pick a load";
-    return h("p", { class: "field-hint pl-ql-target num", title: t.note || "" }, `${rx} · ${load}`);
   }
 
   // ---- strength --------------------------------------------------------------------------
@@ -741,7 +713,6 @@ function openForm(ctx, existing, opts = {}) {
         h("span", { class: "ex-edit-name" }, ex.name || prettifyId(ex.exerciseId)),
         button({ id: `wf-ex-${ei}-remove`, icon: "close", kind: "ghost", small: true, ariaLabel: `Remove ${ex.name}`, onClick: () => { draft.strength.splice(ei, 1); render(); } }),
       ),
-      strengthHint(ex.target),
       h("div", { class: "set-grid", role: "group", "aria-label": `${ex.name} sets` },
         h("span", { class: "set-h" }, "#"), h("span", { class: "set-h" }, "kg"), h("span", { class: "set-h" }, "Reps"), h("span", { class: "set-h" }, "RIR"), h("span", { class: "set-h", "aria-hidden": "true" }),
         ex.sets.map((st, si) => [
@@ -775,7 +746,7 @@ function openForm(ctx, existing, opts = {}) {
 
     return h("fieldset", { class: "fs" },
       h("legend", { class: "fs-legend" }, "Exercises"),
-      h("p", { class: "field-hint" }, fromPlan ? "Load × reps @ RIR per set. Empty kg = bodyweight." : "Enter each set as load × reps @ RIR (reps left in the tank). Leave kg empty for bodyweight; tap the set number to mark a warm-up."),
+      h("p", { class: "field-hint" }, "Enter each set as load × reps @ RIR (reps left in the tank). Leave kg empty for bodyweight; tap the set number to mark a warm-up."),
       rows,
       picker.open ? exercisePicker() : button({ id: "wf-add-exercise", label: "Add exercise", icon: "plus", kind: "secondary", onClick: () => { picker.open = true; render("wf-ex-search"); } }),
     );
@@ -863,13 +834,8 @@ function openForm(ctx, existing, opts = {}) {
       paceEl.textContent = pace ? fmtPace(core, pace) : "–";
     };
     updatePace();
-    const t = r.target;
-    const tPace = Array.isArray(t?.paceSecPerKm) && t.paceSecPerKm.length
-      ? t.paceSecPerKm.filter(Boolean).map((p) => fmtPace(core, p).replace("/km", "")).join("–") + "/km" : null;
-    const runHint = t ? [`Plan ${t.distanceKm ? fmtKm(t.distanceKm) : "run"}`, t.durationSec ? `~${fmtClock(t.durationSec)}` : null, tPace, t.rpe ? `RPE ${t.rpe}` : null].filter(Boolean).join(" · ") : "";
     return h("fieldset", { class: "fs" },
       h("legend", { class: "fs-legend" }, "Run"),
-      runHint ? h("p", { class: "field-hint pl-ql-target num" }, runHint) : null,
       field("Run type", "wf-run-type", select("wf-run-type", r.runType, RUN_TYPES.map((t) => [t, prettifyId(t)]), (v) => { r.runType = v; })),
       h("div", { class: "grid-2" },
         field("Distance (km)", "wf-run-km", textInput("wf-run-km", r.distanceKm, (v) => { r.distanceKm = v; updatePace(); }, { inputmode: "decimal", placeholder: "8.0" })),
@@ -888,7 +854,6 @@ function openForm(ctx, existing, opts = {}) {
     const c = draft.cond;
     return h("fieldset", { class: "fs" },
       h("legend", { class: "fs-legend" }, "HIIT / metcon"),
-      c.target ? h("p", { class: "field-hint pl-ql-target" }, [c.target.targetRpe ? `Target RPE ${c.target.targetRpe}` : null, c.target.scaling ? `Scaling: ${c.target.scaling}` : null].filter(Boolean).join(" · ") || "From your plan") : null,
       field("Format", "wf-c-format", select("wf-c-format", c.format, COND_FORMATS.map((f) => [f, formatLabel(f)]), (v) => { c.format = v; })),
       field("Workout", "wf-c-desc", h("textarea", { id: "wf-c-desc", class: "input textarea", rows: "3", placeholder: "12 min AMRAP: 10 wall balls 9 kg, 10 box jumps, 200 m row", onInput: (e) => { c.description = e.target.value; } }, c.description)),
       h("div", { class: "grid-3" },
@@ -926,14 +891,14 @@ function openForm(ctx, existing, opts = {}) {
 
   // ---- save --------------------------------------------------------------------------------
   function buildInput() {
-    const plan = fromPlan ? fromPlan.plan : ctx.agreedPlan();
+    const plan = ctx.agreedPlan();
     const [planId, workoutId] = draft.workoutRef ? draft.workoutRef.split("|") : [null, null];
-    const workout = fromPlan ? fromPlan.workout : plan?.workouts?.find((w) => w.id === workoutId);
+    const workout = plan?.workouts?.find((w) => w.id === workoutId);
     const secs = sectionsOf();
     const base = {
       date: draft.date || ctx.today(),
       title: draft.title.trim() || defaultTitle(draft),
-      type: fromPlan ? fromPlan.workout.type || draft.type : draft.type,
+      type: draft.type,
       status: draft.status,
       planId: planId || null,
       workoutId: workoutId || null,
@@ -943,7 +908,7 @@ function openForm(ctx, existing, opts = {}) {
       notes: draft.notes.trim(),
       pain: draft.pain.filter((p) => p.area.trim()).map((p) => ({ area: p.area.trim().toLowerCase(), score: Number(p.score) || 0, when: p.when })),
     };
-    if (!fromPlan && workout && isEdit === false && workout.type && workout.type !== draft.type && ["hybrid", "mobility"].includes(workout.type)) base.type = workout.type;
+    if (workout && isEdit === false && workout.type && workout.type !== draft.type && ["hybrid", "mobility"].includes(workout.type)) base.type = workout.type;
     if (secs.includes("strength")) {
       base.strength = draft.strength.map((ex) => ({
         exerciseId: ex.exerciseId,
@@ -988,7 +953,6 @@ function openForm(ctx, existing, opts = {}) {
   function validate(input) {
     const secs = sectionsOf();
     if (!input.date) return "Pick a date.";
-    if (fromPlan && draft.strength.some((ex) => ex.sets.some((st) => num(st.reps) == null))) return "Enter reps for every set, or remove the set.";
     if (secs.includes("strength") && !input.strength?.length && secs.length === 1) return "Add at least one exercise with reps.";
     if (secs.includes("run") && !input.run?.distanceKm && !input.run?.durationSec) return "Enter a distance or a time.";
     if (secs.includes("run") && String(draft.run.duration || "").trim() && !input.run.durationSec) return "Write the time as 45:30 or 1:02:10.";
@@ -1032,7 +996,7 @@ function openForm(ctx, existing, opts = {}) {
         sheet.close();
         toast({ text: "Changes saved" });
       } else {
-        await saveLoggedSession(ctx, input, fromPlan ? { view: true, review: true } : { toastText: session.prs?.length ? `Saved · ${plural(session.prs.length, "PR")}` : "Workout saved" });
+        await saveLoggedSession(ctx, input, { toastText: session.prs?.length ? `Saved · ${plural(session.prs.length, "PR")}` : "Workout saved" });
         sheet.close();
       }
     } catch (err) {

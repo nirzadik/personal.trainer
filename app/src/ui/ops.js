@@ -14,13 +14,7 @@ export async function removeSession(ctx, sessionId, { event = false } = {}) {
   const { store } = ctx;
   const session = ctx.data.sessions.find((x) => x.id === sessionId) || (await safe(() => store.sessions.get(sessionId), null));
   const res = await store.sessions.remove(sessionId);
-  const rot = ctx.data.state?.rotation;
-  let rotRes = null;
-  if (session?.workoutId && rot?.planId && (!session.planId || session.planId === rot.planId) && rot.done?.includes(session.workoutId)) {
-    const done = [...rot.done];
-    done.splice(done.lastIndexOf(session.workoutId), 1);
-    rotRes = await store.state.update({ rotation: { ...rot, done } });
-  }
+  const rotUndo = await unmarkRotation(ctx, session);
   if (event) {
     await Promise.resolve(safe(() => store.chat.append({ role: "event", text: `Removed ${session?.title || "a logged workout"}`, actions: [], error: null }), null)).catch(() => {});
   }
@@ -28,8 +22,33 @@ export async function removeSession(ctx, sessionId, { event = false } = {}) {
     session,
     undo: async () => {
       await res?.undo?.();
-      await rotRes?.undo?.();
+      await rotUndo?.();
     },
+  };
+}
+
+/**
+ * Take a removed session's workout back out of the current rotation (core.unmarkWorkoutDone), when it counted there.
+ * Workouts logged in between stay done. Resolves an undo that marks it done again (core.markWorkoutDone), or null
+ * when the rotation did not change.
+ * @param {any} ctx
+ * @param {{ workoutId?: string, planId?: string }|null} session
+ * @returns {Promise<null | (() => Promise<void>)>}
+ */
+export async function unmarkRotation(ctx, session) {
+  const { store, core } = ctx;
+  const workoutId = session?.workoutId;
+  const rot = ctx.data.state?.rotation;
+  if (!workoutId || !rot?.planId || (session.planId && session.planId !== rot.planId) || !rot.done?.includes(workoutId)) return null;
+  const plan = ctx.data.plans.find((p) => p?.id === rot.planId) || { id: rot.planId, workouts: [] };
+  const rotation = safe(() => core.unmarkWorkoutDone(ctx.data.state, plan, workoutId), null)
+    || { ...rot, done: rot.done.filter((id) => id !== workoutId) };
+  await store.state.update({ rotation });
+  return async () => {
+    const st = ctx.data.state;
+    if (st?.rotation?.planId !== plan.id) return; // a newer plan started meanwhile: nothing to put back
+    const again = safe(() => core.markWorkoutDone(st, plan, workoutId), null);
+    if (again && again.done.includes(workoutId)) await store.state.update({ rotation: again });
   };
 }
 

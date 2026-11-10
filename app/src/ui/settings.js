@@ -3,7 +3,7 @@
 
 import { h, button, append, replaceChildren, segmented, openSheet, inlineConfirm, toast, safe, errorText, lsGet, plural } from "./components.js";
 import { prettifyId } from "./ops.js";
-import { CLEAR_CHAT_COPY } from "./chat.js";
+import { CLEAR_CHAT_COPY, rememberBeforeClear } from "./chat.js";
 
 const UI_VERSION = "1.0.0";
 
@@ -203,6 +203,8 @@ export function openSettings(ctx) {
               toast({ text: "Wait for the coach to finish, then clear the chat." });
               return;
             }
+            const label = clearHost.querySelector("#settings-clear-chat-yes span");
+            if (label) label.textContent = "Saving summary…";
             const ok = ctx.chat?.clear ? await ctx.chat.clear() : await clearDirect();
             if (ok) {
               api.close();
@@ -220,8 +222,9 @@ export function openSettings(ctx) {
   /** Fallback when the Coach tab failed to mount: clear through the store with an Undo toast. */
   async function clearDirect() {
     try {
+      const note = await rememberBeforeClear(coach);
       const res = await store.chat.clear();
-      toast({ text: "Chat cleared", action: { label: "Undo", fn: () => res?.undo?.() } });
+      toast({ text: note ? `Chat cleared · ${note}` : "Chat cleared", action: { label: "Undo", fn: () => res?.undo?.() } });
       return true;
     } catch (err) {
       toast({ text: errorText(coach, err), kind: "error" });

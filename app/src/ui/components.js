@@ -304,6 +304,7 @@ export function openSheet({ title, build, onClose, id, backdropClose = true, cla
       // a toast shown from inside this sheet (e.g. "Logged · Undo") must outlive it
       const toasts = dialog.querySelector("#toast-host");
       if (toasts) document.body.appendChild(toasts);
+      footRo?.disconnect();
       if (dialog.open) dialog.close();
       dialog.remove();
       placeToastHost();
@@ -316,6 +317,10 @@ export function openSheet({ title, build, onClose, id, backdropClose = true, cla
   const content = build(api);
   append(body, [content]);
   if (footer.childNodes.length) footer.hidden = false;
+  // toasts inside this sheet sit just above its footer, whose height changes as views fill or hide it
+  const footRo = typeof ResizeObserver === "function"
+    ? new ResizeObserver(() => dialog.style.setProperty("--foot-h", `${footer.hidden ? 0 : footer.offsetHeight}px`)) : null;
+  footRo?.observe(footer);
   document.body.appendChild(dialog);
   document.documentElement.classList.add("sheet-open");
   try {
@@ -343,8 +348,10 @@ export function placeToastHost() {
   const top = sheets.length ? sheets[sheets.length - 1] : null;
   const parent = top || document.body;
   if (host.parentNode !== parent) parent.appendChild(host);
-  const footer = top?.querySelector(".sheet-footer:not([hidden])");
-  host.style.bottom = top ? `${(footer?.offsetHeight || 0) + 10}px` : "";
+  if (top) {
+    const footer = top.querySelector(".sheet-footer");
+    top.style.setProperty("--foot-h", `${footer && !footer.hidden ? footer.offsetHeight : 0}px`);
+  }
   return host;
 }
 
@@ -621,14 +628,24 @@ export function toUnsub(handle) {
  * Text for an error from a coach/store call.
  * @param {any} coach
  * @param {any} err  a code string or an error-ish object
+ * @param {{ inChat?: boolean }} [opts] inChat: the Coach tab error line (keeps "tap Retry" wording)
  * @returns {string}
  */
-export function errorText(coach, err) {
+export function errorText(coach, err, { inChat = false } = {}) {
   const code = typeof err === "string" ? err : err?.code || "upstream_error";
+  // The coach's copy for these speaks about a chat message and a Retry button; elsewhere (toasts, the Plan tab)
+  // that would point at things that are not on screen.
+  if (!inChat && OUTSIDE_CHAT_ERRORS[code]) return OUTSIDE_CHAT_ERRORS[code];
   const viaCoach = safe(() => coach?.errorCopy?.(code), "");
   if (viaCoach) return viaCoach;
   return FALLBACK_ERRORS[code] || FALLBACK_ERRORS.upstream_error;
 }
+
+const OUTSIDE_CHAT_ERRORS = {
+  upstream_error: "Couldn't reach Claude. Check your connection, then try again.",
+  rate_limited: "You've hit a usage limit. Wait a little, then try again.",
+  session_expired: "Your Claude session expired. Sign in again, then try again.",
+};
 
 const FALLBACK_ERRORS = {
   no_user: "You need to be signed in to Claude to save this.",

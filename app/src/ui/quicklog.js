@@ -139,16 +139,11 @@ async function advanceRotation(ctx, plan, workoutId) {
   const already = prev.planId === plan.id && (prev.done || []).includes(workoutId);
   if (already) return null;
   await store.state.update({ rotation });
+  // Undo: take it back out of the CURRENT rotation (core.unmarkWorkoutDone), so workouts logged since stay done.
   return async () => {
-    const cur = ctx.data.state?.rotation;
-    if (prev.planId !== plan.id || !cur || cur.planId !== plan.id) {
-      await store.state.update({ rotation: prev });
-      return;
-    }
-    const done = [...(cur.done || [])];
-    const i = done.lastIndexOf(workoutId);
-    if (i >= 0) done.splice(i, 1);
-    await store.state.update({ rotation: { ...cur, done } });
+    const st = ctx.data.state;
+    if (st?.rotation?.planId !== plan.id) return;
+    await store.state.update({ rotation: core.unmarkWorkoutDone(st, plan, workoutId) });
   };
 }
 

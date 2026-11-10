@@ -210,16 +210,22 @@ export function mountApp(root, { runtime, store, coach, core, catalog }) {
     onClick: () => ctx.chat?.confirmClear?.(),
   }, icon("trash", { size: 20 }));
 
+  const isDemo = runtime?.mode === "mock";
   const header = h("header", { class: "topbar" },
     h("div", { class: "topbar-inner" },
       h("div", { class: "brand" },
         h("span", { class: "brand-mark", "aria-hidden": "true" }, icon("dumbbell", { size: 20 })),
         h("span", { class: "brand-name" }, "Personal Trainer"),
-        runtime?.mode === "mock" ? h("span", { class: "dev-tag", title: "Dev mode: simulated coach, data in this browser" }, "Dev") : null,
       ),
       h("div", { class: "topbar-actions" }, clearChatBtn, settingsBtn),
     ),
+    // Mock mode must be impossible to miss: a full-width band on every screen, part of the sticky header.
+    isDemo ? h("p", { class: "demo-band", id: "demo-band", role: "note" },
+      icon("alert", { size: 16 }),
+      h("span", {}, h("strong", {}, "Demo mode"), " · fake coach, data only in this browser"),
+    ) : null,
   );
+  if (isDemo) document.documentElement.classList.add("demo");
 
   const problemsEl = h("div", { class: "problems", hidden: true });
   const views = {

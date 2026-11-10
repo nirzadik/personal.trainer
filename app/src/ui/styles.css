@@ -46,6 +46,9 @@
   --t-hiit: #e0a800;
   --t-other: #8892a3;
   --focus: #1c4fd6;
+  --demo-bg: #f6c343;
+  --demo-bg-2: #efb722;
+  --demo-fg: #1d1400;
   --scrim: rgb(5 9 16 / 0.5);
   --shadow: 0 10px 30px rgb(5 9 16 / 0.18);
 
@@ -67,6 +70,7 @@
   --r-md: 8px;
   --r-lg: 12px;
   --header-h: 52px;
+  --banner-h: 0px;
   --tab-h: 58px;
   --content-max: 720px;
   --gutter-l: max(16px, env(safe-area-inset-left, 0px));
@@ -107,6 +111,9 @@
     --t-hiit: #f2c94c;
     --t-other: #7d8aa0;
     --focus: #9db4ff;
+    --demo-bg: #e8b13a;
+    --demo-bg-2: #dca52c;
+    --demo-fg: #1d1400;
     --scrim: rgb(0 0 0 / 0.62);
     --shadow: 0 10px 30px rgb(0 0 0 / 0.5);
     color-scheme: dark;
@@ -146,6 +153,9 @@
   --t-hiit: #f2c94c;
   --t-other: #7d8aa0;
   --focus: #9db4ff;
+  --demo-bg: #e8b13a;
+  --demo-bg-2: #dca52c;
+  --demo-fg: #1d1400;
   --scrim: rgb(0 0 0 / 0.62);
   --shadow: 0 10px 30px rgb(0 0 0 / 0.5);
   color-scheme: dark;
@@ -270,17 +280,21 @@ ul, ol { margin: 0; padding: 0; }
   text-overflow: ellipsis;
 }
 
-.dev-tag {
-  flex: none;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--header-dim);
-  border: 1px solid currentColor;
-  border-radius: var(--r-sm);
-  padding: 1px 6px;
+/* Mock/dev mode band (app.js): full width under the header bar, hazard-striped so fake data is never mistaken
+   for the real log. Part of the sticky header, so its height is added to --banner-h for fixed elements. */
+.demo-band {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--banner-h);
+  padding: 0 var(--gutter-r) 0 var(--gutter-l);
+  background: repeating-linear-gradient(-45deg, var(--demo-bg) 0 14px, var(--demo-bg-2) 14px 28px);
+  color: var(--demo-fg);
+  font-size: 0.8125rem; font-weight: 500; line-height: 1.2;
+  white-space: nowrap; overflow: hidden;
 }
+.demo-band > span { overflow: hidden; text-overflow: ellipsis; }
+.demo-band strong { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.demo-band svg { flex: none; }
+html.demo { --banner-h: 30px; }
 
 .topbar-actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .btn-header { color: var(--header-fg); background: transparent; border-color: transparent; }
@@ -636,7 +650,7 @@ html.composing.kb-open .tabbar { display: none; }
 html[data-route="coach"] .toast-host { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px) + var(--dock-h, 0px) + 12px); }
 html.composing.kb-open .toast-host { bottom: calc(var(--kb, 0px) + var(--dock-h, 0px) + 12px); }
 /* inside an open sheet: just above its footer (the inline bottom is set by placeToastHost) */
-dialog.sheet > .toast-host { position: absolute; z-index: 5; }
+dialog.sheet > .toast-host { position: absolute; z-index: 5; bottom: calc(var(--foot-h, 0px) + 10px); }
 .toast {
   pointer-events: auto;
   display: flex;
@@ -1590,7 +1604,7 @@ details > summary::-webkit-details-marker { display: none; }
 /* A status bar docked under the header (not floating over the page title): the page moves down while it shows. */
 .rv-host {
   position: fixed; z-index: 19; left: 0; right: 0;
-  top: calc(env(safe-area-inset-top, 0px) + var(--header-h));
+  top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + var(--banner-h));
   background: var(--accent-soft);
   border-bottom: 1px solid var(--accent);
   padding-left: var(--gutter-l); padding-right: max(6px, env(safe-area-inset-right, 0px));
@@ -1890,7 +1904,7 @@ html.kb-open .ws-sheet .ws-finish { min-height: 44px; font-size: 1.0625rem; }
 
 /* Plan: empty generation / draft hosts take no gap; done cards are one row; quieter Swap. */
 .gen-host:empty, .draft-host:empty, .agreed-host:empty { display: none; }
-.agreed-host { scroll-margin-top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + 12px); }
+.agreed-host { scroll-margin-top: calc(env(safe-area-inset-top, 0px) + var(--header-h) + var(--banner-h) + 12px); }
 .workout-body .w-actions-logged { margin-top: 0; padding: 8px 0 0; }
 .workout-body > .w-actions-logged:first-child { border-top: 0; padding-top: 0; }
 .draft-jump { justify-self: start; margin-left: -10px; }
@@ -1898,8 +1912,28 @@ html.kb-open .ws-sheet .ws-finish { min-height: 44px; font-size: 1.0625rem; }
 .mv-row .sw-btn { margin-right: -10px; }
 
 /* Tap-to-expand lines: a taller hit area without moving the text. */
-.pl-line:not(.w-intent) { padding-block: 8px; margin-block: -8px; }
+.pl-line:not(.w-intent) { padding-block: 12px; margin-block: -12px; }
 .pl-line:focus-visible { outline-offset: -2px; }
 
 /* Quiet "Add …" buttons sit at the start of their grid instead of stretching across it. */
 .pain-edit > .btn, .ex-edit > .btn-quiet { justify-self: start; margin-left: -10px; }
+
+/* A confirmation that is the whole sheet (Clear chat): no inner box, two equal buttons. */
+.sheet-body > .confirm { background: transparent; padding: 0; gap: 18px; }
+.sheet-body > .confirm .confirm-text { font-size: var(--fs-md); color: var(--ink-2); }
+.sheet-body > .confirm .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; }
+/* Busy buttons (a call is running) keep their colour and show a spinner instead of fading out. */
+.btn.is-busy:disabled { opacity: 1; cursor: progress; }
+.btn.is-busy .tool-spin { border-color: color-mix(in srgb, currentColor 35%, transparent); border-top-color: currentColor; }
+
+/* Training block (plan.block): "Wk 3 · Build" next to the plan eyebrow. */
+.eyebrow .block-tag {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+  vertical-align: 1px;
+}
+.eyebrow .block-tag.is-deload { color: var(--warn); background: var(--warn-bg); border-color: transparent; }

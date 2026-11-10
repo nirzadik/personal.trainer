@@ -336,6 +336,26 @@ export function mountPlan(el, ctx) {
     return { done, next };
   }
 
+  /**
+   * The plan a re-validation compares with (DELOAD_NOT_REDUCED), as brain.generatePlan does: for a draft the agreed
+   * plan; for the agreed plan the newest agreed/archived plan of an earlier week.
+   */
+  function previousPlanOf(plan) {
+    if (plan?.status === "draft") return ctx.agreedPlan();
+    return ctx.data.plans
+      .filter((p) => p && p.id !== plan?.id && (p.status === "agreed" || p.status === "archived") && String(p.weekStart || "") < String(plan?.weekStart || ""))
+      .sort((a, b) => String(b.weekStart).localeCompare(String(a.weekStart)))[0] || null;
+  }
+
+  /** "Wk 3 · Build" from plan.block (optional; nothing when absent). A deload week reads differently. */
+  function blockTag(plan) {
+    const b = plan?.block;
+    const week = Number(b?.week);
+    if (!b || (!Number.isFinite(week) && !b.phase)) return null;
+    const text = [Number.isFinite(week) && week >= 1 ? `Wk ${week}` : null, b.phase ? prettifyId(b.phase) : null].filter(Boolean).join(" · ");
+    return h("span", { class: ["block-tag", b.phase === "deload" && "is-deload"], title: "Training block week and phase" }, text);
+  }
+
   function agreedSection(plan, { showGenerate }) {
     const { done, next } = rotationOf(plan);
     const workouts = plan.workouts || [];
@@ -356,7 +376,7 @@ export function mountPlan(el, ctx) {
         h("div", {}, h("strong", {}, "Week complete"), h("span", {}, ` All ${workouts.length} workouts done. Generate next week when you're ready.`)),
       ) : null,
       h("header", { class: "plan-head" },
-        h("p", { class: "eyebrow" }, "Agreed plan"),
+        h("p", { class: "eyebrow" }, "Agreed plan", blockTag(plan)),
         h("h2", { class: ["plan-focus", String(plan.focus || "").length > 48 && "is-long"] }, plan.focus || "This week"),
         h("p", { class: "plan-meta num" }, `${doneCount} of ${plural(workouts.length, "workout")} done${next && !complete ? ` · Up next: ${next.title}` : ""}`),
         progress,
@@ -623,7 +643,7 @@ export function mountPlan(el, ctx) {
     const newName = swappableItems(next.workouts.find((x) => x.id === workoutId))[idx].item.name;
     const patch = { workouts: next.workouts };
     if (plan.validation != null || plan.status === "draft") {
-      const v = safe(() => ctx.core.validatePlan(next, { profile: ctx.data.profile, sessions: ctx.data.sessions, today: ctx.today() }), null);
+      const v = safe(() => ctx.core.validatePlan(next, { profile: ctx.data.profile, sessions: ctx.data.sessions, today: ctx.today(), previousPlan: previousPlanOf(next) }), null);
       if (v) patch.validation = v;
     }
     swapping = true;
@@ -922,7 +942,7 @@ export function mountPlan(el, ctx) {
 
   // ---- draft ---------------------------------------------------------------------------------
   function draftSection(plan) {
-    const v = plan.validation || safe(() => ctx.core.validatePlan(plan, { profile: ctx.data.profile, sessions: ctx.data.sessions, today: ctx.today() }), null) || { errors: [], warnings: [] };
+    const v = plan.validation || safe(() => ctx.core.validatePlan(plan, { profile: ctx.data.profile, sessions: ctx.data.sessions, today: ctx.today(), previousPlan: previousPlanOf(plan) }), null) || { errors: [], warnings: [] };
     // TOO_VERBOSE is a note to the plan writer about text length, not something the owner can act on.
     const issues = [
       ...(v.errors || []).map((i) => ({ ...i, level: "error" })),
@@ -964,7 +984,7 @@ export function mountPlan(el, ctx) {
 
     return h("section", { class: "plan-draft", "aria-label": "Draft plan" },
       h("header", { class: "plan-head" },
-        h("p", { class: "eyebrow eyebrow-draft" }, "Draft · needs your OK"),
+        h("p", { class: "eyebrow eyebrow-draft" }, "Draft · needs your OK", blockTag(plan)),
         h("h2", { class: ["plan-focus", String(plan.focus || "").length > 48 && "is-long"] }, plan.focus || "Next week"),
         h("p", { class: "plan-meta num" }, [`Week of ${fmtWeekRange(plan.weekStart)}`, plural((plan.workouts || []).length, "workout")].join(" · ")),
         weekOpen ? button({

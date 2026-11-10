@@ -6,12 +6,13 @@ import {
   errorText, safe, toUnsub, lsGet, lsSet, isCoarsePointer, toast, reducedMotion, openSheet,
 } from "./components.js";
 import { renderMarkdown } from "./markdown.js";
+import { unmarkRotation } from "./ops.js";
 
 const DRAFT_KEY = "pt.chatDraft";
 const RECENT_COUNT = 80;
 const CLEAR_RE = /^\/clear\s*$/i;
 /** Shown in every clear-chat confirmation (Coach tab, Settings, /clear). */
-export const CLEAR_CHAT_COPY = "Clear the whole conversation? Only the chat messages are deleted. The coach's long-term memory (summary and notes), your profile, plans and workout history are kept.";
+export const CLEAR_CHAT_COPY = "The coach saves a short summary of this chat to its memory, then the messages are deleted. Your profile, plans and workout history stay.";
 const CLEARED_EVENT = "Chat cleared. The coach's memory, your profile, plans and history are kept.";
 const SUGGESTIONS = [
   { label: "What's my workout today?", send: "What's my workout today?" },
@@ -368,7 +369,7 @@ export function mountChat(el, ctx) {
   function errorLineFor(code, onRetry, detail) {
     const line = h("div", { class: "error-line", role: "alert" },
       icon("alert", { size: 18 }),
-      h("span", { class: "error-text" }, errorText(coach, code)),
+      h("span", { class: "error-text" }, errorText(coach, code, { inChat: true })),
       onRetry && retryable(code) ? button({ label: "Retry", icon: "refresh", kind: "secondary", small: true, onClick: onRetry, disabled: Boolean(inflight) }) : null,
     );
     if (!detail) return line;
@@ -450,7 +451,7 @@ export function mountChat(el, ctx) {
     stopBtn.hidden = !busy;
     sendBtn.disabled = !input.value.trim();
     chips.hidden = busy || onboarding || !canChat || Boolean(input.value.trim()) || !loaded;
-    ctx.chatEmpty = !msgs.length;
+    ctx.chatEmpty = !msgs.some((m) => m.role === "user" || m.role === "assistant");
     ctx.refreshChrome?.();
   }
 
@@ -523,7 +524,9 @@ export function mountChat(el, ctx) {
     openSheet({
       title: "Clear chat?",
       id: "clear-chat-sheet",
+      backdropClose: false,
       build: (api) => {
+        let ctl = null;
         const yes = button({
           id: "clear-chat-yes",
           label: "Clear chat",
@@ -531,11 +534,17 @@ export function mountChat(el, ctx) {
           kind: "danger",
           onClick: async () => {
             yes.disabled = true;
-            await clearChat();
+            ctl = new AbortController();
+            yes.classList.add("is-busy");
+            replaceChildren(yes, h("span", { class: "tool-spin", "aria-hidden": "true" }), h("span", {}, "Saving summary…"));
+            no.querySelector("span").textContent = "Skip summary";
+            await clearChat({ signal: ctl.signal });
+            ctl = null;
             api.close();
           },
         });
-        const no = button({ id: "clear-chat-no", label: "Cancel", kind: "ghost", onClick: () => api.close() });
+        // Before the tap: Cancel. While the summary call runs: skip it (abort) and clear straight away.
+        const no = button({ id: "clear-chat-no", label: "Cancel", kind: "ghost", onClick: () => (ctl ? ctl.abort() : api.close()) });
         setTimeout(() => no.focus(), 0);
         return h("div", { class: "confirm" },
           h("p", { class: "confirm-text" }, CLEAR_CHAT_COPY),
@@ -546,14 +555,17 @@ export function mountChat(el, ctx) {
   }
 
   /**
-   * Delete the conversation (store.chat.clear), show a "Chat cleared" event and offer Undo.
-   * Coach memory, profile, plans and history are not touched.
+   * Fold the chat into the coach's memory (coach.rememberChat: at most one quick call), then delete the conversation
+   * (store.chat.clear), show a "Chat cleared" event and offer Undo. A failed or skipped summary does not block the
+   * clear; the toast says so. Coach memory, profile, plans and history are not touched.
+   * @param {{ signal?: AbortSignal }} [opts]
    * @returns {Promise<boolean>} true when cleared
    */
-  async function clearChat() {
+  async function clearChat({ signal } = {}) {
     if (!store || inflight || clearing) return false;
     clearing = true;
     try {
+      const note = await rememberBeforeClear(coach, signal);
       const res = await store.chat.clear();
       older = [];
       todayMsgs = [];
@@ -564,7 +576,8 @@ export function mountChat(el, ctx) {
       const ev = await Promise.resolve(safe(() => store.chat.append({ role: "event", text: CLEARED_EVENT, actions: [], error: null }), null)).catch(() => null);
       render({ stick: true });
       toast({
-        text: "Chat cleared",
+        text: note ? `Chat cleared · ${note}` : "Chat cleared",
+        timeout: 8000,
         action: {
           label: "Undo",
           fn: async () => {
@@ -678,14 +691,7 @@ export function mountChat(el, ctx) {
     try {
       const s = ctx.data.sessions.find((x) => x.id === sessionId) || (await store.sessions.get(sessionId));
       const res = await store.sessions.remove(sessionId);
-      const st = ctx.data.state;
-      const rot = st?.rotation;
-      let rotRes = null;
-      if (s?.workoutId && rot?.planId && (!s.planId || s.planId === rot.planId) && rot.done?.includes(s.workoutId)) {
-        const done = [...rot.done];
-        done.splice(done.lastIndexOf(s.workoutId), 1);
-        rotRes = await store.state.update({ rotation: { ...rot, done } });
-      }
+      const rotUndo = await unmarkRotation(ctx, s);
       await safe(() => store.chat.append({ role: "event", text: `Removed ${s?.title || "the logged workout"}`, actions: [], error: null }), null);
       toast({
         text: "Workout removed",
@@ -693,7 +699,7 @@ export function mountChat(el, ctx) {
           label: "Restore",
           fn: async () => {
             await res?.undo?.();
-            await rotRes?.undo?.();
+            await rotUndo?.();
           },
         },
       });
@@ -760,4 +766,21 @@ export function mountChat(el, ctx) {
       unsubs.splice(0).forEach((u) => safe(u, null));
     },
   };
+}
+
+/**
+ * coach.rememberChat before a clear. Never throws: resolves null when the summary was saved (or there was nothing
+ * new), or a short note for the "Chat cleared" toast when it was skipped or failed.
+ * @param {any} coach
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<string|null>}
+ */
+export async function rememberBeforeClear(coach, signal) {
+  if (typeof coach?.rememberChat !== "function") return "no summary saved";
+  try {
+    await coach.rememberChat({ signal });
+    return null;
+  } catch {
+    return signal?.aborted ? "summary skipped" : "no summary saved";
+  }
 }
