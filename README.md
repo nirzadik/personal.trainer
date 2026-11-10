@@ -1,4 +1,13 @@
-# Personal Trainer: a Claude skill
+# Personal Trainer: a Claude skill and an app
+
+This repository holds two things built on the same coaching knowledge:
+
+1. **The skill** (`.claude/skills/personal-trainer/`): a personal-trainer skill for Claude Code and claude.ai, with data in plain files. Described below.
+2. **The app** (`app/`): a private claude.ai Artifact for one owner, used on the phone: a coach chat, workout history and a weekly plan for gym, running and HIIT. Claude is called from the page on the owner's plan; data lives in the artifact's database. See [app/README.md](app/README.md), [app/CONTRACT.md](app/CONTRACT.md) and the [architecture review](app/docs/reviews/2026-11-architecture-review.md).
+
+The app currently lives on the `app-v1` branch; `main` holds the skill only until that branch is merged.
+
+## The skill
 
 An evidence-based personal-trainer skill for Claude. You and Claude design a training program together. Claude saves the program to plain files, logs your workouts, and adapts the plan over time, the way a certified coach would.
 
@@ -18,7 +27,9 @@ The knowledge comes from ACSM, NSCA, NASM and ACE frameworks and from 2017-2025 
 ├── references/           # loaded on demand: safety, programming, exercises, coaching, data format
 ├── scripts/trainer.py    # logging + calculations (Python 3, stdlib only)
 └── assets/               # templates: profile, plan, check-in, decisions
-docs/research/            # the five background research reports
+docs/research/            # background research reports (01-13)
+docs/qa/                  # skill QA passes
+app/                      # the Artifact app (src, tests, tools, docs)
 ```
 
 ## Install

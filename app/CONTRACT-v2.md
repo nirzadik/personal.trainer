@@ -36,3 +36,16 @@ Don't commit. Run `cd app && npm test` and `npm run build`; both must pass at th
 - `Session.conditioning[].feedback` exists as well (same enum).
 - `Plan.changeLog[]` records coach changes to the agreed plan, so Undo still works after a reload. `Plan.items[].swappedFrom` marks owner swaps.
 - `knowledge.REVIEW_RULES` drives `coach.reviewWorkout(sessionId)`. It runs after a Plan quick-log save (that tap is the user action) and can be turned off under Settings → "Review after each workout".
+
+## Review addendum (2026-11 architecture review)
+See `docs/reviews/2026-11-architecture-review.md`. Contract changes it made:
+- **AppState** defaults now include `lastPlanError: null` and `settings.reviewAfterWorkout: true`.
+- **Session** defaults include `reviewedAt: null`. **Read-side migration:** `store.sessions.get/list/subscribe` and `store.plans.get/getAgreed/getDraft/list/subscribe` fill missing top-level fields (Session §4 defaults; Plan `changeLog: []`, `notes`, `validation`, `weeklyTargets`, `approvedAt`). Stored documents are never rewritten on load; `exportAll()` stays raw.
+- `store.importAll` restores the previous data when a write fails part-way; the rejection carries `rolledBack`.
+- **core.js:** `unmarkWorkoutDone(state, plan, workoutId)` (inverse of `markWorkoutDone`; removes the id from the current rotation), `injuryTags(profile)` / `INJURY_STRESS_MAP` (single source, used by swap.js), `RUN_LIMITS.weeklyStartKm = 8` (RUN_RAMP floor for a first running week).
+- **Rotation rule:** a session logged against a planned workout advances the rotation whatever its status: done, partial, or `missed` (= skip). A missed day without `workoutId` shifts nothing. Chat (`log_session`) and the Plan tab now agree.
+- **log_session** refuses future dates and exact duplicates (same date, type, status and content); PRs compare with sessions up to the session's date.
+- **Plan weekStart:** this week, or next week when the agreed plan already covers this week or later; never further ahead (`brain.planWeekStart`). A JSON reply with no workouts rejects `invalid_json` instead of saving an empty draft.
+- **progressionDigest:** `week.inProgress` / `week.expected` when the plan week is still running; completion, run and conditioning decisions are judged against what is due so far.
+- **Coach memory:** prompts take notes through `prompts/util.selectNotes` (newest 8 each of injury / preference / goal, newest 12 others, de-duplicated, byte-budgeted) instead of "the last 20". `coach.rememberChat({ signal })` folds unsummarized chat into `CoachMemory.summary` (one quick call, from a tap). `update_profile` with a new `weightKg` also appends to `body`.
+- **env.js:** mocks start only on a dev host (`isDevHost`: localhost, file:, `?mock`, or Node). Elsewhere a missing `window.claude` yields a live runtime with all three problems.
